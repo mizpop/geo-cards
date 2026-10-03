@@ -1766,6 +1766,13 @@ function openCategoryManager() {
 }
 
 /* ================= 国の基本情報 ================= */
+let langListOpen = false; // 「使われている国」の一覧を開いているか（国を移っても開いたまま）
+// その言語が使われている国・地域（独立国を先に、それぞれ日本語名順）
+function langCountries(l) {
+  return Object.keys(COUNTRY_INFO)
+    .filter((k) => COUNTRY_BY_CODE.get(k) && COUNTRY_INFO[k].lang.includes(l))
+    .sort((a, b) => (COUNTRY_INFO[b].un - COUNTRY_INFO[a].un) || countryName(a).localeCompare(countryName(b), 'ja'));
+}
 function openCountryInfo(code, src = null, lang = null) {
   if (!COUNTRY_BY_CODE.get(code) || !COUNTRY_INFO[code]) return;
   const fresh = !$('#modal').open;
@@ -1856,6 +1863,15 @@ function renderCountryModal(entry) {
       </dl>` : `<div class="lg-title">${esc(LANG_EN[l] || l)}</div><p class="muted small">この言語の識別情報はまだ登録されていません</p>`;
     guide.insertAdjacentHTML('afterbegin', '<button type="button" class="icon-btn lang-pop-close" aria-label="閉じる">✕</button>');
     guide.querySelector('.lang-pop-close').addEventListener('click', () => showLang(null));
+    // この言語が使われている国の一覧（ボタンで開閉。国を押すと同じ言語の吹き出しを開いた状態でその国へ）
+    const users = langCountries(l);
+    guide.insertAdjacentHTML('beforeend', `
+      <button type="button" class="chip chip-btn lg-countries-btn" aria-expanded="${langListOpen ? 'true' : 'false'}">🌍 使われている国 <b>${users.length}</b> ${langListOpen ? '▲' : '▼'}</button>
+      ${langListOpen ? `<div class="lg-countries">${users.map((n) => (n === code
+        ? `<span class="chip nb-btn is-current">${flagImg(n)}${esc(countryName(n))}</span>`
+        : `<button type="button" class="chip chip-btn nb-btn" data-lang-country="${n}">${flagImg(n)}${esc(countryName(n))}</button>`)).join('')}</div>` : ''}`);
+    guide.querySelector('.lg-countries-btn').addEventListener('click', () => { langListOpen = !langListOpen; showLang(l); });
+    guide.querySelectorAll('[data-lang-country]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.langCountry, null, l)));
     guide.hidden = false;
     // 押したボタンの真下に吹き出しを置き、矢印をボタンの中央に合わせる
     const host = guide.offsetParent || guide.parentElement;
@@ -1870,7 +1886,8 @@ function renderCountryModal(entry) {
   };
   // 吹き出しの外をクリック / Esc で閉じる（Esc はモーダル全体を閉じる前に吹き出しだけ閉じる）
   $('#modal .modal-inner').addEventListener('click', (e) => {
-    if (entry.lang && !e.target.closest('.lang-pop, .lang-btn')) showLang(null);
+    // 吹き出しの中身を描き直したときは、押した要素が外れているので外側とみなさない
+    if (entry.lang && e.target.isConnected && !e.target.closest('.lang-pop, .lang-btn')) showLang(null);
   });
   $('#modal').oncancel = (e) => {
     if (entry.lang && $('#lang-guide') && !$('#lang-guide').hidden) { e.preventDefault(); showLang(null); }

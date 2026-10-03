@@ -619,6 +619,10 @@ textarea { resize: vertical; line-height: 1.6; }
 .lg-list dt { font-size: 12px; color: var(--muted); }
 .lg-list dd { margin: 0; line-height: 1.7; }
 .lg-chars { font-size: 20px; letter-spacing: .04em; }
+.lg-countries-btn { margin-top: 12px; font-size: 13px; }
+.lg-countries { display: flex; flex-wrap: wrap; margin-top: 8px; max-height: 220px; overflow-y: auto; }
+.lg-countries .nb-btn { font-size: 13px; }
+.lg-countries .is-current { opacity: .55; }
 @media (max-width: 760px) {
   .info-list { grid-template-columns: 1fr; }
   .cinfo-flag { width: 84px; }
