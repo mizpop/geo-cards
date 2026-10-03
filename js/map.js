@@ -603,6 +603,8 @@ export async function renderMap(view, ctx) {
       if (grid && !grid.dataset.wheelBound) {
         grid.dataset.wheelBound = '1';
         grid.addEventListener('wheel', (e) => {
+          // スクロールするのは広げた欄だけ（通常の欄は、拡大表示したサムネイルではみ出して見えても動かない）
+          if (!grid.closest('.is-expanded')) return;
           const canScroll = (e.deltaY > 0 && grid.scrollTop + grid.clientHeight < grid.scrollHeight - 1)
             || (e.deltaY < 0 && grid.scrollTop > 0);
           if (canScroll) e.stopPropagation();
