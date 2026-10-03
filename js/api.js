@@ -149,6 +149,13 @@ function createSupabaseApi(sb) {
       const { error } = await sb.from('memos').delete().eq('id', id);
       if (error) throw error;
     },
+    // 誰かがメモを書いた・消したら即座に通知（Supabase Realtime）。戻り値は購読解除の関数
+    subscribeMemos(handler) {
+      const ch = sb.channel('memos-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'memos' }, (p) => handler(p.eventType, p.new, p.old))
+        .subscribe();
+      return () => sb.removeChannel(ch);
+    },
 
     // 国ごとのメモ: Map(code -> note)
     async listCountryNotes() {
@@ -260,6 +267,12 @@ function createDemoApi() {
     async deleteMemo(id) {
       const memos = (await this.listMemos()).filter((m) => m.id !== id);
       localStorage.setItem(MEMOS_KEY, JSON.stringify(memos));
+    },
+    // デモ: 同じブラウザの別タブでの変更を通知
+    subscribeMemos(handler) {
+      const onStorage = (e) => { if (e.key === MEMOS_KEY) handler('RELOAD'); };
+      window.addEventListener('storage', onStorage);
+      return () => window.removeEventListener('storage', onStorage);
     },
     async saveCountryNote(code, note) {
       const all = Object.fromEntries(await this.listCountryNotes());

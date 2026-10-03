@@ -12,6 +12,8 @@ let loaded = false;
 let btn;
 let panel;
 let pollTimer = null;
+let unsubscribe = null;
+let unread = false;
 
 const canPopover = () => typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
 const show = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); el.showPopover(); } catch { /* 非対応 */ } } };
@@ -26,11 +28,36 @@ export function initChat(opts) {
   if (!btn) build();
   btn.hidden = false;
   show(btn);
+  // 閉じている間も変更を受け取り、ほかの人の新しいメモはボタンの赤い点で知らせる
+  unsubscribe?.();
+  unsubscribe = api.subscribeMemos ? api.subscribeMemos(onRemoteChange) : null;
+}
+
+function setUnread(on) {
+  unread = on;
+  btn?.querySelector('.chat-badge')?.toggleAttribute('hidden', !on);
+}
+
+function onRemoteChange(type, row, old) {
+  if (type === 'INSERT' && row) {
+    if (!memos.some((m) => m.id === row.id)) memos.push(row);
+    if (isOpen()) renderList(false);
+    else if (row.user_id !== user.id) setUnread(true);
+  } else if (type === 'DELETE' && old?.id) {
+    memos = memos.filter((m) => m.id !== old.id);
+    if (isOpen()) renderList(false);
+  } else {
+    // 中身が分からない通知（デモの別タブなど）は読み直す
+    if (isOpen()) refresh(false); else setUnread(true);
+  }
 }
 
 export function teardownChat() {
   if (!btn) return;
   closePanel();
+  unsubscribe?.();
+  unsubscribe = null;
+  setUnread(false);
   btn.hidden = true;
   hide(btn);
   memos = [];
@@ -128,14 +155,15 @@ function build() {
 async function openPanel() {
   panel.classList.add('open');
   btn.classList.add('active');
+  setUnread(false);
   show(panel);
   show(btn);
   renderList(true);
   await refresh(true);
   panel.querySelector('.chat-input').focus();
-  // 開いている間は、他の端末で書かれたメモも 20 秒ごとに取り込む
+  // 基本はリアルタイム配信で即座に届く。届かなかったときの保険として、開いている間は 10 秒ごとにも確認
   clearInterval(pollTimer);
-  pollTimer = setInterval(() => refresh(false), 20000);
+  pollTimer = setInterval(() => refresh(false), 10000);
 }
 
 function closePanel() {
@@ -149,7 +177,8 @@ function closePanel() {
 async function refresh(scrollToEnd) {
   try {
     const list = await api.listMemos();
-    const changed = !loaded || list.length !== memos.length || list[list.length - 1]?.id !== memos[memos.length - 1]?.id;
+    const sig = (arr) => arr.map((m) => m.id).join(',');
+    const changed = !loaded || sig(list) !== sig(memos);
     memos = list;
     loaded = true;
     if (changed) renderList(scrollToEnd);
