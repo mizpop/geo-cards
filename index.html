@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GeoGuessr 単語帳</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
+</head>
+<body>
+  <!-- ログイン画面 -->
+  <section id="login" class="login" hidden>
+    <div class="login-box">
+      <div class="brand brand-lg"><span class="brand-mark">🌍</span> GeoGuessr 単語帳</div>
+      <form id="viewer-form" class="stack">
+        <label class="field">
+          <span>閲覧パスワード</span>
+          <input type="password" id="viewer-pass" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn-primary" type="submit">入る</button>
+      </form>
+      <form id="editor-form" class="stack" hidden>
+        <label class="field">
+          <span>メールアドレス</span>
+          <input type="email" id="editor-email" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>パスワード</span>
+          <input type="password" id="editor-pass" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn-primary" type="submit">編集者としてログイン</button>
+      </form>
+      <p class="login-error" id="login-error" role="alert"></p>
+      <button class="link-btn" id="toggle-login" type="button">編集者としてログイン</button>
+    </div>
+  </section>
+
+  <!-- メイン -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">🌍</span><span class="brand-text">GeoGuessr 単語帳</span></div>
+      <nav class="tabs" id="tabs">
+        <a href="#study" data-view="study"><span class="tab-long">暗記カード</span><span class="tab-short">暗記</span></a>
+        <a href="#quiz" data-view="quiz">クイズ</a>
+        <a href="#map" data-view="map">地図</a>
+        <a href="#manage" data-view="manage" id="tab-manage" hidden>編集</a>
+      </nav>
+      <div class="user-area">
+        <span class="user-label" id="user-label"></span>
+        <button class="spot-trigger" id="search-btn" type="button" aria-label="検索" title="検索（F / Ctrl+K）">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span class="tab-long">検索</span><kbd class="tab-long">F</kbd>
+        </button>
+        <button class="icon-btn gear-btn" id="settings-btn" type="button" aria-label="設定" title="設定">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button class="btn btn-ghost btn-sm" id="logout-btn" type="button" aria-label="ログアウト"><span class="tab-long">ログアウト</span><span class="tab-short" aria-hidden="true">⏻</span></button>
+      </div>
+    </header>
+    <div class="demo-banner" id="demo-banner" hidden>
+      <span class="tab-long">デモモード：Supabase が未設定のため、データはこのブラウザ内にだけ保存されます（js/config.js を設定すると切り替わります）</span><span class="tab-short">デモモード（このブラウザ内にだけ保存）</span>
+    </div>
+    <main id="view" class="view"></main>
+  </div>
+
+  <dialog id="spotlight" class="spotlight" aria-label="検索"></dialog>
+  <dialog id="modal" class="modal"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" popover="manual"></div>
+
+  <datalist id="country-list"></datalist>
+  <datalist id="search-list"></datalist>
+
+  <!-- 起動に失敗したとき（古いファイルのキャッシュが混ざった等）に真っ白にせず原因を表示 -->
+  <script>
+    (function () {
+      function showBootError(msg) {
+        if (window.__appBooted || document.getElementById('boot-error')) return;
+        var d = document.createElement('div');
+        d.id = 'boot-error';
+        d.className = 'boot-error';
+        d.innerHTML = '<h2>アプリを起動できませんでした</h2>' +
+          '<p><b>Ctrl + Shift + R</b>（Mac は <b>⌘ + Shift + R</b>）で強制再読み込みしてください。<br>更新直後は、古いファイルがブラウザに残っていることがあります。</p>' +
+          (msg ? '<pre></pre>' : '');
+        if (msg) d.querySelector('pre').textContent = msg;
+        document.body.appendChild(d);
+      }
+      window.__showBootError = showBootError;
+      window.addEventListener('error', function (e) { if (!window.__appBooted) showBootError(e.message); });
+      window.addEventListener('unhandledrejection', function (e) { if (!window.__appBooted) showBootError(String(e.reason && e.reason.message || e.reason)); });
+      setTimeout(function () { showBootError('（応答なし: 読み込みがタイムアウトしました）'); }, 10000);
+    })();
+  </script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

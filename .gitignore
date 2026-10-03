@@ -1,0 +1,6 @@
+# エディタ・OS のごみ
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+__pycache__/
