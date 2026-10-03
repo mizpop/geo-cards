@@ -15,6 +15,24 @@ let pollTimer = null;
 let unsubscribe = null;
 let unread = false;
 
+// ---- 表示名（この端末のブラウザに保存）。閲覧用アカウントは共有なので、「自分のメモ」はアカウントではなく表示名で判定する
+const NAME_KEY = 'geo-cards-chat-name';
+const getName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } };
+const setName = (n) => { try { localStorage.setItem(NAME_KEY, n); } catch { /* 保存できなくても続行 */ } };
+function askName() {
+  const def = getName() || (user && !user.isViewer && user.email ? user.email.split('@')[0] : '');
+  const n = (prompt('メモに表示するあなたの名前（この端末に保存されます）', def) ?? '').trim().slice(0, 20);
+  if (n) setName(n);
+  return getName();
+}
+const displayAuthor = (a) => (a || '').split('@')[0] || '不明';
+// 自分のメモか: 表示名が同じ。名前を決める前の古いメモ（作成者がメールアドレス）は、そのアカウント本人のときだけ
+function isMine(m) {
+  const me = getName();
+  if (me && m.author === me) return true;
+  return !user.isViewer && m.user_id === user.id && (!m.author || m.author.includes('@'));
+}
+
 const canPopover = () => typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
 const show = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); el.showPopover(); } catch { /* 非対応 */ } } };
 const hide = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* 非対応 */ } } };
@@ -42,7 +60,7 @@ function onRemoteChange(type, row, old) {
   if (type === 'INSERT' && row) {
     if (!memos.some((m) => m.id === row.id)) memos.push(row);
     if (isOpen()) renderList(false);
-    else if (row.user_id !== user.id) setUnread(true);
+    else if (!isMine(row)) setUnread(true);
   } else if (type === 'DELETE' && old?.id) {
     memos = memos.filter((m) => m.id !== old.id);
     if (isOpen()) renderList(false);
@@ -102,6 +120,7 @@ function build() {
   panel.innerHTML = `
     <header class="chat-head">
       <b>📝 メモ</b><span class="chat-count muted"></span>
+      <button type="button" class="chat-me" title="表示名を変更">👤 <span></span></button>
       <button type="button" class="icon-btn chat-close" aria-label="閉じる">✕</button>
     </header>
     <div class="chat-list" tabindex="-1"></div>
@@ -114,6 +133,7 @@ function build() {
   document.body.appendChild(panel);
 
   panel.querySelector('.chat-close').addEventListener('click', closePanel);
+  panel.querySelector('.chat-me').addEventListener('click', () => { askName(); updateMe(); renderList(false); });
   const input = panel.querySelector('.chat-input');
   const form = panel.querySelector('.chat-form');
   const autosize = () => { input.style.height = 'auto'; input.style.height = `${Math.min(140, input.scrollHeight)}px`; };
@@ -129,7 +149,7 @@ function build() {
     input.value = '';
     autosize();
     try {
-      const row = await api.addMemo(body, user.email || '');
+      const row = await api.addMemo(body, getName() || askName() || displayAuthor(user.email));
       memos.push(row);
       renderList(true);
     } catch (ex) {
@@ -152,7 +172,13 @@ function build() {
   });
 }
 
+function updateMe() {
+  panel.querySelector('.chat-me span').textContent = getName() || '名前を設定';
+}
+
 async function openPanel() {
+  if (!getName()) askName(); // 初めて開いたときに表示名を決める
+  updateMe();
   panel.classList.add('open');
   btn.classList.add('active');
   setUnread(false);
@@ -212,12 +238,12 @@ function renderList(scrollToEnd) {
     const d = new Date(m.created_at);
     const day = d.toDateString();
     if (day !== lastDay) { html.push(`<div class="chat-day"><span>${esc(dayLabel(d))}</span></div>`); lastDay = day; }
-    const mine = m.user_id === user.id;
+    const mine = isMine(m);
     const canDelete = mine || user.isEditor;
     const time = d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
     html.push(`
       <div class="chat-msg ${mine ? 'mine' : 'other'}">
-        ${mine ? '' : `<div class="chat-author">${esc((m.author || '').split('@')[0] || '不明')}</div>`}
+        ${mine ? '' : `<div class="chat-author">${esc(displayAuthor(m.author))}</div>`}
         <div class="chat-row">
           <div class="chat-bubble">${linkify(esc(m.body)).replace(/\n/g, '<br>')}</div>
           <div class="chat-meta"><time>${time}</time>${canDelete ? `<button type="button" class="chat-del" data-del="${esc(m.id)}" title="削除" aria-label="削除">✕</button>` : ''}</div>

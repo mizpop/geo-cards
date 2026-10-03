@@ -1116,3 +1116,6 @@ textarea { resize: vertical; line-height: 1.6; }
   /* 暗記カード・クイズ（画面いっぱい）のときは、ボタンを少し小さく半透明に */
   .app-fit ~ .chat-fab { opacity: .85; }
 }
+
+.chat-me { border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); font: inherit; font-size: 12px; border-radius: 999px; padding: 2px 10px; cursor: pointer; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-me:hover { color: var(--text); border-color: var(--accent); }
