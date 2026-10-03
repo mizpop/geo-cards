@@ -620,7 +620,12 @@ textarea { resize: vertical; line-height: 1.6; }
 .lg-list dd { margin: 0; line-height: 1.7; }
 .lg-chars { font-size: 20px; letter-spacing: .04em; }
 .lg-countries-btn { margin-top: 12px; font-size: 13px; }
-.lg-countries { display: flex; flex-wrap: wrap; margin-top: 8px; max-height: 220px; overflow-y: auto; }
+.lg-countries {
+  display: flex; flex-wrap: wrap; align-content: flex-start; margin-top: 8px; max-height: 200px; padding-right: 4px;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; /* 一覧の中だけスクロールし、端まで来ても詳細画面を動かさない */
+}
+.lg-countries::-webkit-scrollbar { display: block; width: 6px; }
+.lg-countries::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 .lg-countries .nb-btn { font-size: 13px; }
 .lg-countries .is-current { opacity: .55; }
 @media (max-width: 760px) {
