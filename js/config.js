@@ -2,11 +2,11 @@
 // SUPABASE_URL を空のままにすると「デモモード」で起動します（データはこのブラウザ内だけに保存）。
 export const CONFIG = {
   // 例: 'https://abcdefghijklmnop.supabase.co'
-  SUPABASE_URL: '',
+  SUPABASE_URL: 'https://kddnjwksbtjqvrlnqbcf.supabase.co',
   // Project Settings → API Keys の「anon / publishable」キー（公開して問題ないキー）
-  SUPABASE_KEY: '',
+  SUPABASE_KEY: 'sb_publishable_h4NiJiKIqPpvnU9CbTWFCQ_1sRZzy3X',
   // 閲覧用アカウントのメールアドレス（Supabase で作成したもの）
-  VIEWER_EMAIL: 'viewer@example.com',
+  VIEWER_EMAIL: 'mzkmorohashi@gmail.com',
   // 画像を保存するストレージバケット名（setup.sql と合わせる）
   BUCKET: 'card-images',
 };
