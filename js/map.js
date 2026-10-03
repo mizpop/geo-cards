@@ -46,6 +46,10 @@ window.addEventListener('geo:notes', () => notesHandler && notesHandler());
 let bubbleEl = null;
 let hoverMove = null;
 const mouse = { x: 0, y: 0 };
+let lastPointer = 'mouse'; // 直近の操作がマウスか指（touch）・ペンか
+for (const ev of ['pointerdown', 'pointermove']) {
+  document.addEventListener(ev, (e) => { lastPointer = e.pointerType || 'mouse'; }, { passive: true, capture: true });
+}
 document.addEventListener('mousemove', (e) => {
   mouse.x = e.clientX;
   mouse.y = e.clientY;
@@ -442,7 +446,8 @@ export async function renderMap(view, ctx) {
 
   // ホバー: 国から国へ移るときにちらつかないよう、離れたときだけ少し待つ
   function setHover(code) {
-    if (!canHover) return;
+    // スマホなど指で操作しているときはプレビューを出さない（端末の申告ではなく実際の操作で判定）
+    if (!canHover || lastPointer !== 'mouse') { if (hoverCode) { hoverCode = null; hideBubble(); } return; }
     clearTimeout(hoverTimer);
     if (code) {
       if (hoverCode !== code) { hoverCode = code; showBubble(code); refreshThumbs(); }
@@ -513,7 +518,7 @@ export async function renderMap(view, ctx) {
   function previewNow(code, e) {
     e?.originalEvent?.preventDefault();
     // Windows では contextmenu が右ボタンを離した後に来るので、押している間（rightHeld）だけ表示する
-    if (!canHover || !rightHeld) return;
+    if (!canHover || !rightHeld || lastPointer !== 'mouse') return;
     clearTimeout(hoverTimer);
     if (e?.originalEvent) { mouse.x = e.originalEvent.clientX; mouse.y = e.originalEvent.clientY; }
     hoverCode = code;
@@ -590,12 +595,19 @@ export async function renderMap(view, ctx) {
       }
     }
   }
-  // 広げた欄の中のホイール・ドラッグを地図に伝えない（中でスクロールできるように）
   function prepareThumbs(m) {
     for (const mk of m.markers) {
       const el = mk.getElement();
       const grid = el?.querySelector('.map-thumbs-grid');
-      if (grid) { L.DomEvent.disableScrollPropagation(grid); L.DomEvent.disableClickPropagation(grid); }
+      // ホイール: 広げた欄の中でまだスクロールできる向きなら欄をスクロール、それ以外は地図をズーム
+      if (grid && !grid.dataset.wheelBound) {
+        grid.dataset.wheelBound = '1';
+        grid.addEventListener('wheel', (e) => {
+          const canScroll = (e.deltaY > 0 && grid.scrollTop + grid.clientHeight < grid.scrollHeight - 1)
+            || (e.deltaY < 0 && grid.scrollTop > 0);
+          if (canScroll) e.stopPropagation();
+        }, { passive: true });
+      }
       // 広げた欄からカーソルが外れたら閉じる（少し待って、すぐ戻ってきたら閉じない）
       if (el && !el.dataset.leaveBound) {
         el.dataset.leaveBound = '1';
