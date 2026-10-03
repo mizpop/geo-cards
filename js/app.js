@@ -2,6 +2,7 @@ import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry
 import { initApi } from './api.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
+import { initChat, teardownChat, raiseChat } from './chat.js';
 import { renderMap, plonkitUrl } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
@@ -296,6 +297,7 @@ async function enterApp() {
   $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? `編集者: ${state.user.email}` : '閲覧のみ';
   $('#logout-btn').hidden = api.mode === 'demo';
   $('#view').innerHTML = '<p class="empty">読み込み中…</p>';
+  initChat({ api, user: state.user, toast });
   await reloadCards();
   route();
 }
@@ -331,6 +333,7 @@ function bindGlobal() {
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
   $('#logout-btn').addEventListener('click', async () => {
     await api.logout();
+    teardownChat();
     state.user = null;
     state.cards = [];
     showLogin();
@@ -634,6 +637,7 @@ function openModal(html, cls = '', nav = false) {
   modalPasteHandler = null;
   $$('[data-close]', m).forEach((b) => b.addEventListener('click', closeModal));
   if (!m.open) m.showModal();
+  raiseChat(); // メモのボタン・欄をモーダルの手前に
 }
 function closeModal() {
   const m = $('#modal');
@@ -1232,6 +1236,7 @@ function openSpotlight() {
   drawGhost();
   sp.classList.remove('closing');
   if (!sp.open) sp.showModal();
+  raiseChat();
   input.focus();
   input.select();
 }

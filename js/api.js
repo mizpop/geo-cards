@@ -54,7 +54,7 @@ function createSupabaseApi(sb) {
       const user = await currentUser();
       if (!user) return null;
       const { data } = await sb.from('editors').select('user_id').eq('user_id', user.id).maybeSingle();
-      return { email: user.email, isEditor: !!data, isViewer: user.email === CONFIG.VIEWER_EMAIL };
+      return { id: user.id, email: user.email, isEditor: !!data, isViewer: user.email === CONFIG.VIEWER_EMAIL };
     },
 
     async loginViewer(password) {
@@ -133,6 +133,23 @@ function createSupabaseApi(sb) {
       if (oldPath) { await bucket().remove([oldPath]); urlCache.delete(oldPath); }
     },
 
+    // チャット形式のメモ（古い順）
+    async listMemos() {
+      const { data, error } = await sb.from('memos').select('id, user_id, author, body, created_at')
+        .order('created_at', { ascending: false }).limit(500);
+      if (error) throw error;
+      return data.reverse();
+    },
+    async addMemo(body, author) {
+      const { data, error } = await sb.from('memos').insert({ body, author }).select('id, user_id, author, body, created_at').single();
+      if (error) throw error;
+      return data;
+    },
+    async deleteMemo(id) {
+      const { error } = await sb.from('memos').delete().eq('id', id);
+      if (error) throw error;
+    },
+
     // 国ごとのメモ: Map(code -> note)
     async listCountryNotes() {
       const { data, error } = await sb.from('country_notes').select('code, note');
@@ -179,6 +196,7 @@ function createDemoApi() {
   const KEY = 'geo-cards-demo-v1';
   const CAT_KEY = 'geo-cards-demo-categories-v1';
   const NOTES_KEY = 'geo-cards-demo-country-notes-v1';
+  const MEMOS_KEY = 'geo-cards-demo-memos-v1';
   const loadCats = () => {
     try {
       const v = JSON.parse(localStorage.getItem(CAT_KEY));
@@ -197,7 +215,7 @@ function createDemoApi() {
 
   return {
     mode: 'demo',
-    async getUser() { return { email: 'demo', isEditor: true, isViewer: false }; },
+    async getUser() { return { id: 'demo', email: 'demo', isEditor: true, isViewer: false }; },
     async loginViewer() {},
     async loginEditor() {},
     async logout() {},
@@ -228,6 +246,20 @@ function createDemoApi() {
     },
     async listCountryNotes() {
       try { return new Map(Object.entries(JSON.parse(localStorage.getItem(NOTES_KEY)) || {})); } catch { return new Map(); }
+    },
+    async listMemos() {
+      try { return JSON.parse(localStorage.getItem(MEMOS_KEY)) || []; } catch { return []; }
+    },
+    async addMemo(body, author) {
+      const memos = await this.listMemos();
+      const row = { id: uuid(), user_id: 'demo', author, body, created_at: new Date().toISOString() };
+      memos.push(row);
+      try { localStorage.setItem(MEMOS_KEY, JSON.stringify(memos.slice(-500))); } catch { throw new Error('ブラウザの保存容量が不足しています'); }
+      return row;
+    },
+    async deleteMemo(id) {
+      const memos = (await this.listMemos()).filter((m) => m.id !== id);
+      localStorage.setItem(MEMOS_KEY, JSON.stringify(memos));
     },
     async saveCountryNote(code, note) {
       const all = Object.fromEntries(await this.listCountryNotes());

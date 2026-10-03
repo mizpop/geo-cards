@@ -11,6 +11,7 @@
 - **地図**: カードがある国を色で塗り分けて表示します。国をクリックするか拡大すると、その場所にカードのサムネイルが現れ、右側に一覧が出ます（地図: Leaflet / © OpenStreetMap contributors、国境データ: Natural Earth（world-atlas））
 - **国の基本情報**: 地図の右側パネルで国名をクリックすると表示されます。国旗、言語（クリックで見分け方を表示）、国別ドメイン、通行方向、国際電話番号、首都、通貨、隣接国。国データは [mledoze/countries](https://github.com/mledoze/countries)（ODbL）から生成しています
 - **国のメモ**: 国の詳細画面で、国ごとにメモを書けます（編集者のみ。入力が止まると自動保存）。地図の右パネルとプレビューの吹き出しにも表示されます。Supabase を使っている場合は `supabase/setup.sql` をもう一度 Run するとメモ用のテーブルが追加されます
+- **メモ（チャット形式）**: 画面右下のボタンで開閉。どの画面からでも書けて、日付・時刻付きで履歴が残ります（Enter で送信、Shift+Enter で改行）。ログイン中の人は誰でも書け、消せるのは書いた本人と編集者です。Supabase では `supabase/setup.sql` を再実行するとテーブルが追加されます
 
 構成: 静的な HTML/JS（ビルド不要）＋ Supabase（DB・画像ストレージ・ログイン）。クレジットカードは不要です。
 
@@ -110,6 +111,7 @@ js/aliases.js           国の別名・略称（USA, UK, JP など。自動生�
 js/languages.js         言語の見分け方・左側通行の国
 js/map.js               世界地図
 js/zoom.js              画像の拡大・移動
+js/chat.js              チャット形式のメモ
 js/image.js             画像の圧縮・クリップボード
 supabase/setup.sql      テーブル・RLS・ストレージの初期設定
 supabase/add-editor.sql 編集者の登録

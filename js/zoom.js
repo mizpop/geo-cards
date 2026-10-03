@@ -199,4 +199,5 @@ export function openViewer(src) {
     else if (e.key === '0') z.reset();
   };
   viewer.showModal();
+  window.dispatchEvent(new Event('geo:dialog')); // メモのボタンを手前に
 }

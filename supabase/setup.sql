@@ -58,6 +58,16 @@ create table if not exists public.country_notes (
   updated_at timestamptz not null default now()
 );
 
+-- チャット形式のメモ（画面右下のボタン）
+create table if not exists public.memos (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  author     text not null default '',
+  body       text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists memos_created_at_idx on public.memos (created_at desc);
+
 -- ========== 行レベルセキュリティ（RLS） ==========
 -- 閲覧: ログインしているユーザー（閲覧用アカウント・編集者）のみ
 -- 追加・更新・削除: 編集者のみ
@@ -85,14 +95,24 @@ drop policy if exists "country_notes: write" on public.country_notes;
 create policy "country_notes: read"  on public.country_notes for select to authenticated using (true);
 create policy "country_notes: write" on public.country_notes for all to authenticated using (public.is_editor()) with check (public.is_editor());
 
+-- メモ: ログイン中なら読める・書ける。消せるのは書いた本人と編集者
+alter table public.memos enable row level security;
+drop policy if exists "memos: read"   on public.memos;
+drop policy if exists "memos: insert" on public.memos;
+drop policy if exists "memos: delete" on public.memos;
+create policy "memos: read"   on public.memos for select to authenticated using (true);
+create policy "memos: insert" on public.memos for insert to authenticated with check (user_id = auth.uid());
+create policy "memos: delete" on public.memos for delete to authenticated using (user_id = auth.uid() or public.is_editor());
+
 drop policy if exists "editors: read own" on public.editors;
 create policy "editors: read own" on public.editors for select to authenticated using (user_id = auth.uid());
 
-revoke all on public.cards, public.editors, public.categories, public.country_notes from anon;
+revoke all on public.cards, public.editors, public.categories, public.country_notes, public.memos from anon;
 grant select, insert, update, delete on public.cards to authenticated;
 grant select on public.editors to authenticated;
 grant select, insert, update, delete on public.categories to authenticated;
 grant select, insert, update, delete on public.country_notes to authenticated;
+grant select, insert, delete on public.memos to authenticated;
 grant execute on function public.is_editor() to authenticated;
 
 -- ========== 画像ストレージ（非公開バケット） ==========

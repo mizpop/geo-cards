@@ -202,6 +202,8 @@ export async function renderMap(view, ctx) {
   const anim = ctx.animations();
   map = L.map('map', {
     worldCopyJump: true, minZoom: 2, maxZoom: 12, zoomSnap: 0.5, preferCanvas: true,
+    // 塗りは画面の外側も多めに描いておく（既定の 0.1 だと、ドラッグ中に端が切れて見える）
+    renderer: L.canvas({ padding: 0.8 }),
     zoomAnimation: anim, fadeAnimation: anim, markerZoomAnimation: anim,
   });
   window.__geoMap = map; // デバッグ・動作確認用
