@@ -103,7 +103,7 @@ function loadScript(src) {
     document.head.appendChild(s);
   });
 }
-function loadLibs() {
+export function loadLibs() {
   if (!libsPromise) {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
@@ -114,7 +114,7 @@ function loadLibs() {
   }
   return libsPromise;
 }
-function loadWorld(res = '50m') {
+export function loadWorld(res = '50m') {
   if (!worldPromises[res]) {
     worldPromises[res] = fetch(WORLD_JSON(res)).then((r) => r.json()).then((topo) => {
       const fc = window.topojson.feature(topo, topo.objects.countries);
@@ -157,7 +157,7 @@ function loadWorld(res = '50m') {
   return worldPromises[res];
 }
 
-const isDark = () => {
+export const isDark = () => {
   const t = document.documentElement.dataset.theme;
   if (t) return t === 'dark';
   return window.matchMedia('(prefers-color-scheme: dark)').matches;

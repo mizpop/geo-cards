@@ -1252,3 +1252,77 @@ textarea { resize: vertical; line-height: 1.6; }
 .face, .tile, .quiz-card, .modal.modal-card, .modal.modal-card .modal-inner > .modal-head:first-child {
   background: color-mix(in srgb, var(--cat, transparent) var(--card-tint), var(--surface));
 }
+
+/* ---------- 暗記カード: 覚えた / まだ・復習 ---------- */
+.study-nav .btn-mark { display: none; min-height: 48px; padding: 0 18px; gap: 8px; font-weight: 700; }
+.view.is-back .study-nav .btn-mark { display: inline-flex; align-items: center; }
+.view.is-back .study-nav #study-flip { display: none; }
+.btn-mark kbd { font: 600 11px/1 inherit; padding: 3px 6px; border-radius: 5px; background: rgba(0, 0, 0, .14); }
+.mark-ok { background: color-mix(in srgb, var(--ok, #2f9e44) 18%, var(--surface)); border-color: color-mix(in srgb, var(--ok, #2f9e44) 55%, var(--border)); }
+.mark-ng { background: color-mix(in srgb, var(--ng) 14%, var(--surface)); border-color: color-mix(in srgb, var(--ng) 50%, var(--border)); }
+.mark-ok:hover { background: color-mix(in srgb, var(--ok, #2f9e44) 28%, var(--surface)); }
+.mark-ng:hover { background: color-mix(in srgb, var(--ng) 22%, var(--surface)); }
+.badge-n { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: var(--accent-text, #fff); font-size: 12px; line-height: 20px; text-align: center; }
+.srs-row { display: flex; justify-content: center; margin-top: 4px; }
+.srs-level { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.srs-level i { width: 9px; height: 9px; border-radius: 50%; background: color-mix(in srgb, var(--muted) 30%, transparent); }
+.srs-level i.on { background: var(--accent); }
+.srs-text { margin-left: 6px; }
+@media (max-width: 760px) {
+  .study-nav .btn-mark { padding: 0 12px; min-height: 44px; }
+  .btn-mark kbd { display: none; }
+}
+
+/* ---------- クイズ: 地図で答える ---------- */
+.qm-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; min-height: 0; }
+.view-fit .qm-layout { flex: 1; }
+.qm-layout .quiz-card { height: auto; min-height: 0; max-height: none; }
+.qm-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.quiz-map { position: relative; flex: 1; min-height: 240px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: #aad3df; }
+.quiz-map .map-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #234; font-size: 13px; z-index: 500; }
+.qm-side .quiz-prompt { margin: 0; flex: none; }
+.qm-side .feedback { flex: none; max-height: 46%; overflow-y: auto; overscroll-behavior: contain; margin-top: 0; }
+.qm-dist { margin: 6px 0 0; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .qm-layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 0.75fr) minmax(0, 1.25fr); gap: 8px; }
+  .quiz-map { min-height: 0; }
+  .qm-side .feedback { max-height: 50%; }
+}
+
+/* ---------- 国の比較 ---------- */
+.tag-btn { border: 0; font: inherit; font-size: 12px; cursor: pointer; }
+.cmp-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cmp-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; font-size: 14px; }
+.cmp-name { background: none; border: 0; padding: 0; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
+.cmp-name:hover { text-decoration: underline; }
+.cmp-rm { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 12px; }
+.cmp-rm:hover { color: var(--ng); }
+.cmp-input { width: 220px !important; min-height: 36px !important; padding: 6px 12px !important; }
+.cmp-pick .ghost-field { width: 220px; }
+.cmp-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
+.cmp-suggest .chip-btn { display: inline-flex; align-items: center; gap: 5px; }
+.cmp-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.cmp-table { display: flex; flex-direction: column; gap: 12px; min-width: calc(110px + var(--cols) * 170px); }
+.cmp-row { display: grid; grid-template-columns: 110px repeat(var(--cols), minmax(0, 1fr)); gap: 10px; align-items: start; }
+.cmp-headrow { position: sticky; top: 0; z-index: 2; }
+.cmp-colhead { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 15px; padding: 6px 4px; border-bottom: 2px solid var(--border); }
+.cmp-colhead .muted { margin-left: auto; font-weight: 500; }
+.cmp-cat { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; padding-top: 6px; position: sticky; left: 0; }
+.cmp-cell { min-width: 0; }
+.cmp-tiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.cmp-none { display: block; color: var(--muted); text-align: center; padding: 18px 0; border: 1px dashed var(--border); border-radius: var(--radius-sm); font-size: 13px; }
+.cmp-empty { padding: 24px 0; text-align: center; }
+@media (max-width: 760px) {
+  .cmp-table { min-width: calc(80px + var(--cols) * 150px); }
+  .cmp-row { grid-template-columns: 80px repeat(var(--cols), minmax(0, 1fr)); }
+  .cmp-cat { font-size: 12px; }
+}
+.cmp-pick .ghost-field { flex: 0 1 240px; width: 240px; }
+.cmp-pick .ghost-field .cmp-input { width: 100% !important; }
+.qm-side .feedback { width: 100%; max-width: none; box-sizing: border-box; }
+/* スマホ: 暗記カードの上の段は 2 行（絞り込み / ボタンと枚数） */
+@media (max-width: 520px) {
+  .view-fit .toolbar:has(#study-review) { flex-wrap: wrap; row-gap: 6px; }
+  .toolbar:has(#study-review) .mpick { flex: 1 1 40%; min-width: 0; }
+  .toolbar:has(#study-review) .mpick-btn { max-width: none; width: 100%; }
+}

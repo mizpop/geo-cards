@@ -7,6 +7,8 @@ import { renderMap, refreshMap, plonkitUrl, isPlayable } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
+import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml } from './progress.js';
+import { mountQuizMap, nearestKm } from './quizmap.js';
 
 /* ================= ユーティリティ ================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -82,8 +84,8 @@ const state = {
   urls: new Map(),
   urlsAt: 0,
   view: 'study',
-  study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
-  quiz: { phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
+  study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, review: false, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
+  quiz: { order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
   mapFilter: { regionsOff: new Set(), catsOff: new Set(), openPick: null }, // 地図の絞り込み
   manage: { q: '', regionsOff: new Set(), catsOff: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
@@ -503,13 +505,15 @@ const KEY_ACTIONS = [
   ['edit', 'カードを編集'],
   ['tabPrev', '前のタブへ'],
   ['tabNext', '次のタブへ'],
+  ['known', '覚えた（暗記カード）'],
+  ['unknown', 'まだ（暗記カード）'],
   ['tab1', '暗記カードへ'],
   ['tab2', 'クイズへ'],
   ['tab3', '地図へ'],
   ['tab4', '編集へ'],
   ['search', '検索を開く'],
 ];
-const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', tab1: 'Ctrl+Digit1', tab2: 'Ctrl+Digit2', tab3: 'Ctrl+Digit3', tab4: 'Ctrl+Digit4', search: 'Ctrl+KeyF' };
+const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', known: 'KeyR', unknown: 'KeyF', tab1: 'Ctrl+Digit1', tab2: 'Ctrl+Digit2', tab3: 'Ctrl+Digit3', tab4: 'Ctrl+Digit4', search: 'Ctrl+KeyF' };
 // キーは e.code（例: KeyA）。Ctrl / Alt / Shift と組み合わせるときは「Ctrl+KeyF」のように前に付ける
 const keyLabel = (code) => (code || '—').split('+').map((k) => k.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'テンキー').replace('Space', 'スペース')).join(' + ');
 const MOD_KEYS = ['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'];
@@ -622,6 +626,7 @@ function onKeydown(e) {
     else if (e.key === 'ArrowRight' || act === 'next') { e.preventDefault(); moveStudy(1); }
     else if (e.key === 'ArrowLeft' || act === 'prev') { e.preventDefault(); moveStudy(-1); }
     // 国の詳細・編集は答えが見えているとき（裏面 / 並べて表示）だけ
+    else if ((act === 'known' || act === 'unknown') && (state.study.flipped || settings.studySplit)) { e.preventDefault(); markStudy(act === 'known' ? 'ok' : 'ng'); }
     else if (act === 'country' && (state.study.flipped || settings.studySplit)) { e.preventDefault(); $('#study-country')?.click(); }
     else if (act === 'edit' && (state.study.flipped || settings.studySplit)) { e.preventDefault(); $('#study-edit')?.click(); }
     else if (act === 'back' && menu && !menu.hidden) { e.preventDefault(); menu.hidden = true; }
@@ -688,7 +693,9 @@ function navModal(entry) {
   showNav(entry);
 }
 function showNav(entry) {
-  if (entry.kind === 'card') {
+  if (entry.kind === 'compare') {
+    renderCompareModal(entry);
+  } else if (entry.kind === 'card') {
     const card = cardById(entry.id);
     if (!card) { closeModal(); return; }
     renderCardModal(card, entry);
@@ -704,7 +711,7 @@ function modalBack() {
 function backBtnHtml() {
   const prev = modalStack[modalStack.length - 1];
   if (!prev) return '';
-  const label = prev.kind === 'country' ? countryName(prev.code) : 'カード';
+  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'compare' ? '比較' : 'カード';
   return `<button class="btn btn-ghost btn-sm modal-back" id="modal-back" type="button">← ${esc(label)}</button>`;
 }
 function bindModalNav() {
@@ -788,6 +795,64 @@ function renderCardModal(card, entry = {}) {
   bindModalNav();
   const eb = $('#detail-edit');
   if (eb) eb.addEventListener('click', () => { closeModal(); openEditor(card); });
+}
+
+/* ================= 国の比較（カテゴリーごとに横並び） ================= */
+const MAX_COMPARE = 4;
+function renderCompareModal(entry) {
+  const codes = entry.codes;
+  const cardsOf = (code, catId) => state.cards.filter((c) => c.countries.includes(code) && catKey(c) === catId);
+  const cats = allCats().filter((k) => codes.some((code) => cardsOf(code, k.id).length));
+  // 追加の候補: 選んだ国の隣の国
+  const suggest = [...new Set(codes.flatMap((c) => COUNTRY_INFO[c]?.nb || []))].filter((c) => !codes.includes(c) && COUNTRY_BY_CODE.has(c)).slice(0, 10);
+  const full = codes.length >= MAX_COMPARE;
+  openModal(`
+    <div class="modal-head">
+      ${backBtnHtml()}
+      <h2>国を比較</h2>
+      <button class="icon-btn" data-close aria-label="閉じる">✕</button>
+    </div>
+    <div class="cmp-pick">
+      ${codes.map((c) => `<span class="chip cmp-chip">${flagImg(c)}<button type="button" class="cmp-name" data-info="${c}" title="国の詳細">${esc(countryName(c))}</button>${codes.length > 1 ? `<button type="button" class="cmp-rm" data-rm="${c}" aria-label="${esc(countryName(c))}を外す">✕</button>` : ''}</span>`).join('')}
+      ${full ? `<span class="muted small">最大 ${MAX_COMPARE} か国まで</span>` : '<input type="text" id="cmp-input" class="cmp-input" list="country-list" placeholder="＋ 比べる国を追加" autocomplete="off">'}
+    </div>
+    ${suggest.length && !full ? `<div class="cmp-suggest"><span class="muted small">隣の国:</span>${suggest.map((c) => `<button type="button" class="chip chip-btn" data-add="${c}">＋ ${flagImg(c)}${esc(countryName(c))}</button>`).join('')}</div>` : ''}
+    ${cats.length ? `
+      <div class="cmp-scroll">
+        <div class="cmp-table" style="--cols:${codes.length}">
+          <div class="cmp-row cmp-headrow">
+            <div class="cmp-cat"></div>
+            ${codes.map((c) => `<div class="cmp-colhead">${flagImg(c)}<span>${esc(countryName(c))}</span><span class="muted small">${state.cards.filter((x) => x.countries.includes(c)).length} 枚</span></div>`).join('')}
+          </div>
+          ${cats.map((k) => `
+            <div class="cmp-row">
+              <div class="cmp-cat" style="${catVars(k)}"><span class="cat-dot"></span><span>${esc(k.name)}</span></div>
+              ${codes.map((code) => {
+                const list = cardsOf(code, k.id);
+                return `<div class="cmp-cell">${list.length ? `<div class="tiles tiles-compact cmp-tiles">${list.map((c) => tileHtml(c)).join('')}</div>` : '<span class="cmp-none">—</span>'}</div>`;
+              }).join('')}
+            </div>`).join('')}
+        </div>
+      </div>` : '<p class="muted cmp-empty">これらの国のカードはまだありません</p>'}
+  `, 'modal-wide modal-compare', true);
+  const update = (next) => { entry.codes = next; showNav(entry); };
+  $$('#modal [data-rm]').forEach((b) => b.addEventListener('click', () => update(codes.filter((c) => c !== b.dataset.rm))));
+  $$('#modal [data-add]').forEach((b) => b.addEventListener('click', () => update([...codes, b.dataset.add])));
+  const input = $('#cmp-input');
+  if (input) {
+    attachInlineComplete(input, { regions: false, ja: true });
+    const add = () => {
+      const code = resolveCountryCode(input.value);
+      if (!code) { toast('候補にある国名を入力してください', 'error'); return; }
+      if (codes.includes(code)) { input.value = ''; return; }
+      update([...codes, code]);
+      setTimeout(() => $('#cmp-input')?.focus(), 0);
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } });
+    input.addEventListener('change', () => { if (findCountry(input.value)) add(); });
+  }
+  bindTiles();
+  bindModalNav();
 }
 
 /* ================= モーダル ================= */
@@ -890,6 +955,15 @@ function rebuildStudyDeck(keepPosition = false) {
   const s = state.study;
   const currentId = s.deck[s.index];
   let list = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff));
+  if (s.review) {
+    // 復習: 期限が来たカード（苦手な順）→ まだ覚え具合をつけていないカード
+    const order = reviewOrder(list.map((c) => c.id));
+    s.deck = order;
+    const idx = keepPosition ? s.deck.indexOf(currentId) : -1;
+    s.index = idx >= 0 ? idx : 0;
+    if (idx < 0) s.flipped = settings.studyStart === 'back';
+    return;
+  }
   if (s.shuffled) {
     // 既存の並びをなるべく保つ
     const prev = new Map(s.deck.map((id, i) => [id, i]));
@@ -909,11 +983,16 @@ function renderStudy() {
   const total = s.deck.length;
   const card = cardById(s.deck[s.index]);
   const split = settings.studySplit;
+  const filteredIds = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff)).map((c) => c.id);
+  const reviewCount = filteredIds.filter((id) => isDue(id)).length;
+  const keys = { ...DEFAULT_KEYS, ...settings.keys };
+  $('#view').classList.toggle('is-back', split || s.flipped);
   $('#view').innerHTML = `
     <div class="toolbar">
       ${regionPickHtml('study-region', s.regionsOff)}
       ${catPickHtml('study-cat', s.catsOff)}
       <button class="btn" id="study-shuffle" aria-label="シャッフル" title="押すたびに順番をランダムに並べ替え">🔀<span class="tab-long"> シャッフル</span></button>
+      <button class="btn ${s.review ? 'btn-on' : ''}" id="study-review" aria-pressed="${s.review}" title="期限が来たカード・苦手なカードと、まだ覚え具合をつけていないカードだけを出します">🧠<span class="tab-long"> 復習</span>${reviewCount ? ` <b class="badge-n">${reviewCount}</b>` : ''}</button>
       <button class="btn ${split ? 'btn-on' : ''}" id="study-split" aria-pressed="${split}" aria-label="表と裏を並べて表示" title="表面と裏面を左右に並べて表示">◫<span class="tab-long"> 並べて表示</span></button>
       <span class="counter">${total ? `${s.index + 1} / ${total}` : '0 / 0'}</span>
     </div>
@@ -936,6 +1015,7 @@ function renderStudy() {
             </div>
             <div class="back-inner">
               <div class="back-answer">${answerHtml(card)}</div>
+              <div class="srs-row">${levelHtml(card.id)}</div>
               ${notesHtml(card)}
             </div>
           </div>
@@ -943,11 +1023,13 @@ function renderStudy() {
       </div>
       <div class="study-nav">
         <button class="btn btn-round" id="study-prev" aria-label="前へ" ${s.index === 0 ? 'disabled' : ''}>←</button>
+        <button class="btn btn-mark mark-ng" id="study-ng" title="まだ覚えていない（すぐまた出ます）">😣 まだ<kbd>${esc(keyLabel(keys.unknown))}</kbd></button>
         ${split ? '' : '<button class="btn btn-primary" id="study-flip">めくる</button>'}
+        <button class="btn btn-mark mark-ok" id="study-ok" title="覚えた（次に出るまでの間隔が空きます）">👍 覚えた<kbd>${esc(keyLabel(keys.known))}</kbd></button>
         <button class="btn btn-round" id="study-next" aria-label="次へ" ${s.index >= total - 1 ? 'disabled' : ''}>→</button>
       </div>
       <p class="hint">${split ? '<span class="tab-long">← → で移動・画像はホイールで拡大、ドラッグで移動</span><span class="tab-short">左右スワイプで移動・ピンチで拡大</span>' : '<span class="tab-long">クリック / スペースキーでめくる・← → で移動・画像はホイールで拡大、ドラッグで移動</span><span class="tab-short">タップでめくる・左右スワイプで移動・ピンチで拡大</span>'}</p>
-    ` : emptyState(state.cards.length ? 'この地域のカードはまだありません' : 'カードがまだありません')}
+    ` : emptyState(s.review && filteredIds.length ? '🎉 今日の復習はすべて終わりました<br><small class="muted">「復習」をもう一度押すと、すべてのカードに戻ります</small>' : state.cards.length ? 'この地域のカードはまだありません' : 'カードがまだありません')}
   `;
   s.enter = '';
   const repick = (id) => { s.openPick = id; rebuildStudyDeck(); renderStudy(); };
@@ -955,6 +1037,15 @@ function renderStudy() {
   bindMultiPick('study-cat', s.catsOff, () => repick('study-cat'), s.openPick === 'study-cat');
   s.openPick = null;
   // 押すたびに並べ替えて 1 枚目から（以降、絞り込みを変えてもランダムな順のまま）
+  $('#study-review').addEventListener('click', () => {
+    s.review = !s.review;
+    rebuildStudyDeck();
+    s.enter = 'next';
+    renderStudy();
+    toast(s.review ? `復習モード: ${s.deck.length} 枚` : 'すべてのカードに戻りました');
+  });
+  $('#study-ok')?.addEventListener('click', () => markStudy('ok'));
+  $('#study-ng')?.addEventListener('click', () => markStudy('ng'));
   $('#study-split').addEventListener('click', () => { settings.studySplit = !settings.studySplit; saveSettings(); renderStudy(); });
   $('#study-shuffle').addEventListener('click', () => {
     s.shuffled = true;
@@ -1031,6 +1122,27 @@ function flipStudy() {
   void fc.offsetWidth; // アニメーションを最初から再生させる
   fc.classList.add(state.study.flipped ? 'anim-to-back' : 'anim-to-front');
   fc.classList.toggle('is-flipped', state.study.flipped);
+  $('#view').classList.toggle('is-back', state.study.flipped);
+}
+
+// 暗記カード: 覚えた / まだ をつけて次のカードへ（答えが見えているときだけ）
+function markStudy(result) {
+  const s = state.study;
+  const card = cardById(s.deck[s.index]);
+  if (!card || !(s.flipped || settings.studySplit)) return;
+  record(card.id, result);
+  play(result === 'ok' ? 'correct' : 'partial');
+  if (s.index < s.deck.length - 1) { moveStudy(1); return; }
+  // 最後のカード: 復習なら残り（まだ のカードなど）で組み直す
+  if (s.review) {
+    rebuildStudyDeck();
+    s.enter = 'next';
+    renderStudy();
+    toast(s.deck.length ? `復習が一巡しました。残り ${s.deck.length} 枚` : '🎉 今日の復習はすべて終わりました');
+  } else {
+    renderStudy();
+    toast('最後のカードです');
+  }
 }
 
 function moveStudy(delta) {
@@ -1111,6 +1223,14 @@ function renderQuiz() {
           <div class="seg" id="q-mode">
             <button class="${q.mode === 'choice' ? 'on' : ''}" data-mode="choice">4択</button>
             <button class="${q.mode === 'input' ? 'on' : ''}" data-mode="input">国名を入力</button>
+            <button class="${q.mode === 'map' ? 'on' : ''}" data-mode="map">🗺 地図で答える</button>
+          </div>
+        </div>
+        <div class="setup-block">
+          <div class="setup-label"><span>出題の順番</span></div>
+          <div class="seg" id="q-order">
+            <button class="${q.order === 'random' ? 'on' : ''}" data-order="random">ランダム</button>
+            <button class="${q.order === 'weak' ? 'on' : ''}" data-order="weak" title="間違えたカード・覚え具合の低いカードを先に出します">苦手を優先</button>
           </div>
         </div>
       </div>
@@ -1134,13 +1254,18 @@ function renderQuiz() {
   $('#q-none').addEventListener('click', () => { q.regions = new Set(); renderQuiz(); });
   $$('#q-count button').forEach((b) => b.addEventListener('click', () => { q.count = Number(b.dataset.n); renderQuiz(); }));
   $$('#q-mode button').forEach((b) => b.addEventListener('click', () => { q.mode = b.dataset.mode; renderQuiz(); }));
+  $$('#q-order button').forEach((b) => b.addEventListener('click', () => { q.order = b.dataset.order; renderQuiz(); }));
   $('#q-start').addEventListener('click', () => startQuiz(quizEligible(q.regions)));
 }
 
 function startQuiz(pool) {
   const q = state.quiz;
   let cards = shuffle(pool);
-  if (q.count) cards = cards.slice(0, q.count);
+  // 苦手を優先: 苦手さの大きい順（同じくらいならランダム）に選んで、出す順番は混ぜる
+  if (q.order === 'weak') {
+    cards = cards.map((c) => ({ c, w: weakness(c.id) + Math.random() * 0.15 })).sort((a, b) => b.w - a.w).map((x) => x.c);
+    if (q.count) cards = shuffle(cards.slice(0, q.count));
+  } else if (q.count) cards = cards.slice(0, q.count);
   q.questions = cards.map((c) => ({ cardId: c.id, options: q.mode === 'choice' ? makeOptions(c, q.regions) : null }));
   q.i = 0;
   q.answers = [];
@@ -1185,6 +1310,7 @@ function renderQuestion() {
   const a = q.answered;
   const multi = q.mode === 'input' && card.countries.length > 1;
   q.draft = q.draft || [];
+  if (q.mode === 'map') { renderMapQuestion(card); return; }
 
   let answerUi;
   if (q.mode === 'choice') {
@@ -1307,11 +1433,70 @@ function renderQuestion() {
   input.focus({ preventScroll: true });
 }
 
+// 地図で答えるクイズ: 左に問題の画像、右に地図（スマホでは上下）
+function renderMapQuestion(card) {
+  const q = state.quiz;
+  const a = q.answered;
+  const okN = q.answers.filter((x) => x.result === 'ok').length;
+  const partN = q.answers.filter((x) => x.result === 'partial').length;
+  const g = a?.given[0];
+  const label = a ? { ok: '○ 正解！', partial: '△ 惜しい（隣の国）', ng: '✗ 不正解' }[a.result] : '';
+  $('#view').innerHTML = `
+    <div class="toolbar">
+      <span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>
+      <span class="muted">○ ${okN}${partN ? ` △ ${partN}` : ''}</span>
+      <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
+    </div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="qm-layout">
+      <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card)}</div>
+      <div class="qm-side">
+        <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
+        ${a ? `
+          <div class="feedback fb-${a.result}">
+            <div class="feedback-head">
+              <div class="feedback-title">${label}</div>
+              <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
+              <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+            </div>
+            ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
+            ${answerHtml(card, 'sm')}
+            ${notesHtml(card)}
+          </div>` : '<p class="quiz-prompt">この特徴が見られる国を、地図でクリック</p>'}
+      </div>
+    </div>`;
+  attachZoom($('.quiz-card .front-img'));
+  $('#q-quit').addEventListener('click', () => { q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  const at = q.i;
+  mountQuizMap($('#quiz-map'), {
+    answers: card.countries,
+    answered: a,
+    animate: settings.animations,
+    onPick: (code) => { if (!q.answered && q.i === at && state.view === 'quiz') submitAnswer(card, [code]); },
+  }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
+    const el = $('#quiz-map .map-loading');
+    if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`;
+  });
+  if (a) {
+    $('#q-next').addEventListener('click', nextQuestion);
+    $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
+    $('#q-next').focus({ preventScroll: true });
+  }
+}
+
 function submitAnswer(card, given) {
   const q = state.quiz;
   // 4択は正解を1つ選べば正解。入力式は全部そろって正解、一部なら部分正解
-  const result = q.mode === 'choice' ? (card.countries.includes(given[0]) ? 'ok' : 'ng') : grade(card, given);
-  q.answered = { given: [...given], result };
+  // 地図で答える: 正解の国をクリックで正解、隣の国なら惜しい（△）。外れたら正解までの距離を出す
+  let result;
+  let km = null;
+  if (q.mode === 'map') {
+    const g = given[0];
+    result = card.countries.includes(g) ? 'ok' : card.countries.some((c) => COUNTRY_INFO[c]?.nb.includes(g)) ? 'partial' : 'ng';
+    if (result !== 'ok') km = nearestKm(g, card.countries);
+  } else result = q.mode === 'choice' ? (card.countries.includes(given[0]) ? 'ok' : 'ng') : grade(card, given);
+  record(card.id, result); // 覚え具合（暗記カードの復習にも反映）
+  q.answered = { given: [...given], result, km };
   q.answers.push({ cardId: card.id, given: [...given], result, correct: result === 'ok' });
   play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
   q.draft = [];
@@ -1321,7 +1506,7 @@ function submitAnswer(card, given) {
     setTimeout(() => { if (state.view === 'quiz' && q.phase === 'question' && q.i === at && q.answered) nextQuestion(); }, 1200);
   }
   const fb = $('.feedback');
-  if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (fb && q.mode !== 'map') fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function nextQuestion() {
@@ -2170,6 +2355,7 @@ function renderCountryModal(entry) {
           ${info.un ? '' : '<span class="tag">海外領土・地域</span>'}
           ${info.ll ? '<span class="tag">内陸国</span>' : ''}
           ${plonkit ? `<a class="tag tag-link" href="${plonkit}" target="_blank" rel="noopener">Plonkit ↗</a>` : ''}
+          <button type="button" class="tag tag-link tag-btn" id="cinfo-compare" title="ほかの国とカードをカテゴリーごとに並べて比べる">⚖ 比較</button>
         </div>
       </div>
     </div>
@@ -2205,6 +2391,8 @@ function renderCountryModal(entry) {
         </div>
         <div class="tiles tiles-compact" id="cinfo-tiles"></div>` : '<p class="muted small">まだカードがありません</p>'}
     </section>`, 'modal-md', true);
+
+  $('#cinfo-compare').addEventListener('click', () => navModal({ kind: 'compare', codes: [code] }));
 
   // 言語の見分け方
   const guide = $('#lang-guide');
