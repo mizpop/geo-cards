@@ -117,6 +117,7 @@ js/progress.js          カードごとの覚え具合（間隔反復・この�
 js/quizmap.js           地図で答えるクイズの地図
 js/infomap.js           地図のインフォグラフィック（シェブロン・ガードレール・電柱・通行・文字・苦手）
 js/infodata.js          インフォグラフィックの初期データ（GeoHints・Plonkit の資料から作成）
+js/refimages.js         地図の参考写真の一覧（GeoHints の画像）
 js/image.js             画像の圧縮・クリップボード
 supabase/setup.sql      テーブル・RLS・ストレージの初期設定
 supabase/add-editor.sql 編集者の登録

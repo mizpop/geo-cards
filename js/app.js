@@ -2939,6 +2939,8 @@ const mapCtx = {
   hoverAutoExpand: () => settings.hoverExpand,
   liveSearch: () => settings.liveSearch,
   mapMode: () => settings.mapMode || 'cards',
+  mapPhotos: () => settings.mapPhotos !== false,
+  setMapPhotos: (on) => { settings.mapPhotos = on; saveSettings(); },
   setMapMode: (m) => { settings.mapMode = m; saveSettings(); },
   isEditor: () => !!state.user?.isEditor,
   matchConds: () => state.mapMatch,

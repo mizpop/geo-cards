@@ -104,6 +104,9 @@ export const POLE_DATA = {
   CL: p(['indent', 'wood'], '両側に溝のある四角い柱'), NZ: p(['indent'], '長い溝が 1 本。銀色のポッサムよけ'),
   MX: p(['octagonal'], 'コロンビアでも八角形が多い'), PH: p(['metal', 'indent'], '八角形の鉄柱が多い'),
   TR: p(['metal'], 'はしご状・格子状の鉄柱がとても多い'), LB: p(['metal', 'wood'], '格子状の鉄柱を黄色に塗ることも'), IL: p(['metal'], '根元が黒白の縞。格子状の柱'),
+  FI: p(['wood'], '木製が基本。街灯は柱の上に 2 本のボルトで留める'), DE: p(['wood', 'round'], '木製には白い長方形のステッカー。丸いコンクリートは旧東ドイツにほぼ限られる'),
+  KE: p(['round', 'wood'], 'コンクリートか木製で、L 字の横木。どくろの危険表示も'), QA: p(['round'], '碍子 3 つで真ん中が少し高い。横木に斜めの支え 2 本'),
+  AU: p(['wood', 'round'], '州によって違う: 南オーストラリアは鉄とコンクリートの「Stobie pole」、ビクトリアはコンクリートが多い、北部準州はさびた穴あきの鉄柱'),
   BT: p(['metal'], '細い鉄柱'), NL: p(['none'], '街なかの電柱はほぼない'), DK: p(['none'], '街なかの電柱は少ない'),
   // GeoHints の電柱の写真から判断（Plonkit に記述のない国。POLE_PHOTO）
   BA: p(['round'], '写真から判断'), BD: p(['square'], '写真から判断'), BW: p(['wood'], '写真から判断'), CH: p(['wood'], '写真から判断'),
@@ -114,7 +117,7 @@ export const POLE_DATA = {
   NO: p(['wood'], '写真から判断'), PE: p(['round'], '下の方を塗った柱。北部は黄色の縦の番号'), PM: p(['ladder'], 'フランスと同じ'), PR: p(['square'], '四角い柱は南北アメリカでは珍しい'),
   PY: p(['ladder'], 'ブラジルに似たはしご状'), RS: p(['wood', 'metal'], '写真から判断'), RW: p(['round', 'wood'], '写真から判断'), SE: p(['wood'], '写真から判断'),
   SI: p(['wood'], 'A 字形の木製も'), TN: p(['round'], '写真から判断'), TW: p(['round'], '根元から黒と黄の斜めの縞。青い座標プレート'), UG: p(['wood'], '写真から判断'),
-  UY: p(['round'], '碍子 3 つが上を向く「三叉」の頂部'), ZA: p(['round', 'wood'], '横棒に白い碍子が並ぶ「バードポール」'),
+  UY: p(['round', 'square'], '碍子 3 つが上を向く「三叉」の頂部。四角いコンクリートも'), ZA: p(['round', 'wood'], '横棒に白い碍子が並ぶ「バードポール」'),
 };
 
 // ---- 道路の線（GeoHints https://geohints.com/meta/lines の国別データ）
@@ -194,7 +197,7 @@ export const BOLLARD_TYPES = [
 ];
 const BOLLARD_RAW = `
 GH:wr KE:c LS:w NA:wy NG:wk RW:wr RE:wr SN:wr TN:wb UG:w BD:srw BT:c KH:srw CX:wr CC:b IN:skw ID:skw IL:wk
-JP:w KZ:wk KG:wk LA:skw LB:wr MY:wr MN:wr NP:skw OM:wr PH:syk QA:srw RU:wk KR:sy LK:c TW:wk TH:skw AE:srw VN:wr
+JP:w KZ:wk KG:wk LA:skw LB:wr MY:wr MN:wr NP:skw OM:wr PH:syk QA:srw RU:wk KR:w LK:c TW:wk TH:skw AE:srw VN:wr
 AL:wk AD:wy AT:wk BY:k BE:wy BA:wk BG:wk HR:wk CY:wr CZ:wk DK:wy EE:w FO:y FI:wk FR:wr GE:wk DE:wk GR:wk
 HU:wk IS:y IE:wg IM:wk IT:wk JE:k XK:wk LV:wk LI:wk LT:wk LU:wk MT:wk MC:wr ME:wk NL:wr MK:wk NO:wk PL:wr
 PT:wk RO:wr SM:wk RS:wr SK:wk SI:wk ES:wy SE:wk CH:wk TR:wr UA:wk GB:wk CA:skw CR:r GT:skw MX:wk PA:w AU:wr
@@ -262,7 +265,7 @@ const BOLLARD_NOTE = {
   SG: 'バス停に黒黄の帯のコンクリート',
   SK: '前にオレンジの反射板 2 つ（新しい型は前が赤）',
   SI: '白で上部が黒、前が赤（オーストリアは暗い赤）',
-  KR: '黒白のくさび形も',
+  KR: '白い本体。裏の反射板が灰色（写真で灰色に見えるのはこの面）。黒白のくさび形も',
   ES: '前が黄オレンジ、後ろは白い点 2 つ',
   LK: '背の低い幅広の石のボラード（スリランカ特有）',
   SE: '黒白で反射板は灰色。南部はくさび形、北部は黒い横帯の丸い型',

@@ -1,6 +1,8 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
+import { REF_IMAGES, REF_BASE, REF_PAGES } from './refimages.js';
+import { openViewer } from './zoom.js';
 import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml, MATCH_TOPICS, matchOptions, matchAll } from './infomap.js';
 
 const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
@@ -181,6 +183,10 @@ export async function renderMap(view, ctx) {
   const conds = ctx.matchConds();
   const matched = mode === 'match' ? new Set(matchAll(conds, [...GEO.keys()])) : null;
   const factMode = mode !== 'cards' && mode !== 'match'; // 国ごとの値を出すモード
+  // 参考写真（GeoHints）: ボラード・電柱・シェブロン・ナンバープレートで、スイッチがオンなら地図に並べる
+  const hasPhotos = !!REF_IMAGES[mode];
+  const photoOn = hasPhotos && ctx.mapPhotos();
+  const photoList = (code) => (REF_IMAGES[mode]?.[code] || []).map((rel, i) => ({ id: `ref-${code}-${i}`, src: REF_BASE + rel, photo: true }));
   let legendOpen = legendOpenPref ?? !window.matchMedia('(max-width: 760px)').matches;
   const patternMode = !!modeDef(mode).pattern;
   view.innerHTML = `
@@ -192,6 +198,7 @@ export async function renderMap(view, ctx) {
         </select>
       </label>
       ${mode === 'cards' ? ctx.filterPicksHtml() : ''}
+      ${hasPhotos ? `<label class="photo-switch" title="GeoHints の参考写真を地図と右パネルに表示"><span class="switch"><input type="checkbox" id="map-photos" ${photoOn ? 'checked' : ''}><span class="switch-track"><span class="switch-thumb"></span></span></span>📷 写真</label>` : ''}
       <button class="btn btn-ghost btn-sm" id="map-world">🌐 世界全体</button>
       <span class="muted small map-hint">${mode === 'cards' ? 'クリック・拡大でカード表示' : 'クリックで国を選択'} ／ Ctrl+クリック・Ctrl+Enter で Plonkit ／ Alt+クリック・Alt+Enter で国の詳細</span>
     </div>
@@ -424,7 +431,9 @@ export async function renderMap(view, ctx) {
 
   // ---- 国ごとのマーカー（遠いと枚数バッジ、拡大するとカードのサムネイル）
   const markers = new Map();
-  for (const [code, list] of (mode === 'cards' ? byCountry : [])) {
+  const markerSource = mode === 'cards' ? byCountry
+    : photoOn ? new Map(Object.keys(REF_IMAGES[mode]).map((c) => [c, photoList(c)])) : [];
+  for (const [code, list] of markerSource) {
     const g = GEO.get(code);
     if (!g) continue;
     // 日付変更線の向こう側にも置く（国の塗りの複製と同じ考え方）
@@ -441,7 +450,8 @@ export async function renderMap(view, ctx) {
       const id = e.originalEvent?.target?.closest?.('[data-card]')?.dataset.card;
       if (id) {
         const card = list.find((c) => c.id === id);
-        if (card) ctx.openCard(card, e.originalEvent.target.closest('[data-card]'), list.map((c) => c.id)); // ← → でこの国のカードを順に
+        if (card?.photo) openViewer(card.src); // 参考写真は大きく表示
+        else if (card) ctx.openCard(card, e.originalEvent.target.closest('[data-card]'), list.map((c) => c.id)); // ← → でこの国のカードを順に
       } else {
         toggleFocus(code);
       }
@@ -744,6 +754,17 @@ export async function renderMap(view, ctx) {
       + ctx.countrySummaryHtml(code)
       + '<button type="button" class="icon-btn pinfo-close" title="選択を解除（Esc）" aria-label="選択を解除">✕</button>';
     el.querySelector('[data-edit-fact]')?.addEventListener('click', () => ctx.editFact(mode, code));
+    // 参考写真（スイッチがオンのとき）
+    if (photoOn) {
+      const photos = photoList(code);
+      el.querySelector('.pfact')?.insertAdjacentHTML('afterend', photos.length
+        ? `<div class="pphotos"><div class="pphotos-head">📷 参考写真 <a href="${REF_PAGES[mode]}" target="_blank" rel="noopener" class="muted small">GeoHints ↗</a></div><div class="pphotos-grid">${photos.map((p) => `<button type="button" class="pphoto" data-src="${ctx.esc(p.src)}"><img src="${ctx.esc(p.src)}" alt="" loading="lazy"></button>`).join('')}</div></div>`
+        : '<div class="pphotos muted small">この国の参考写真はありません</div>');
+      el.querySelectorAll('.pphoto').forEach((b) => b.addEventListener('click', () => openViewer(b.dataset.src)));
+    } else if (mode === 'guardrail') {
+      const url = plonkitUrl(code);
+      if (url) el.querySelector('.pfact')?.insertAdjacentHTML('beforeend', `<a class="pfact-link" href="${url}" target="_blank" rel="noopener">Plonkit でガードレールの写真を見る ↗</a>`);
+    }
     el.scrollTop = 0;
     el.querySelector('.pinfo-close')?.addEventListener('click', clearFocus);
     el.querySelector('[data-more]')?.addEventListener('click', (e) => ctx.openCountry(code, e.currentTarget));
@@ -975,6 +996,7 @@ export async function renderMap(view, ctx) {
     ms.dispatchEvent(new Event('input'));
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
+  $id('map-photos')?.addEventListener('change', (e) => { ctx.setMapPhotos(e.target.checked); refreshMap(view, ctx); });
   $id('map-mode').addEventListener('change', (e) => {
     ctx.setMapMode(e.target.value);
     refreshMap(view, ctx); // 表示位置・選んでいる国はそのまま
@@ -1146,7 +1168,9 @@ function thumbsIcon(L, ctx, code, list, expanded = false) {
     <div class="map-thumbs${expanded ? ' is-expanded' : ''}">
       <div class="map-thumbs-head">${ctx.flagImg(code)}<span>${ctx.esc(ctx.countryName(code))}</span><span class="map-thumbs-n">${list.length}</span></div>
       <div class="map-thumbs-grid" style="grid-template-columns:repeat(${cols},1fr)">
-        ${show.map((c) => `<div class="map-thumb" data-card="${c.id}" style="${ctx.catVars(ctx.catOf(c))}" title="${ctx.esc(ctx.catOf(c).name)}">${ctx.imgUrl(c) ? `<img src="${ctx.esc(ctx.imgUrl(c))}" alt="">` : ''}</div>`).join('')}
+        ${show.map((c) => (c.photo
+          ? `<div class="map-thumb is-photo" data-card="${c.id}" title="参考写真（GeoHints）"><img src="${ctx.esc(c.src)}" alt="" loading="lazy"></div>`
+          : `<div class="map-thumb" data-card="${c.id}" style="${ctx.catVars(ctx.catOf(c))}" title="${ctx.esc(ctx.catOf(c).name)}">${ctx.imgUrl(c) ? `<img src="${ctx.esc(ctx.imgUrl(c))}" alt="">` : ''}</div>`)).join('')}
       </div>
       ${more > 0 ? `<div class="map-thumbs-more" data-expand>${expanded ? '閉じる ▲' : `ほか ${more} 枚 ▼`}</div>` : ''}
     </div>`;

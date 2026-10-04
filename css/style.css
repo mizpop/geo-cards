@@ -1503,3 +1503,16 @@ textarea { resize: vertical; line-height: 1.6; }
 .cmp-add-card { display: block; width: 100%; margin-top: 6px; padding: 6px 8px; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
 .cmp-add-card:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .cmp-fact .cmp-add-card { display: inline-block; width: auto; padding: 2px 8px; }
+
+/* 地図: 参考写真 */
+.photo-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.photo-switch .switch { transform: scale(.85); }
+.map-thumb.is-photo { border-color: #fff; }
+.pphotos { margin: -4px 0 12px; }
+.pphotos-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+.pphotos-head a { margin-left: auto; }
+.pphotos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pphoto { position: relative; aspect-ratio: 4 / 3; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #0b0f12; cursor: zoom-in; }
+.pphoto img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pphoto:hover { border-color: var(--accent); }
+.pfact-link { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--accent); }
