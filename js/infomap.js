@@ -3,17 +3,20 @@
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { getProg, MAX_BOX } from './progress.js';
-import { CHEV_DATA, GUARD_DATA, POLE_DATA, GUARD_TYPES, POLE_TYPES, CHEV_SRC, PLONKIT_SRC } from './infodata.js';
+import { CHEV_DATA, GUARD_DATA, POLE_DATA, GUARD_TYPES, POLE_TYPES, CHEV_SRC, PLONKIT_SRC, LINE_TYPES, LINE_DATA, LINE_SRC, CAM_DATA, SNOW_DATA, POLE_PHOTO } from './infodata.js';
 
-export { GUARD_TYPES, POLE_TYPES };
+export { GUARD_TYPES, POLE_TYPES, LINE_TYPES };
 
 export const MAP_MODES = [
   { id: 'cards', icon: '🃏', name: 'カード', desc: '国ごとのカードの枚数とサムネイル' },
   { id: 'chevron', icon: '⟫', name: 'シェブロン', desc: 'カーブの矢印標識の色（背景と矢印）', editable: true, pattern: true },
   { id: 'guardrail', icon: '🛡', name: 'ガードレール', desc: 'ガードレールの種類（A / B / 細い B など）と反射板の色', editable: true, pattern: true },
   { id: 'pole', icon: '⚡', name: '電柱', desc: 'よく見る電柱の種類', editable: true, pattern: true },
+  { id: 'lines', icon: '🛣', name: '道路の線', desc: '外側の線と中央線の色（白・黄）', editable: true, pattern: true },
   { id: 'drive', icon: '🚗', name: '通行', desc: '左側通行 / 右側通行' },
   { id: 'script', icon: '🔤', name: '文字', desc: '看板で使われる主な文字（ラテン文字以外があればそれ）' },
+  { id: 'camera', icon: '📷', name: 'カメラ世代', desc: 'Google カーのカメラの世代（Gen 1〜4）と Low / Small / Bad Cam' },
+  { id: 'snow', icon: '❄', name: '雪', desc: '雪景色のカバレッジがある国' },
   { id: 'weak', icon: '🧠', name: '苦手', desc: 'この端末での覚え具合（暗記の「覚えた / まだ」とクイズの結果）' },
 ];
 export const modeDef = (id) => MAP_MODES.find((m) => m.id === id) || MAP_MODES[0];
@@ -40,13 +43,13 @@ export function chevSignSvg(v, w = 36, h = 24) {
 }
 
 /* ---------------- ガードレール・電柱（種類を 1〜2 つ） ---------------- */
-export const typesOf = (topic) => (topic === 'pole' ? POLE_TYPES : GUARD_TYPES);
+export const typesOf = (topic) => (topic === 'pole' ? POLE_TYPES : topic === 'lines' ? LINE_TYPES : GUARD_TYPES);
 const typeOf = (topic, id) => typesOf(topic).find((t) => t.id === id) || null;
 export const typesLabel = (topic, v) => (v.types || []).map((t) => typeOf(topic, t)?.name || t).join(' ＋ ');
 
 /* ---------------- 初期データ（資料から作成。編集画面で直せます） ---------------- */
-const SEED = { chevron: CHEV_DATA, guardrail: GUARD_DATA, pole: POLE_DATA };
-const SEED_SRC = { chevron: CHEV_SRC, guardrail: PLONKIT_SRC, pole: PLONKIT_SRC };
+const SEED = { chevron: CHEV_DATA, guardrail: GUARD_DATA, pole: POLE_DATA, lines: LINE_DATA };
+const SEED_SRC = { chevron: CHEV_SRC, guardrail: PLONKIT_SRC, pole: PLONKIT_SRC, lines: LINE_SRC };
 
 // facts: Map(topic → Map(code → value))。保存した値があればそれ、なければ初期値（seed: true）
 let facts = new Map();
@@ -55,7 +58,9 @@ export function factOf(topic, code) {
   const v = facts.get(topic)?.get(code);
   if (v) return v.none ? null : { ...v, seed: false };
   const s = SEED[topic]?.[code];
-  return s ? { ...s, seed: true, src: SEED_SRC[topic] } : null;
+  if (!s) return null;
+  const src = topic === 'pole' && POLE_PHOTO.has(code) ? { name: 'GeoHints（写真）' } : SEED_SRC[topic];
+  return { ...s, seed: true, src };
 }
 export const hasSavedNone = (topic, code) => !!facts.get(topic)?.get(code)?.none;
 
@@ -121,7 +126,30 @@ function weakOf(code) {
 
 /* ---------------- 共通: 国ごとの値 → 分類（凡例の 1 行） ---------------- */
 // { key, label, color, swatch(HTML), pattern?: { id, svg } }
+// カメラ世代: 一番古い世代で分ける（古い世代があるほど珍しい手がかり）
+const CAM_CLASSES = [
+  { id: 'g1', test: (f) => f.includes('1'), name: 'Gen 1 あり（最も古い）', color: '#862e9c' },
+  { id: 'g2', test: (f) => f.includes('2'), name: 'Gen 2 あり', color: '#e64980' },
+  { id: 'g34', test: (f) => f.includes('3') && f.includes('4'), name: 'Gen 3 と Gen 4', color: '#4dabf7' },
+  { id: 'g3', test: (f) => f.includes('3'), name: 'Gen 3 のみ', color: '#f59f00' },
+  { id: 'g4', test: (f) => f.includes('4'), name: 'Gen 4 のみ', color: '#2f9e44' },
+  { id: 'gx', test: () => true, name: 'トレッカーなどのみ', color: '#868e96' },
+];
+const CAM_NAMES = { 1: 'Gen 1', 2: 'Gen 2', 3: 'Gen 3', 4: 'Gen 4', l: 'Low Cam', s: 'Small Cam', b: 'Bad Cam', t: 'トレッカー' };
+const SNOW_CLASSES = { o: { name: '屋外で雪の景色あり', color: '#74c0fc' }, b: { name: '屋外と屋内（スキー場など）', color: '#4dabf7' }, i: { name: '屋内のみ（スキー場など）', color: '#ced4da' } };
+
 export function classify(mode, code) {
+  if (mode === 'camera') {
+    const f = CAM_DATA[code];
+    if (!f) return null;
+    const c = CAM_CLASSES.find((x) => x.test(f));
+    return { key: c.id, label: c.name, color: c.color, extra: [...f].map((k) => CAM_NAMES[k]).join('・'), seed: true, src: { name: 'GeoHints' } };
+  }
+  if (mode === 'snow') {
+    const f = SNOW_DATA[code];
+    if (!f) return null;
+    return { key: f, label: SNOW_CLASSES[f].name, color: SNOW_CLASSES[f].color, seed: true, src: { name: 'GeoHints' } };
+  }
   if (mode === 'drive') {
     if (!COUNTRY_INFO[code]) return null;
     return LEFT_DRIVING.has(code)
@@ -141,6 +169,23 @@ export function classify(mode, code) {
     if (!v || !chevColor(v.bg) || !chevColor(v.fg)) return null;
     const key = `${v.bg}-${v.fg}`;
     return { key, label: chevLabel(v), pattern: `chev-${key}`, swatch: chevSignSvg(v), seed: v.seed, src: v.src, note: v.note, value: v, alt: (v.alt || []).filter((x) => chevColor(x.bg) && chevColor(x.fg)) };
+  }
+  if (mode === 'lines') {
+    // 外側の線の色と中央線の色の組み合わせ（国によって複数あれば「白と黄」）
+    const v = factOf('lines', code);
+    const types = (v?.types || []).filter((t) => typeOf('lines', t));
+    if (!types.length) return null;
+    const edge = [...new Set(types.map((t) => (t[0] === 'y' ? 'Y' : 'W')))].sort().join('');
+    const center = [...new Set(types.flatMap((t) => (t === 'wwy' ? ['W', 'Y'] : [t[1] === 'y' ? 'Y' : 'W'])))].sort().join('');
+    const key = `${edge}-${center}`;
+    const nm = { W: '白', Y: '黄', WY: '白と黄' };
+    const LINE_COLORS = { 'W-W': '#dee2e6', 'W-Y': '#fab005', 'W-WY': '#9775fa', 'Y-W': '#4dabf7', 'Y-Y': '#e8590c', 'Y-WY': '#7048e8', 'WY-W': '#1971c2', 'WY-Y': '#c92a2a', 'WY-WY': '#5f3dc4' };
+    const color = LINE_COLORS[key] || '#868e96';
+    return {
+      key, label: `外側 ${nm[edge]}・中央 ${nm[center]}`, color, seed: v.seed, src: v.src, note: v.note, value: v,
+      swatch: `<span class="sw sw-line" style="background:${color}"><i style="background:${edge === 'Y' ? '#fcc419' : '#fff'}"></i><i style="background:${center === 'Y' ? '#fcc419' : center === 'WY' ? 'linear-gradient(90deg,#fff 50%,#fcc419 50%)' : '#fff'}"></i></span>`,
+      extra: types.length > 1 ? `見られる組み合わせ: ${typesLabel('lines', { types })}` : '',
+    };
   }
   if (mode === 'guardrail' || mode === 'pole') {
     const v = factOf(mode, code);
@@ -212,6 +257,7 @@ export function legendGroups(mode, codes) {
   }
   const list = [...groups.values()];
   if (mode === 'weak') list.sort((a, b) => WEAK_STEPS.findIndex((s) => s.id === a.key) - WEAK_STEPS.findIndex((s) => s.id === b.key));
+  else if (mode === 'camera') list.sort((a, b) => CAM_CLASSES.findIndex((s) => s.id === a.key) - CAM_CLASSES.findIndex((s) => s.id === b.key));
   else list.sort((a, b) => b.codes.length - a.codes.length);
   return list;
 }

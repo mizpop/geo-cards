@@ -43,6 +43,7 @@ let map = null;
 let lastView = null; // 再描画時に表示位置を保つ
 let renderSeq = 0;
 let escHandler = null; // 地図で国を選んでいるとき Esc で解除
+let legendOpenPref = null; // 凡例の開閉（未操作なら、広い画面は開く・スマホは閉じる）
 let currentFocus = null; // 選んでいる国（データ更新で描き直すときに引き継ぐ）
 let restoreFocus = null;
 // カードが更新されたときの描き直し: 表示位置に加えて、選んでいる国もそのまま
@@ -174,12 +175,16 @@ export async function renderMap(view, ctx) {
     map = null;
   }
   const mode = ctx.mapMode();
+  let legendOpen = legendOpenPref ?? !window.matchMedia('(max-width: 760px)').matches;
   const patternMode = !!modeDef(mode).pattern;
   view.innerHTML = `
     <div class="toolbar map-toolbar">
-      <div class="seg map-modes" role="tablist" aria-label="地図の表示">
-        ${MAP_MODES.map((m) => `<button type="button" class="${m.id === mode ? 'on' : ''}" data-mode="${m.id}" title="${m.name}: ${m.desc}" aria-selected="${m.id === mode}">${m.icon}<span class="mode-name"> ${m.name}</span></button>`).join('')}
-      </div>
+      <label class="map-mode-pick" title="${modeDef(mode).desc}">
+        <span class="sr-only">地図の表示</span>
+        <select id="map-mode" class="select">
+          ${MAP_MODES.map((m) => `<option value="${m.id}" ${m.id === mode ? 'selected' : ''}>${m.icon} ${m.name}</option>`).join('')}
+        </select>
+      </label>
       ${mode === 'cards' ? ctx.filterPicksHtml() : ''}
       <button class="btn btn-ghost btn-sm" id="map-world">🌐 世界全体</button>
       <span class="muted small map-hint">${mode === 'cards' ? 'クリック・拡大でカード表示' : 'クリックで国を選択'} ／ Ctrl+クリック・Ctrl+Enter で Plonkit ／ Alt+クリック・Alt+Enter で国の詳細</span>
@@ -193,7 +198,7 @@ export async function renderMap(view, ctx) {
           <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動（設定でオフにできます） ／ Enter: 確定して入力を終える ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
         </div>
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
-        ${mode === 'cards' ? '' : `<div class="map-legend" id="map-legend"><div class="lg-title">${modeDef(mode).icon} ${modeDef(mode).name}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
+        ${mode === 'cards' ? '' : `<div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend"><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeDef(mode).icon} ${modeDef(mode).name}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${modeDef(mode).desc}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
       </div>
       <aside class="map-panel" id="map-panel">
         <section class="pinfo" id="pinfo"></section>
@@ -954,11 +959,17 @@ export async function renderMap(view, ctx) {
     ms.dispatchEvent(new Event('input'));
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
-  view.querySelectorAll('.map-modes [data-mode]').forEach((b) => b.addEventListener('click', () => {
-    if (b.dataset.mode === mode) return;
-    ctx.setMapMode(b.dataset.mode);
+  $id('map-mode').addEventListener('change', (e) => {
+    ctx.setMapMode(e.target.value);
     refreshMap(view, ctx); // 表示位置・選んでいる国はそのまま
-  }));
+  });
+  // 凡例: 小さい画面では開閉式（最初は閉じておく）
+  view.querySelector('#map-legend .lg-title')?.addEventListener('click', (e) => {
+    legendOpen = !legendOpen;
+    legendOpenPref = legendOpen;
+    e.currentTarget.parentElement.classList.toggle('is-open', legendOpen);
+    e.currentTarget.setAttribute('aria-expanded', String(legendOpen));
+  });
   const legendItems = view.querySelector('#map-legend .lg-items');
   if (legendItems) legendItems.innerHTML = legendHtml(mode, [...GEO.keys()]);
   currentFocus = null;

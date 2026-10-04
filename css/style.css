@@ -1328,8 +1328,6 @@ textarea { resize: vertical; line-height: 1.6; }
 }
 
 /* ---------- 地図のインフォグラフィック ---------- */
-.map-modes { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-.map-modes button { white-space: nowrap; }
 .map-legend {
   position: absolute; left: 10px; bottom: 26px; z-index: 600; max-width: min(300px, calc(100% - 20px)); max-height: 45%;
   overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px; border-radius: 10px;
@@ -1362,10 +1360,7 @@ textarea { resize: vertical; line-height: 1.6; }
 .fgroup-codes { display: flex; flex-wrap: wrap; gap: 4px; }
 .fgroup-codes .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
 .fgroup-codes .chip.is-off { opacity: .55; }
-.map-modes .mode-name { }
 @media (max-width: 760px) {
-  .map-modes .mode-name { display: none; }
-  .map-modes button { padding: 0 10px; }
   .map-legend { bottom: 18px; max-height: 38%; font-size: 11px; }
 }
 /* 値の編集 */
@@ -1384,3 +1379,45 @@ textarea { resize: vertical; line-height: 1.6; }
 .pfact-alt { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 6px; font-size: 11px; color: var(--muted); }
 .pfact-alt > span:first-child { margin-right: 4px; }
 .alt-sign .chev-sign { width: 27px; height: 18px; }
+
+/* ---------- 地図の表示モードの選択・凡例の開閉 ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.map-mode-pick .select { font-weight: 700; min-width: 170px; }
+.map-legend .lg-title { display: flex; align-items: center; gap: 6px; width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 800; font-size: 13px; cursor: pointer; text-align: left; }
+.lg-toggle { margin-left: auto; color: var(--muted); transition: transform .15s; }
+.map-legend.is-open .lg-toggle { transform: rotate(180deg); }
+.lg-desc { color: var(--muted); font-size: 11px; margin: 2px 0 6px; }
+.map-legend:not(.is-open) .lg-items, .map-legend:not(.is-open) .lg-hint, .map-legend:not(.is-open) .lg-desc { display: none; }
+.map-legend:not(.is-open) .lg-title { margin: 0; }
+@media (min-width: 761px) { .map-legend:not(.is-open) { padding: 8px 12px; } }
+@media (max-width: 760px) { .map-mode-pick { flex: 1; } .map-mode-pick .select { width: 100%; min-width: 0; } }
+/* プレビューの小さい吹き出し: 長い値は折り返して枠に収める */
+.hover-bubble.is-compact { max-width: min(340px, calc(100vw - 24px)); }
+.hb-compact { white-space: normal; flex-wrap: wrap; row-gap: 4px; }
+.hb-compact > b { white-space: nowrap; }
+.hb-compact .fact-chip { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.hb-compact .fact-chip > span:not(.sw):not(.sw-multi) { white-space: normal; overflow-wrap: anywhere; }
+.hb-compact .no-play-tag { margin-left: 0; }
+
+/* ---------- 比較タブ ---------- */
+.compare .cmp-title { font-size: 18px; margin: 0 8px 0 0; }
+.compare .cmp-pick { margin-bottom: 8px; }
+.compare .cmp-headrow { top: 0; background: var(--bg); padding-top: 4px; }
+/* ---------- 国の特徴クイズ ---------- */
+.quiz-setup.is-fact .cards-only { display: none; }
+.seg-wrap { flex-wrap: wrap; }
+.fact-card { align-items: center; justify-content: center; text-align: center; gap: 6px; }
+.fact-flag { width: min(220px, 50%); max-height: 46%; object-fit: contain; border-radius: 6px; box-shadow: 0 2px 10px rgba(0, 0, 0, .3); }
+.fact-country { font-size: clamp(24px, 5vw, 40px); font-weight: 900; }
+.fact-choices .choice { justify-content: flex-start; text-align: left; gap: 10px; }
+.fact-choices .choice .chev-sign { width: 48px; height: 32px; }
+.fact-choices .choice .sw, .fact-choices .choice .sw-multi { width: 34px; height: 20px; }
+.fact-wrong { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
+.fw-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; padding: 8px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.fw-country { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.fw-given { color: var(--ng); font-size: 13px; }
+.fw-right .pfact-body { margin: 0; }
+@media (max-width: 760px) { .fw-row { grid-template-columns: 1fr; gap: 4px; } }
+
+.sw-line { position: relative; display: inline-flex; align-items: center; justify-content: space-around; padding: 0 3px; }
+.sw-line i { display: block; width: 3px; height: 10px; border-radius: 1px; box-shadow: 0 0 0 .5px rgba(0,0,0,.4); }

@@ -3,6 +3,7 @@
 // シェブロン: GeoHints（https://geohints.com/meta/signs/chevrons）の国ごとの標識画像の色を読み取ったもの。
 //   「背景色 + 矢印の色」を 1 文字ずつで表す（Y 黄 / K 黒 / W 白 / R 赤 / B 青 / G 緑 / O オレンジ）。
 //   最初が地図で塗る代表（いちばん多い組み合わせ）、2 つ目以降はほかに見られる種類。
+//   背景と矢印の取り違えやすい国は Plonkit の各国ガイドの記述で確認・修正（エストニア・スペイン・オーストリアなど）。
 // ガードレール: Plonkit のヨーロッパのガードレール図（europeguardrail.png）と各国ガイドの記述から。
 // 電柱: Plonkit の各国ガイドの記述から、よく見る種類を 1〜2 つ。
 
@@ -11,15 +12,15 @@ export const PLONKIT_SRC = { name: 'Plonkit', url: 'https://www.plonkit.net/guid
 
 const CHEV_RAW = `
 BW:WR,YK SZ:WR GH:YK KE:YK LS:WR,YK NA:WR NG:KY,YR,WR RW:WR RE:BW SN:WB,WR ZA:WR,YK TN:BW UG:WK,YK,KW
-BD:WK KH:KY CX:KW HK:KW IN:OK,YK ID:OK IL:KW,WK JP:OK,YK,KY,WR,YR JO:WR KZ:WR,OK KG:WR LA:YK LB:BW,WR
-MO:YK MY:OK,YK MN:RW NP:KW OM:OK,YK PH:WR,WK,OK QA:KY,WB,RW,YR RU:RW SG:OK KR:OK,YK,WR LK:WR TW:OK TH:OK
-AE:WR,YR,WK VN:YK,WR
-AL:WR,KW AD:WB AT:WR,YR,RW BE:WR BA:WR BG:WR HR:WR,YR CY:WR CZ:WR,YR DK:WR EE:WR FO:WR FI:KY FR:BW,WR
+BD:WK KH:KY CX:KW HK:KW IN:OK,YK ID:OK IL:KW,WK JP:OK,YK,KY,WR,YR JO:WR KZ:YK,WR KG:WR LA:YK LB:BW,WR
+MO:YK MY:OK,YK MN:RW NP:KW OM:OK,YK PH:WR,WK,OK QA:RW,BW,KY,YR RU:RW SG:OK KR:OK,YK,WR LK:WR TW:OK TH:OK
+AE:WR,YR,WK VN:YK,RW
+AL:KW,WR AD:WB AT:RW,YR,WR BE:WR BA:WR BG:WR HR:WR,YR CY:WR CZ:WR,YR DK:WR EE:RW FO:WR FI:KY FR:BW,WR
 GE:RW DE:WR GI:OK GR:KW HU:RW,WR IS:KY IE:KY IM:KW IT:KW,RW JE:KW XK:WR,WK LV:WR LI:WK LT:WR LU:KY,WR,BY
-MT:KW MC:WR ME:YR,WK NL:WR MK:WR NO:KY PL:WR PT:KY RO:WR SM:YR RS:WK SK:WR SI:WR,WK ES:WK,BW,WR SE:BY,RO
+MT:KW MC:WR ME:YR,WK NL:WR MK:WR NO:KY PL:WR PT:KY RO:WR SM:YR RS:WK SK:WR SI:WR,WK ES:KW,BW SE:BY,RO
 CH:KW,WK TR:WR,KY UA:RW GB:KW BM:KW
 CA:YK,KY,WK,RW CR:OK CW:WR DO:OK GL:WR GT:YK MX:OK PA:WB,YK PR:OK US:YK,WK VI:OK
-AS:YK AU:OK,KW,WG,WK,GW,BY,YK GU:YK NZ:YK,KW,WK
+AS:YK AU:YK,KW,OK,WG,WK,GW,BY GU:YK NZ:YK,KW,WK
 AR:WR,WB BO:OK BR:KY CL:YK CO:OK,YK EC:YK PE:YK,OK UY:OK
 `;
 const C = { Y: 'yellow', K: 'black', W: 'white', R: 'red', B: 'blue', G: 'green', O: 'orange' };
@@ -104,4 +105,41 @@ export const POLE_DATA = {
   MX: p(['octagonal'], 'コロンビアでも八角形が多い'), PH: p(['metal', 'indent'], '八角形の鉄柱が多い'),
   TR: p(['metal'], 'はしご状・格子状の鉄柱がとても多い'), LB: p(['metal', 'wood'], '格子状の鉄柱を黄色に塗ることも'), IL: p(['metal'], '根元が黒白の縞。格子状の柱'),
   BT: p(['metal'], '細い鉄柱'), NL: p(['none'], '街なかの電柱はほぼない'), DK: p(['none'], '街なかの電柱は少ない'),
+  // GeoHints の電柱の写真から判断（Plonkit に記述のない国。POLE_PHOTO）
+  BA: p(['round'], '写真から判断'), BD: p(['square'], '写真から判断'), BW: p(['wood'], '写真から判断'), CH: p(['wood'], '写真から判断'),
+  CO: p(['round'], '黒黄・黒オレンジの縞の印。暗い色の柱も多い'), CR: p(['round'], '横木が低く、碍子が片側 1・反対側 2 のことが多い'), CX: p(['wood'], '写真から判断'),
+  FO: p(['round'], '写真から判断'), GL: p(['metal'], '写真から判断'), IS: p(['wood'], '写真から判断（H 形の木製）'), KR: p(['round'], '根元に黒と黄の斜めの縞。先がとがった頂部'),
+  LI: p(['wood'], '写真から判断'), LS: p(['wood'], '写真から判断'), LU: p(['round'], '逆さの三叉の頂部が多い'), LV: p(['round'], '鉤形の碍子が左右交互に並ぶ'),
+  MG: p(['ladder'], '写真から判断'), ML: p(['ladder'], '写真から判断'), MT: p(['wood'], '写真から判断'), MY: p(['round'], '黒いステッカー（ボルネオのサラワクは白）'),
+  NO: p(['wood'], '写真から判断'), PE: p(['round'], '下の方を塗った柱。北部は黄色の縦の番号'), PM: p(['ladder'], 'フランスと同じ'), PR: p(['square'], '四角い柱は南北アメリカでは珍しい'),
+  PY: p(['ladder'], 'ブラジルに似たはしご状'), RS: p(['wood', 'metal'], '写真から判断'), RW: p(['round', 'wood'], '写真から判断'), SE: p(['wood'], '写真から判断'),
+  SI: p(['wood'], 'A 字形の木製も'), TN: p(['round'], '写真から判断'), TW: p(['round'], '根元から黒と黄の斜めの縞。青い座標プレート'), UG: p(['wood'], '写真から判断'),
+  UY: p(['round'], '碍子 3 つが上を向く「三叉」の頂部'), ZA: p(['round', 'wood'], '横棒に白い碍子が並ぶ「バードポール」'),
 };
+
+// ---- 道路の線（GeoHints https://geohints.com/meta/lines の国別データ）
+// yw: 外側の線が黄・中央線が白 / ww: 外側白・中央白 / wy: 外側白・中央黄 / yy: 外側黄・中央黄 / wwy: 外側白・中央は白と黄
+export const LINE_SRC = { name: 'GeoHints', url: 'https://geohints.com/meta/lines' };
+export const LINE_TYPES = [
+  { id: 'ww', name: '外側 白・中央 白', color: '#e9ecef', edge: '#ffffff', center: '#ffffff' },
+  { id: 'wy', name: '外側 白・中央 黄', color: '#fab005', edge: '#ffffff', center: '#fcc419' },
+  { id: 'yw', name: '外側 黄・中央 白', color: '#4dabf7', edge: '#fcc419', center: '#ffffff' },
+  { id: 'yy', name: '外側 黄・中央 黄', color: '#e8590c', edge: '#fcc419', center: '#fcc419' },
+  { id: 'wwy', name: '外側 白・中央 白と黄', color: '#9775fa', edge: '#ffffff', center: '#fcc419' },
+];
+const LINE_RAW = `AD:ww AE:yw,yy AL:ww,wy AR:ww,wy,wwy AS:wy AT:ww,wy AU:yw,ww,yy BA:ww BD:ww BE:ww BG:ww BO:ww,wy BR:ww,wy,yy BT:ww BW:yw CA:wy CH:yw,ww CL:yw,ww,wy,yy CO:wy CR:wy CW:ww CX:ww CY:ww CZ:ww DE:ww DK:ww DO:wy EC:wy EE:ww EG:ww ES:yw,ww,wy FI:ww,wy,wwy FO:ww FR:yw,ww,wwy GB:yw,ww GE:ww GH:ww GI:yw,ww GL:ww GR:ww,wy GT:wy GU:wy HR:ww HU:yw,ww ID:ww,wy,yy IE:yw IL:yw IM:yw,ww IN:yw,ww,yy IS:ww IT:ww JE:yw JO:yw JP:ww,wy,wwy KE:ww,wy KG:ww KH:wy KR:ww,wy,yy KZ:yw,ww LA:ww LB:wy LI:ww LK:yw,ww LS:yw LT:yw,ww LU:ww LV:ww MC:ww ME:yw,ww MG:ww MK:ww,yy MN:ww MP:wy MT:ww MX:yw,ww,wy MY:yw,ww NA:yw NG:yw NL:ww NO:wy NP:yw NZ:yw,ww,wy,yy,wwy OM:yw,yy PA:wy PE:ww,wy PH:ww,wy,wwy PL:ww PR:wy PS:yw PT:yw,ww PY:wy QA:ww,wy RE:ww RO:ww,yy RS:ww RU:yw,ww,wy RW:ww,wy SE:ww SG:yw,ww SI:ww SK:ww SM:ww SN:ww ST:ww SZ:yw TH:wy TN:ww TR:yw,ww,wy,yy,wwy TW:wy,yy UA:ww UG:ww,wy US:wy UY:ww,wwy VN:ww,wy,wwy XK:ww ZA:yw`;
+export const LINE_DATA = Object.fromEntries(LINE_RAW.split(' ').map((x) => { const [c, t] = x.split(':'); return [c, { types: t.split(',') }]; }));
+
+// ---- Google カーのカメラ世代（GeoHints https://geohints.com/meta/cameraGens）
+// 1〜4: Gen 1〜4 / b: Bad Cam / l: Low Cam / s: Small Cam / t: トレッカー
+export const CAM_SRC = { name: 'GeoHints', url: 'https://geohints.com/meta/cameraGens' };
+const CAM_RAW = `AD:23t AE:34t AF:t AL:3s AR:34st AS:3t AT:234blst AU:1234t AX:23t BA:4s BD:34bt BE:234st BG:34bt BM:3t BO:34t BR:234st BT:3 BW:3 BY:3t BZ:t CA:1234st CC:3t CH:234lst CL:34t CN:t CO:34t CR:4t CW:3t CX:3t CY:bs CZ:234bst DE:234blst DK:234bst DO:3 EC:34bt EE:34bt EG:t ES:234bst FI:234bst FK:t FO:34t FR:1234blst GB:234bst GE:4s GH:34st GI:3 GL:3t GM:4 GR:234bst GS:t GT:3t GU:3t GY:3 HK:234t HR:34bt HU:234t ID:34t IE:234bst IL:234t IM:2t IN:3bst IQ:t IS:34t IT:1234blst JE:2 JO:3t JP:1234lt KE:34t KG:3t KH:3bt KR:23t KZ:34 LA:3t LB:blt LI:4bl LK:34bl LS:3 LT:34bt LU:234st LV:34bt MC:1234st ME:3s MG:3t MK:3s ML:t MM:t MN:34t MO:2 MP:3t MT:34t MX:1234t MY:34t NA:4 NG:34bt NI:4 NL:234st NO:234bst NP:bt NZ:1234t OM:4 PA:4 PE:34st PH:34t PK:3t PL:234bst PN:t PR:3st PS:34t PT:234bst PY:34s QA:4t RO:234bt RS:34s RU:234t RW:4 SE:234bst SG:234t SI:234bst SK:34bst SM:234t SN:34t ST:b SY:3 SZ:3 TH:34t TN:3t TR:34st TW:234t TZ:34t UA:3 UG:3t US:1234bst UY:34st VE:34s VI:3t VN:34bt VU:t XK:4s ZA:234st`;
+export const CAM_DATA = Object.fromEntries(CAM_RAW.split(' ').map((x) => { const [c, f] = x.split(':'); return [c, f]; }));
+
+// ---- 雪のカバレッジ（GeoHints https://geohints.com/meta/snow）o: 屋外 / i: 屋内のみ / b: 屋外と屋内
+export const SNOW_SRC = { name: 'GeoHints', url: 'https://geohints.com/meta/snow' };
+const SNOW_RAW = `AD:o AE:i AR:o AT:o AU:o BA:o BE:o BG:o BO:o CA:o CH:o CL:o CO:o CY:o CZ:o DE:o DK:o EC:o EE:o ES:o FI:o FO:o FR:o GB:o GE:o GL:o GR:o GS:o HR:o HU:o IE:o IN:o IS:o IT:o JP:o KG:o KR:o KZ:o LB:o LT:o LU:o LV:o MK:o MN:o MX:o NL:o NO:o NP:o NZ:o PE:o PL:o PT:o RO:o RS:o RU:b SE:o SI:o SK:o SM:o TR:o TW:o TZ:o UA:o US:o XK:o ZA:o`;
+export const SNOW_DATA = Object.fromEntries(SNOW_RAW.split(' ').map((x) => x.split(':')));
+
+// 電柱のうち、GeoHints の写真から種類を判断した国（出典の表示用）
+export const POLE_PHOTO = new Set('BA BD BW CH CO CR CX FO GL IS KR LI LS LU LV MG ML MT MY NO PE PM PR PY RS RW SE SI TN TW UG UY ZA'.split(' '));
