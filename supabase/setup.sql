@@ -132,13 +132,16 @@ create policy "card-images: insert" on storage.objects for insert to authenticat
 create policy "card-images: update" on storage.objects for update to authenticated using (bucket_id = 'card-images' and public.is_editor());
 create policy "card-images: delete" on storage.objects for delete to authenticated using (bucket_id = 'card-images' and public.is_editor());
 
--- ========== メモのリアルタイム配信（ほかの端末で書いたメモを即座に表示） ==========
+-- ========== リアルタイム配信（ほかの端末での変更を即座に表示: メモ・カード・カテゴリー・国のメモ） ==========
 do $$
+declare t text;
 begin
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'memos'
-  ) then
-    alter publication supabase_realtime add table public.memos;
-  end if;
+  foreach t in array array['memos', 'cards', 'categories', 'country_notes'] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
 end $$;

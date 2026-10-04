@@ -41,6 +41,13 @@ let lastView = null; // 再描画時に表示位置を保つ
 let category = 'all';
 let renderSeq = 0;
 let escHandler = null; // 地図で国を選んでいるとき Esc で解除
+let currentFocus = null; // 選んでいる国（データ更新で描き直すときに引き継ぐ）
+let restoreFocus = null;
+// カードが更新されたときの描き直し: 表示位置に加えて、選んでいる国もそのまま
+export function refreshMap(view, ctx) {
+  restoreFocus = currentFocus;
+  return renderMap(view, ctx);
+}
 let notesHandler = null; // 国のメモが変わったら右パネルを描き直す
 window.addEventListener('geo:notes', () => notesHandler && notesHandler());
 let bubbleEl = null;
@@ -426,6 +433,7 @@ export async function renderMap(view, ctx) {
     const prev = focused;
     if (prev !== code) focusCat = null;
     focused = code;
+    currentFocus = code;
     restyle(prev);
     restyle(code);
     refreshThumbs();
@@ -892,6 +900,9 @@ export async function renderMap(view, ctx) {
     if (anim) map.once('moveend', () => { if (document.activeElement === ms) origin = { center: map.getCenter(), zoom: map.getZoom() }; });
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
+  currentFocus = null;
+  if (restoreFocus && bounds.has(restoreFocus)) { setFocused(restoreFocus); renderPanel(); }
+  restoreFocus = null;
 
   // 精細な国境データを裏で読み込み、届いたら差し替える（選択・強調・ホバーの状態は引き継ぐ）
   loadWorld('10m').then((w10) => {

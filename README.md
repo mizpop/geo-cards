@@ -115,6 +115,7 @@ js/chat.js              チャット形式のメモ
 js/image.js             画像の圧縮・クリップボード
 supabase/setup.sql      テーブル・RLS・ストレージの初期設定
 supabase/add-editor.sql 編集者の登録
+supabase/realtime-cards.sql カードの変更をリアルタイムで反映する設定（既存の環境に追加）
 ```
 
 画像はアップロード時に、長辺 1600px の WebP に圧縮されます（1 枚あたり約 100〜250KB）。無料枠のストレージ 1GB で、数千枚を保存できます。

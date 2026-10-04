@@ -156,6 +156,15 @@ function createSupabaseApi(sb) {
         .subscribe();
       return () => sb.removeChannel(ch);
     },
+    // カード・カテゴリー・国のメモが誰かに変更されたら通知（Supabase Realtime）。戻り値は購読解除の関数
+    subscribeCards(handler) {
+      const ch = sb.channel('cards-changes');
+      for (const table of ['cards', 'categories', 'country_notes']) {
+        ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => handler(table));
+      }
+      ch.subscribe();
+      return () => sb.removeChannel(ch);
+    },
 
     // 国ごとのメモ: Map(code -> note)
     async listCountryNotes() {
@@ -271,6 +280,12 @@ function createDemoApi() {
     // デモ: 同じブラウザの別タブでの変更を通知
     subscribeMemos(handler) {
       const onStorage = (e) => { if (e.key === MEMOS_KEY) handler('RELOAD'); };
+      window.addEventListener('storage', onStorage);
+      return () => window.removeEventListener('storage', onStorage);
+    },
+    subscribeCards(handler) {
+      const keys = { [KEY]: 'cards', [CAT_KEY]: 'categories', [NOTES_KEY]: 'country_notes' };
+      const onStorage = (e) => { if (keys[e.key]) handler(keys[e.key]); };
       window.addEventListener('storage', onStorage);
       return () => window.removeEventListener('storage', onStorage);
     },

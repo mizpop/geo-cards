@@ -3,7 +3,7 @@ import { initApi } from './api.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, plonkitUrl } from './map.js';
+import { renderMap, refreshMap, plonkitUrl } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 
@@ -300,7 +300,52 @@ async function enterApp() {
   initChat({ api, user: state.user, toast });
   await reloadCards();
   route();
+  startLive();
 }
+
+/* ---- ほかの人によるカードの追加・編集・削除をリアルタイムで反映 ----
+   変更の通知が来たらデータを読み直し、今の画面を描き直す。
+   ただし操作の邪魔になるとき（クイズの出題中・入力欄に入力中・マウスのボタンを押している間）は待ってから反映する */
+const live = { unsub: null, timer: null, dirty: false, busy: false, pressed: false };
+function startLive() {
+  live.unsub?.();
+  live.unsub = api.subscribeCards ? api.subscribeCards(() => {
+    // 続けて届く通知（まとめて読み込んだときなど）は 1 回にまとめる
+    clearTimeout(live.timer);
+    live.timer = setTimeout(() => { live.dirty = true; flushLive(); }, 700);
+  }) : null;
+}
+function stopLive() {
+  live.unsub?.();
+  live.unsub = null;
+  clearTimeout(live.timer);
+  live.dirty = false;
+}
+function liveBlocked() {
+  if (live.pressed) return true;
+  if (state.view === 'quiz' && state.quiz.phase !== 'setup') return true; // 出題中は問題のカードを入れ替えない
+  const a = document.activeElement;
+  return !!(a && a.closest('#view') && a.matches('input, textarea, select'));
+}
+async function flushLive() {
+  if (!live.dirty || live.busy || !state.user || liveBlocked()) return;
+  live.dirty = false;
+  live.busy = true;
+  try {
+    await reloadCards();
+    if (!state.user) return;
+    if (state.view === 'map') refreshMap($('#view'), mapCtx); // 表示位置・選んでいる国はそのまま
+    else render();
+    window.dispatchEvent(new Event('geo:notes'));
+  } finally {
+    live.busy = false;
+  }
+  if (live.dirty) flushLive();
+}
+document.addEventListener('pointerdown', () => { live.pressed = true; }, true);
+document.addEventListener('pointerup', () => { live.pressed = false; setTimeout(flushLive, 0); }, true);
+document.addEventListener('pointercancel', () => { live.pressed = false; }, true);
+document.addEventListener('focusout', () => setTimeout(flushLive, 0));
 
 async function reloadCards() {
   try {
@@ -334,6 +379,7 @@ function bindGlobal() {
   $('#logout-btn').addEventListener('click', async () => {
     await api.logout();
     teardownChat();
+    stopLive();
     state.user = null;
     state.cards = [];
     showLogin();
@@ -400,6 +446,7 @@ function render() {
     console.error(e);
     $('#view').innerHTML = `<div class="empty"><p>画面の表示中にエラーが起きました。</p><pre class="err-pre">${esc(e.stack || e.message)}</pre><p class="muted small">Ctrl + Shift + R で強制再読み込みすると直ることがあります</p></div>`;
   }
+  if (live.dirty) setTimeout(flushLive, 0); // 待たせていた更新（クイズが終わった後など）
 }
 
 function renderView() {
@@ -1128,7 +1175,7 @@ function renderQuizResult() {
   const retry = $('#q-retry');
   if (retry) retry.addEventListener('click', () => startQuiz(wrong.map((w) => cardById(w.cardId)).filter(Boolean)));
   $('#q-again').addEventListener('click', () => startQuiz(quizEligible(q.regions)));
-  $('#q-setup').addEventListener('click', () => { q.phase = 'setup'; renderQuiz(); });
+  $('#q-setup').addEventListener('click', () => { q.phase = 'setup'; renderQuiz(); setTimeout(flushLive, 0); });
 }
 
 /* ================= 検索 ================= */
