@@ -144,7 +144,7 @@ const SNOW_CLASSES = { o: { name: '屋外で雪の景色あり', color: '#74c0fc
 // ボラードの小さな絵（本体と帯の色）
 function bollardSvg(t) {
   const striped = !!t.stripes;
-  return `<svg class="bollard-sign" viewBox="0 0 14 24" width="12" height="22" aria-hidden="true"><rect x="2" y="1" width="10" height="22" rx="2" fill="${t.body}" stroke="rgba(0,0,0,.4)"/>${striped
+  return `<svg class="bollard-sign" viewBox="0 0 14 24" width="12" height="22" aria-hidden="true">${t.bg ? `<rect width="14" height="24" rx="3" fill="${t.bg}"/>` : ''}<rect x="2" y="1" width="10" height="22" rx="2" fill="${t.body}" stroke="rgba(0,0,0,.4)"/>${striped
     ? [3, 9, 15].map((y) => `<rect x="2" y="${y}" width="10" height="3" fill="${t.band}"/>`).join('')
     : `<rect x="2" y="3" width="10" height="5" fill="${t.band}"/>`}</svg>`;
 }
@@ -247,12 +247,12 @@ export function ensurePatterns(svg, mode, codes) {
       const fg = chevColor(c.value.fg).hex;
       html += `<pattern id="${c.pattern}" class="info-pat" data-base="" patternUnits="userSpaceOnUse" width="20" height="18"><rect width="20" height="18" fill="${bg}"/><path d="M6 3l6 6-6 6" fill="none" stroke="${fg}" stroke-width="3"/></pattern>`;
     } else if (c.bollard) {
+      // 種類ごとの地の色に、ボラードを間隔を空けて斜めに並べる（2 本目は右下にずらす）
       const t = c.bollard;
-      // 白っぽいボラードは暗い地、黒っぽいボラードは明るい地に
-      const dark = ['#343a40', '#1864ab', '#212529'].includes(t.body);
-      const bg = dark ? '#dee2e6' : '#3d444b';
-      const bands = t.stripes ? [5, 11, 17].map((y) => `<rect x="5" y="${y}" width="6" height="3" fill="${t.band}"/>`).join('') : `<rect x="5" y="5" width="6" height="4" fill="${t.band}"/>`;
-      html += `<pattern id="${c.pattern}" class="info-pat" data-base="" patternUnits="userSpaceOnUse" width="16" height="26"><rect width="16" height="26" fill="${bg}"/><rect x="5" y="3" width="6" height="20" rx="1.5" fill="${t.body}" stroke="rgba(0,0,0,.45)" stroke-width=".6"/>${bands}</pattern>`;
+      const one = (x, y) => `<rect x="${x}" y="${y}" width="6" height="16" rx="1.5" fill="${t.body}" stroke="rgba(0,0,0,.5)" stroke-width=".6"/>${t.stripes
+        ? [2, 7, 12].map((dy) => `<rect x="${x}" y="${y + dy}" width="6" height="2.5" fill="${t.band}"/>`).join('')
+        : `<rect x="${x}" y="${y + 2}" width="6" height="3.5" fill="${t.band}"/>`}`;
+      html += `<pattern id="${c.pattern}" class="info-pat" data-base="" patternUnits="userSpaceOnUse" width="30" height="40"><rect width="30" height="40" fill="${t.bg || '#495057'}"/>${one(5, 2)}${one(20, 22)}</pattern>`;
     } else {
       const [a, b] = c.colors;
       html += `<pattern id="${c.pattern}" class="info-pat" data-base="rotate(45)" patternUnits="userSpaceOnUse" width="14" height="14" patternTransform="rotate(45)"><rect width="7" height="14" fill="${a}"/><rect x="7" width="7" height="14" fill="${b}"/></pattern>`;

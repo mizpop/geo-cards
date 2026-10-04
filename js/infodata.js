@@ -173,22 +173,23 @@ export const PLATE_DATA = Object.fromEntries(PLATE_RAW.trim().split(/\s+/).map((
 // ---- ボラード（GeoHints https://geohints.com/meta/bollards の写真から、本体と帯の色でおおまかに分類）
 // 反射板の形や色など細かい違いは国ごとに異なるので、写真で確認してください
 export const BOLLARD_SRC = { name: 'GeoHints（写真）', url: 'https://geohints.com/meta/bollards' };
+// bg: 地図でイラストを敷き詰めるときの地の色（種類ごとに違う色）
 export const BOLLARD_TYPES = [
-  { id: 'wk', name: '白・黒い帯（反射板つき・ヨーロッパ型）', color: '#868e96', body: '#f8f9fa', band: '#212529' },
-  { id: 'wr', name: '白・赤い帯や反射板', color: '#e03131', body: '#f8f9fa', band: '#e03131' },
-  { id: 'wy', name: '白・黄色い帯', color: '#fcc419', body: '#f8f9fa', band: '#fcc419' },
-  { id: 'wg', name: '白・緑の帯', color: '#2f9e44', body: '#f8f9fa', band: '#2f9e44' },
-  { id: 'wb', name: '白・青い印', color: '#1c7ed6', body: '#f8f9fa', band: '#1c7ed6' },
-  { id: 'w', name: '白（帯なし・小さな反射板）', color: '#f1f3f5', body: '#f8f9fa', band: '#dee2e6' },
-  { id: 'skw', name: '黒白の縞', color: '#495057', body: '#f8f9fa', band: '#212529', stripes: ['#f8f9fa', '#212529'] },
-  { id: 'srw', name: '赤白の縞', color: '#fa5252', body: '#f8f9fa', band: '#e03131', stripes: ['#f8f9fa', '#e03131'] },
-  { id: 'syk', name: '黄黒の縞', color: '#fab005', body: '#fcc419', band: '#212529', stripes: ['#fcc419', '#212529'] },
-  { id: 'y', name: '黄色', color: '#ffd43b', body: '#ffd43b', band: '#fab005' },
-  { id: 'sy', name: '灰色・黄色い帯', color: '#adb5bd', body: '#adb5bd', band: '#fcc419' },
-  { id: 'k', name: '黒・濃い色', color: '#212529', body: '#343a40', band: '#495057' },
-  { id: 'b', name: '青', color: '#1864ab', body: '#1864ab', band: '#e03131' },
-  { id: 'r', name: '赤・オレンジ', color: '#c92a2a', body: '#e8590c', band: '#c92a2a' },
-  { id: 'c', name: 'コンクリートの塊', color: '#c2a878', body: '#e9ecef', band: '#868e96' },
+  { id: 'wk', name: '白・黒い帯（反射板つき・ヨーロッパ型）', color: '#868e96', body: '#f8f9fa', band: '#212529', bg: '#868e96' },
+  { id: 'wr', name: '白・赤い帯や反射板', color: '#e03131', body: '#f8f9fa', band: '#e03131', bg: '#a61e1e' },
+  { id: 'wy', name: '白・黄色い帯', color: '#fcc419', body: '#f8f9fa', band: '#fcc419', bg: '#d9480f' },
+  { id: 'wg', name: '白・緑の帯', color: '#2f9e44', body: '#f8f9fa', band: '#2f9e44', bg: '#2b8a3e' },
+  { id: 'wb', name: '白・青い印', color: '#1c7ed6', body: '#f8f9fa', band: '#1c7ed6', bg: '#1864ab' },
+  { id: 'w', name: '白（帯なし・小さな反射板）', color: '#f1f3f5', body: '#f8f9fa', band: '#dee2e6', bg: '#5c636a' },
+  { id: 'skw', name: '黒白の縞', color: '#495057', body: '#f8f9fa', band: '#212529', stripes: ['#f8f9fa', '#212529'], bg: '#e8590c' },
+  { id: 'srw', name: '赤白の縞', color: '#fa5252', body: '#f8f9fa', band: '#e03131', stripes: ['#f8f9fa', '#e03131'], bg: '#862e9c' },
+  { id: 'syk', name: '黄黒の縞', color: '#fab005', body: '#fcc419', band: '#212529', stripes: ['#fcc419', '#212529'], bg: '#0b7285' },
+  { id: 'y', name: '黄色', color: '#ffd43b', body: '#ffd43b', band: '#fab005', bg: '#3b5bdb' },
+  { id: 'sy', name: '灰色・黄色い帯', color: '#adb5bd', body: '#adb5bd', band: '#fcc419', bg: '#5f3dc4' },
+  { id: 'k', name: '黒・濃い色', color: '#212529', body: '#343a40', band: '#495057', bg: '#ced4da' },
+  { id: 'b', name: '青', color: '#1864ab', body: '#1864ab', band: '#e03131', bg: '#a5d8ff' },
+  { id: 'r', name: '赤・オレンジ', color: '#c92a2a', body: '#e8590c', band: '#c92a2a', bg: '#ffc9c9' },
+  { id: 'c', name: 'コンクリートの塊', color: '#c2a878', body: '#e9ecef', band: '#868e96', bg: '#8d6e4f' },
 ];
 const BOLLARD_RAW = `
 GH:wr KE:c LS:srw NA:wy NG:wk RW:wr RE:wk SN:wr TN:wb UG:w BD:wr BT:c KH:wr CX:wr CC:b IN:skw ID:skw IL:wk JP:srw
