@@ -128,6 +128,7 @@ const DEFAULT_SETTINGS = {
   showDesc: true, // 表面に説明文を表示（暗記・クイズ）
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
+  cardSort: 'new', // 編集画面・検索結果の並び順（CARD_SORTS）
   mapTiles: 'en', // 地図の背景: en（国名・地名が英語表記）/ osm（OpenStreetMap・現地の言語）
   studySplit: false,
   mapMode: 'cards', // 地図の表示: カード / シェブロン / ガードレール / 通行 / 文字 / 苦手 // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
@@ -466,13 +467,15 @@ function bindGlobal() {
   let rightPressInModal = false;
   document.addEventListener('pointerdown', (e) => { if (e.button === 2) rightPressInModal = !!e.target.closest?.('#modal'); }, true);
   modal.addEventListener('contextmenu', (e) => {
-    if (!modalCurrent) return; // 編集画面などでは通常の右クリックメニュー
+    if (!modalCurrent || modalCurrent.kind === 'editor') return; // 編集画面などでは通常の右クリックメニュー
     if (!rightPressInModal) { e.preventDefault(); return; } // 詳細の外で押した右ボタンを離しただけ
     if (e.target.closest('a, input, textarea')) return; // リンクや入力欄はブラウザのメニューを使えるように
     e.preventDefault();
     if (modalStack.length) modalBack();
     else closeModal();
   });
+  // Esc（ダイアログの cancel）: 編集の途中で詳細を開いていたら、編集の画面へ戻る
+  modal.addEventListener('cancel', (e) => { if (returnToEditor()) e.preventDefault(); });
   // close イベントは非同期に届くため、閉じた直後に別の画面（編集など）を開いた場合は片付けない
   modal.addEventListener('close', () => {
     if (modal.open) return;
@@ -594,8 +597,8 @@ function onKeydown(e) {
   // 検索（初期設定は Ctrl+F。Ctrl+K でも）: 組み合わせキーなら入力中でもどこからでも開閉
   if (state.user && ((mod && act === 'search') || ((e.ctrlKey || e.metaKey) && e.code === 'KeyK')) && !$('dialog.viewer[open]')) {
     e.preventDefault();
-    if ($('#spotlight').open) closeSpotlight();
-    else if (!$('#modal').open) openSpotlight();
+    if (spotOnTop()) closeSpotlight();
+    else { if ($('#spotlight').open) $('#spotlight').close(); openSpotlight(); } // カード・国の詳細や編集中でも、その手前に開く
     return;
   }
   // タブへ直接移動（初期設定は Ctrl+1〜4）: 組み合わせキーなら入力中でも
@@ -620,9 +623,14 @@ function onKeydown(e) {
   // Ctrl+K / ⌘+K / 「/」でも検索を開く
   if ((e.key === '/' && !$('dialog[open]')) ) { e.preventDefault(); openSpotlight(); return; }
 
+  // 検索パネル（カード・国の詳細や編集の手前に開いているとき）
+  if ($('#spotlight').open && spotOnTop()) {
+    if (act === 'back' || act === 'search') { e.preventDefault(); closeSpotlight(); }
+    return;
+  }
   // カード詳細・国の詳細
   if ($('#modal').open) {
-    if (!modalCurrent) return; // 編集・設定などの画面では無効
+    if (!modalCurrent || modalCurrent.kind === 'editor') return; // 編集・設定などの画面では無効
     const card = modalCurrent.kind === 'card' ? cardById(modalCurrent.id) : null;
     if (act === 'back') { e.preventDefault(); if (modalStack.length) modalBack(); else closeModal(); }
     else if (modalCurrent.kind === 'photo' && (e.key === 'ArrowLeft' || act === 'prev')) { e.preventDefault(); stepPhoto(-1); }
@@ -729,12 +737,27 @@ let modalStack = [];
 let modalCurrent = null;
 
 function navModal(entry) {
-  // モーダルでカード詳細・国情報を表示中なら履歴に積む。それ以外は新しく開く
-  if ($('#modal').open && modalCurrent) modalStack.push(modalCurrent);
-  else modalStack = [];
+  const m = $('#modal');
+  // 検索パネルを詳細・編集の手前に開いていたら、閉じてから詳細を表示（奥の画面に描くため）
+  if ($('#spotlight').open && m.open && spotOverModal) $('#spotlight').close();
+  // モーダルでカード詳細・国情報・編集を表示中なら履歴に積む。それ以外は新しく開く
+  if (m.open && modalCurrent) {
+    // 編集中の画面は、入力内容ごと（DOM のまま）取っておいて「戻る」で元に戻す
+    if (modalCurrent.kind === 'editor') Object.assign(modalCurrent, { node: m.firstElementChild, cls: m.className, paste: modalPasteHandler });
+    modalStack.push(modalCurrent);
+  } else modalStack = [];
   showNav(entry);
 }
 function showNav(entry) {
+  if (entry.kind === 'editor') {
+    const m = $('#modal');
+    m.className = entry.cls;
+    m.style.removeProperty('--cat');
+    m.replaceChildren(entry.node);
+    modalPasteHandler = entry.paste;
+    modalCurrent = entry;
+    return;
+  }
   if (entry.kind === 'card') {
     const card = cardById(entry.id);
     if (!card) { closeModal(); return; }
@@ -753,7 +776,7 @@ function modalBack() {
 function backBtnHtml() {
   const prev = modalStack[modalStack.length - 1];
   if (!prev) return '';
-  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : 'カード';
+  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
   return `<button class="btn btn-ghost btn-sm modal-back" id="modal-back" type="button">← ${esc(label)}</button>`;
 }
 function bindModalNav() {
@@ -1272,12 +1295,23 @@ function openModal(html, cls = '', nav = false) {
   m.innerHTML = `<div class="modal-inner">${html}</div>`;
   modalPasteHandler = null;
   $$('[data-close]', m).forEach((b) => b.addEventListener('click', closeModal));
-  if (!m.open) m.showModal();
+  if (!m.open) { m.showModal(); spotOverModal = false; }
   raiseChat(); // メモのボタン・欄をモーダルの手前に
 }
 function closeModal() {
   const m = $('#modal');
+  if (m.open && returnToEditor()) return;
   if (m.open) m.close();
+}
+// 編集中に検索などで詳細を開いていたら、閉じる代わりに編集の画面へ戻る（入力内容を失わないように）
+function returnToEditor() {
+  if (!modalCurrent || modalCurrent.kind === 'editor') return false;
+  const i = modalStack.findIndex((x) => x.kind === 'editor');
+  if (i < 0) return false;
+  const entry = modalStack[i];
+  modalStack = modalStack.slice(0, i);
+  showNav(entry);
+  return true;
 }
 
 function emptyState(msg) {
@@ -2384,6 +2418,24 @@ function matchCards(query) {
   return [...byCountry, ...byText];
 }
 
+// 編集画面・検索結果の並び順
+const CARD_SORTS = [
+  ['new', '新しい順'], ['old', '古い順'], ['edited', '最近編集した順'], ['cat', 'カテゴリー順'], ['country', '国名順'],
+];
+const timeOf = (t) => (t ? Date.parse(t) || 0 : 0);
+function sortCards(list, by = settings.cardSort) {
+  const out = [...list];
+  const catIndex = new Map(allCats().map((c, i) => [c.id, i]));
+  const byNew = (a, b) => timeOf(b.created_at) - timeOf(a.created_at);
+  if (by === 'old') out.sort((a, b) => -byNew(a, b));
+  else if (by === 'edited') out.sort((a, b) => timeOf(b.updated_at || b.created_at) - timeOf(a.updated_at || a.created_at));
+  else if (by === 'cat') out.sort((a, b) => (catIndex.get(catKey(a)) ?? 999) - (catIndex.get(catKey(b)) ?? 999) || byNew(a, b));
+  else if (by === 'country') out.sort((a, b) => countryName(a.countries[0]).localeCompare(countryName(b.countries[0]), 'ja') || byNew(a, b));
+  else out.sort(byNew);
+  return out;
+}
+const sortSelectHtml = (id) => `<select class="select select-sm sort-select" id="${id}" aria-label="並び順" title="並び順">${CARD_SORTS.map(([v, label]) => `<option value="${v}" ${settings.cardSort === v ? 'selected' : ''}>↕ ${label}</option>`).join('')}</select>`;
+
 // 文に一致したカードのタイルに、一致した部分の前後を抜き出して表示
 function textSnippet(card, query) {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -2429,7 +2481,7 @@ function openSpotlight() {
         </div>
       </div>
       <div class="spot-results" id="search-results"></div>
-      <div class="spot-foot muted">↑↓←→ で選択・Enter で開く・Esc で閉じる</div>
+      <div class="spot-foot muted">↑↓←→ で選択・Enter で開く・Ctrl+Enter で Plonkit・Alt+Enter で国の詳細・Esc で閉じる</div>
     </div>`;
   const input = $('#search-input', sp);
   const syncChips = () => $$('.spot-regions [data-q]', sp).forEach((b) => b.classList.toggle('on', b.dataset.q === s.q));
@@ -2438,6 +2490,18 @@ function openSpotlight() {
   const drawGhost = attachInlineComplete(input);
   input.addEventListener('input', () => { s.q = input.value; renderSearchResults(); syncChips(); });
   input.addEventListener('keydown', (e) => {
+    // 地図と同じ: Ctrl+Enter で Plonkit、Alt+Enter で国の詳細（入力した国名から）
+    if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey || e.altKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const code = resolveCountryCode(input.value);
+      if (!code) { toast('国が見つかりません', 'error'); return; }
+      if (e.altKey) { openCountryInfo(code, input); return; }
+      const url = plonkitUrl(code);
+      if (!url) { toast(`${countryName(code)} の Plonkit ガイドはありません`, 'error'); return; }
+      setTimeout(() => { const w = window.open(url, '_blank'); if (w) { w.opener = null; w.focus(); } }, 0);
+      return;
+    }
     if (e.key === 'ArrowDown' || (e.key === 'Enter' && !e.isComposing)) {
       const first = $('.spot-results .tile', sp);
       if (first) { e.preventDefault(); first.focus(); }
@@ -2472,7 +2536,7 @@ function openSpotlight() {
   renderSearchResults();
   drawGhost();
   sp.classList.remove('closing');
-  if (!sp.open) sp.showModal();
+  if (!sp.open) { sp.showModal(); spotOverModal = $('#modal').open; }
   raiseChat();
   input.focus();
   input.select();
@@ -2612,6 +2676,10 @@ function makeHScroll(row) {
   requestAnimationFrame(update);
 }
 
+// 検索パネルを、開いているカード・国の詳細（#modal）の手前に開いたか
+let spotOverModal = false;
+const spotOnTop = () => $('#spotlight').open && (spotOverModal || !$('#modal').open);
+
 function closeSpotlight() {
   const sp = $('#spotlight');
   if (!sp.open || sp.classList.contains('closing')) return;
@@ -2622,14 +2690,15 @@ function closeSpotlight() {
 
 function renderSearchResults() {
   const { q, cat } = state.search;
-  const list = matchCards(q).filter((c) => !cat || catKey(c) === cat);
+  const list = sortCards(matchCards(q).filter((c) => !cat || catKey(c) === cat));
   const catName = cat ? allCats().find((c) => c.id === cat)?.name : '';
   const cond = [q.trim() && `「${esc(q.trim())}」`, catName && `カテゴリー: ${esc(catName)}`].filter(Boolean).join(' / ');
   const label = cond ? `${cond} の検索結果: ${list.length} 枚` : `すべてのカード: ${list.length} 枚`;
   if (!$('#search-results')) return;
   $('#search-results').innerHTML = `
-    <p class="muted result-count">${label}</p>
+    <div class="result-head"><p class="muted result-count">${label}</p>${sortSelectHtml('search-sort')}</div>
     ${list.length ? `<div class="tiles">${list.map((c) => tileHtml(c, textSnippet(c, q))).join('')}</div>` : '<p class="empty">該当するカードがありません</p>'}`;
+  $('#search-sort').addEventListener('change', (e) => { settings.cardSort = e.target.value; saveSettings(); renderSearchResults(); });
   bindTiles();
 }
 
@@ -2655,6 +2724,7 @@ function renderManage() {
       <input type="search" id="m-filter" class="input grow" placeholder="絞り込み（国名・地域名・説明）" value="${esc(m.q)}">
       ${regionPickHtml('m-region', m.regionsOff)}
       ${catPickHtml('m-cat', m.catsOff)}
+      ${sortSelectHtml('m-sort')}
       <span class="counter" id="m-count"></span>
     </div>
     <div class="toolbar toolbar-sub">
@@ -2681,6 +2751,7 @@ function renderManage() {
     <div id="manage-list"></div>`;
   $('#m-new').addEventListener('click', () => openEditor(null));
   $('#m-filter').addEventListener('input', (e) => { m.q = e.target.value; renderManageList(); });
+  $('#m-sort').addEventListener('change', (e) => { settings.cardSort = e.target.value; saveSettings(); renderManageList(); });
   const repick = (id) => { m.openPick = id; renderManage(); };
   bindMultiPick('m-region', m.regionsOff, () => repick('m-region'), m.openPick === 'm-region');
   bindMultiPick('m-cat', m.catsOff, () => repick('m-cat'), m.openPick === 'm-cat');
@@ -2787,7 +2858,7 @@ async function bulkRun(ids, fn, label) {
 // 編集画面の一覧: 文字の絞り込み＋地域・カテゴリー
 function manageFiltered() {
   const m = state.manage;
-  return matchCards(m.q.trim().toLowerCase()).filter((c) => pickMatch(c, m.regionsOff, m.catsOff));
+  return sortCards(matchCards(m.q.trim().toLowerCase()).filter((c) => pickMatch(c, m.regionsOff, m.catsOff)));
 }
 function renderManageList() {
   const m = state.manage;
@@ -2919,6 +2990,7 @@ function openEditor(card, preset = {}) {
       <button class="btn btn-primary" id="ed-save" type="button">保存</button>
     </div>
   `, 'modal-wide');
+  modalCurrent = { kind: 'editor' }; // 検索から詳細を開いても、戻ると編集を続けられるように
 
   const setImage = async (blob) => {
     if (!blob || !blob.type.startsWith('image/')) { toast('画像ファイルではありません', 'error'); return; }
