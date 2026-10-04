@@ -1498,3 +1498,8 @@ textarea { resize: vertical; line-height: 1.6; }
 .fact-choices .choice .bollard-sign { width: 16px; height: 30px; }
 .rev-answers { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; }
 .rev-answers .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+
+/* 比較: その国・カテゴリーでカードを作成 */
+.cmp-add-card { display: block; width: 100%; margin-top: 6px; padding: 6px 8px; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.cmp-add-card:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.cmp-fact .cmp-add-card { display: inline-block; width: auto; padding: 2px 8px; }

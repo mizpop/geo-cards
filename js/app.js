@@ -851,7 +851,12 @@ function renderCompare() {
   const st = state.compare;
   const codes = st.codes.filter((c) => COUNTRY_BY_CODE.has(c));
   const cardsOf = (code, catId) => state.cards.filter((c) => c.countries.includes(code) && catKey(c) === catId);
-  const cats = allCats().filter((k) => codes.some((code) => cardsOf(code, k.id).length));
+  // カードのある カテゴリーを先に。編集者には、カードのないカテゴリーも作成用に出す
+  const hasCards = (k) => codes.some((code) => cardsOf(code, k.id).length);
+  const cats = state.user.isEditor ? [...allCats().filter(hasCards), ...allCats().filter((k) => !hasCards(k))] : allCats().filter(hasCards);
+  const editor = state.user.isEditor;
+  const addBtn = (code, catId, label = '＋ カードを作成') => (editor && catId ? `<button type="button" class="cmp-add-card" data-new-code="${code}" data-new-cat="${catId}" title="${esc(countryName(code))}・${esc(allCats().find((k) => k.id === catId)?.name || '')} のカードを作成">${label}</button>` : '');
+  const topicCat = (t) => state.categories.find((k) => CAT_TOPIC[k.name] === t)?.id || null;
   // 追加の候補: 選んだ国の隣の国
   const suggest = [...new Set(codes.flatMap((c) => COUNTRY_INFO[c]?.nb || []))].filter((c) => !codes.includes(c) && COUNTRY_BY_CODE.has(c)).slice(0, 12);
   const full = codes.length >= MAX_COMPARE;
@@ -874,11 +879,11 @@ function renderCompare() {
             ${codes.map((c) => `<div class="cmp-colhead">${flagImg(c)}<span>${esc(countryName(c))}</span><span class="muted small">${state.cards.filter((x) => x.countries.includes(c)).length} 枚</span></div>`).join('')}
           </div>
           ${cmpSection('facts', '🗺 地図のデータ', COMPARE_TOPICS.map((t) => cmpItem(`fact-${t}`, `${modeDef(t).icon} ${esc(modeDef(t).name)}`,
-            codes.map((code) => `<div class="cmp-cell cmp-fact">${factPanelHtml(t, code).replace(/<div class="pfact-head">.*?<\/div>/, '')}</div>`).join(''))).join(''))}
+            codes.map((code) => `<div class="cmp-cell cmp-fact">${factPanelHtml(t, code).replace(/<div class="pfact-head">.*?<\/div>/, '')}${addBtn(code, topicCat(t), '＋ カード')}</div>`).join(''))).join(''))}
           ${cmpSection('cards', `🃏 カード`, cats.length ? cats.map((k) => cmpItem(`cat-${k.id}`, `<span class="cat-dot" style="${catVars(k)}"></span>${esc(k.name)}`,
             codes.map((code) => {
               const list = cardsOf(code, k.id);
-              return `<div class="cmp-cell">${list.length ? `<div class="tiles tiles-compact cmp-tiles">${list.map((c) => tileHtml(c)).join('')}</div>` : '<span class="cmp-none">—</span>'}</div>`;
+              return `<div class="cmp-cell">${list.length ? `<div class="tiles tiles-compact cmp-tiles">${list.map((c) => tileHtml(c)).join('')}</div>` : (editor ? '' : '<span class="cmp-none">—</span>')}${addBtn(code, k.id)}</div>`;
             }).join(''))).join('') : '<p class="muted cmp-empty">これらの国のカードはまだありません</p>')}
         </div>
       </div>`}
@@ -888,6 +893,11 @@ function renderCompare() {
   $$('#view [data-add]').forEach((b) => b.addEventListener('click', () => update([...codes, b.dataset.add])));
   $$('#view [data-info]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.info, b)));
   $('#cmp-clear')?.addEventListener('click', () => update([]));
+  // 国とカテゴリーを決めた状態でカードの作成を始める
+  $$('#view [data-new-code]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openEditor(null, { countries: [b.dataset.newCode], categoryId: b.dataset.newCat });
+  }));
   // 開閉した項目を覚えておく
   $$('#view details[data-key]').forEach((d) => d.addEventListener('toggle', () => {
     if (d.open) st.closed.delete(d.dataset.key); else st.closed.add(d.dataset.key);
@@ -2408,11 +2418,12 @@ function confirmDelete(card) {
 }
 
 /* ================= 編集（カードエディタ） ================= */
-function openEditor(card) {
+// preset: 新しいカードの初期値 { countries: [...], categoryId }（比較タブの「＋ カードを作成」から）
+function openEditor(card, preset = {}) {
   const ed = {
     blob: null,
     preview: card ? imgUrl(card) : '',
-    countries: new Set(card ? card.countries : []),
+    countries: new Set(card ? card.countries : preset.countries || []),
   };
 
   openModal(`
@@ -2438,7 +2449,7 @@ function openEditor(card) {
           <div class="cat-picker">
             ${allCats().map((c) => `
               <label class="cat-opt" style="${catVars(c)}">
-                <input type="radio" name="ed-cat" value="${c.id}" ${(card ? catKey(card) : 'none') === c.id ? 'checked' : ''}>
+                <input type="radio" name="ed-cat" value="${c.id}" ${(card ? catKey(card) : preset.categoryId || 'none') === c.id ? 'checked' : ''}>
                 <span class="cat-dot"></span>${esc(c.name)}
               </label>`).join('')}
           </div>
