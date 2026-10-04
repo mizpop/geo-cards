@@ -211,7 +211,8 @@ export function classify(mode, code) {
     const colors = types.length > 1 ? types.map((t) => typeOf(mode, t).color) : t0.stripes || [t0.color];
     const swatchHtml = mode === 'bollard' ? bollardSvg(t0) : `<span class="sw-multi">${colors.map((c) => `<i style="background:${c}"></i>`).join('')}</span>`;
     return {
-      key, label: typesLabel(mode, { types }), color: colors[0], pattern: colors.length > 1 ? `${mode}-${key}` : null, colors,
+      // ボラードは本体と帯のイラストを敷き詰める（シェブロンと同じ）
+      key, label: typesLabel(mode, { types }), color: colors[0], pattern: mode === 'bollard' || colors.length > 1 ? `${mode}-${key}` : null, colors, bollard: mode === 'bollard' ? t0 : null,
       swatch: swatchHtml, seed: v.seed, src: v.src, note: v.note, value: v,
       extra: others.length ? `ほかに: ${typesLabel(mode, { types: others })}` : '',
     };
@@ -245,6 +246,13 @@ export function ensurePatterns(svg, mode, codes) {
       const bg = chevColor(c.value.bg).hex;
       const fg = chevColor(c.value.fg).hex;
       html += `<pattern id="${c.pattern}" class="info-pat" data-base="" patternUnits="userSpaceOnUse" width="20" height="18"><rect width="20" height="18" fill="${bg}"/><path d="M6 3l6 6-6 6" fill="none" stroke="${fg}" stroke-width="3"/></pattern>`;
+    } else if (c.bollard) {
+      const t = c.bollard;
+      // 白っぽいボラードは暗い地、黒っぽいボラードは明るい地に
+      const dark = ['#343a40', '#1864ab', '#212529'].includes(t.body);
+      const bg = dark ? '#dee2e6' : '#3d444b';
+      const bands = t.stripes ? [5, 11, 17].map((y) => `<rect x="5" y="${y}" width="6" height="3" fill="${t.band}"/>`).join('') : `<rect x="5" y="5" width="6" height="4" fill="${t.band}"/>`;
+      html += `<pattern id="${c.pattern}" class="info-pat" data-base="" patternUnits="userSpaceOnUse" width="16" height="26"><rect width="16" height="26" fill="${bg}"/><rect x="5" y="3" width="6" height="20" rx="1.5" fill="${t.body}" stroke="rgba(0,0,0,.45)" stroke-width=".6"/>${bands}</pattern>`;
     } else {
       const [a, b] = c.colors;
       html += `<pattern id="${c.pattern}" class="info-pat" data-base="rotate(45)" patternUnits="userSpaceOnUse" width="14" height="14" patternTransform="rotate(45)"><rect width="7" height="14" fill="${a}"/><rect x="7" width="7" height="14" fill="${b}"/></pattern>`;
