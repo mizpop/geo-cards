@@ -778,6 +778,9 @@ function renderCardModal(card, entry = {}) {
     </div>
     ${state.user.isEditor ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
   `, 'modal-wide', true);
+  // カード詳細の背景もカテゴリーの色を薄く
+  $('#modal').classList.add('modal-card');
+  $('#modal').style.setProperty('--cat', catOf(card).color);
   attachZoom($('.detail-front .front-img'), pager ? { onSwipe: (d) => stepCard(d) } : {});
   $('#card-prev')?.addEventListener('click', () => stepCard(-1));
   $('#card-next')?.addEventListener('click', () => stepCard(1));
@@ -793,6 +796,7 @@ function openModal(html, cls = '', nav = false) {
   const m = $('#modal');
   if (!nav) { modalStack = []; modalCurrent = null; }
   m.className = `modal ${cls}`;
+  m.style.removeProperty('--cat');
   if (!m.open) play('open'); // 詳細の中で移るとき（戻る・国へ）はタップ音だけ
   m.innerHTML = `<div class="modal-inner">${html}</div>`;
   modalPasteHandler = null;

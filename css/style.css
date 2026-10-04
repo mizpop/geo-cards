@@ -1244,3 +1244,11 @@ textarea { resize: vertical; line-height: 1.6; }
 @media (max-width: 760px) {
   .modal .modal-inner > .modal-head:first-child { margin: -16px -16px 12px; padding: 12px 16px 8px; }
 }
+
+/* ---------- カードの背景はカテゴリーの色を薄く ---------- */
+:root { --card-tint: 9%; }
+:root[data-theme="dark"] { --card-tint: 12%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --card-tint: 12%; } }
+.face, .tile, .quiz-card, .modal.modal-card, .modal.modal-card .modal-inner > .modal-head:first-child {
+  background: color-mix(in srgb, var(--cat, transparent) var(--card-tint), var(--surface));
+}
