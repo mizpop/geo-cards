@@ -754,6 +754,7 @@ function bindRelated(root) {
     if (c) openCardModal(c, b);
   }));
   // 画像に重ねた裏面の印の表示切り替え
+  root.querySelectorAll('.layer-toggle').forEach((b) => b.addEventListener('pointerdown', (e) => e.stopPropagation())); // 画像のドラッグ・タップ扱いにしない
   root.querySelectorAll('.layer-toggle').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
     b.closest('.front-img').classList.toggle('hide-layer');
@@ -1626,7 +1627,7 @@ function renderStudy() {
     ${card ? `
       <div class="flash-wrap ${s.enter ? `enter-${s.enter}` : ''}">
         <div class="flashcard ${split ? 'split' : s.flipped ? 'is-flipped' : ''}" id="flashcard" ${split ? '' : 'role="button" aria-label="カードをめくる"'} tabindex="0" style="${catStyle(card)}">
-          <div class="face face-front">${frontHtml(card)}</div>
+          <div class="face face-front">${frontHtml(card, settings.showDesc, split)}</div>
           <div class="face face-back">
             ${catBadge(card, 'cat-on-back')}
             <div class="back-actions">
