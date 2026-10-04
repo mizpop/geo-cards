@@ -1579,3 +1579,7 @@ textarea { resize: vertical; line-height: 1.6; }
 .st-pairs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .st-pair { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); }
 .st-pair-names { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; flex: 1; min-width: 200px; }
+
+.og-export { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 10px; }
+.og-export .muted { flex-basis: 100%; }
+#q-og { margin-top: 6px; }
