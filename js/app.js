@@ -9,7 +9,7 @@ import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
 import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml } from './progress.js';
 import { mountQuizMap, nearestKm } from './quizmap.js';
-import { setFacts, setCards as setInfoCards, CHEV_COLORS, GUARD_TYPES, chevSignSvg, factOf, modeDef } from './infomap.js';
+import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef } from './infomap.js';
 
 /* ================= ユーティリティ ================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -868,11 +868,11 @@ function openFactEditor(topic, code) {
   const cur = factOf(topic, code);
   const m = modeDef(topic);
   const draft = topic === 'chevron'
-    ? { bg: cur?.bg || 'yellow', fg: cur?.fg || 'black', note: cur?.note || '' }
+    ? { bg: cur?.bg || 'yellow', fg: cur?.fg || 'black', alt: cur?.alt || [], note: cur?.note || '' }
     : { types: [...(cur?.types || [])], note: cur?.note || '' };
   openModal(`
     <div class="modal-head"><h2>${m.icon} ${esc(m.name)}: ${flagImg(code)} ${esc(countryName(code))}</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
-    ${cur?.seed ? '<p class="muted small">今の値はアプリに最初から入っている初期値です。正しいか確認して保存してください</p>' : ''}
+    ${cur?.seed ? `<p class="muted small">今の値は ${esc(cur.src?.name || '資料')} から入れた初期データです。直して保存すると、こちらが優先されます</p>` : ''}
     <div id="fact-form"></div>
     <label class="field fact-note"><span>メモ（任意: 地域による違い・見分けるコツなど）</span><textarea id="fact-note" rows="2">${esc(draft.note)}</textarea></label>
     <div class="modal-foot">
@@ -889,7 +889,7 @@ function openFactEditor(topic, code) {
       $$('.swatch-btn', form).forEach((b) => b.addEventListener('click', () => { draft[b.dataset.key] = b.dataset.v; draw(); }));
     } else {
       form.innerHTML = `<p class="muted small">よく見る種類を選んでください（2 つまで）</p>
-        <div class="guard-list">${GUARD_TYPES.map((t) => `
+        <div class="guard-list">${typesOf(topic).map((t) => `
           <label class="guard-item"><input type="checkbox" value="${t.id}" ${draft.types.includes(t.id) ? 'checked' : ''}><span class="sw" style="background:${t.color}"></span>${esc(t.name)}</label>`).join('')}</div>`;
       $$('input', form).forEach((cb) => cb.addEventListener('change', () => {
         if (cb.checked) { draft.types.push(cb.value); if (draft.types.length > 2) draft.types.shift(); }
@@ -914,8 +914,8 @@ function openFactEditor(topic, code) {
   };
   $('#fact-save').addEventListener('click', () => {
     const note = $('#fact-note').value.trim();
-    if (topic === 'guardrail' && !draft.types.length) { toast('種類を選んでください（なければ「データなし」）', 'error'); return; }
-    const value = topic === 'chevron' ? { bg: draft.bg, fg: draft.fg } : { types: draft.types };
+    if (topic !== 'chevron' && !draft.types.length) { toast('種類を選んでください（なければ「データなし」）', 'error'); return; }
+    const value = topic === 'chevron' ? { bg: draft.bg, fg: draft.fg, ...(draft.alt.length ? { alt: draft.alt } : {}) } : { types: draft.types };
     if (note) value.note = note;
     save(value, '保存しました');
   });

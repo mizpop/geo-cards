@@ -1,7 +1,7 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
-import { MAP_MODES, modeDef, infoStyle, ensurePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml } from './infomap.js';
+import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml } from './infomap.js';
 
 const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
 const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
@@ -230,6 +230,8 @@ export async function renderMap(view, ctx) {
   const fly = (target, zoom) => { if (anim) { flying = true; map.flyTo(target, zoom, { duration: 0.8 }); } else map.setView(target, zoom, { animate: false }); };
   const flyBounds = (b, opts) => { if (anim) { flying = true; map.flyToBounds(b, { ...opts, duration: 0.8 }); } else map.fitBounds(b, { ...opts, animate: false }); };
   map.on('moveend', () => { flying = false; });
+  // シェブロン・ガードレール・電柱の模様は、縮尺に合わせて大きさを変える
+  if (patternMode) map.on('zoomend', () => scalePatterns(map.getPane('overlayPane').querySelector('svg'), map.getZoom()));
   map.getContainer().addEventListener('pointerdown', () => {
     if (!flying) return;
     flying = false;
@@ -393,7 +395,11 @@ export async function renderMap(view, ctx) {
     layer = L.geoJSON({ type: 'FeatureCollection', features }, { style: styleFor, onEachFeature: wireCountry, ...POLY_OPTS }).addTo(map);
     bordersLayer = L.geoJSON({ type: 'MultiLineString', coordinates: borderLines }, { interactive: false, style: BORDER_STYLE, ...POLY_OPTS }).addTo(map);
     layer.bringToBack();
-    if (patternMode) ensurePatterns(map.getPane('overlayPane').querySelector('svg'), mode, features.map((f) => f.properties.code).filter(Boolean));
+    if (patternMode) {
+      const svg = map.getPane('overlayPane').querySelector('svg');
+      ensurePatterns(svg, mode, features.map((f) => f.properties.code).filter(Boolean));
+      scalePatterns(svg, map.getZoom());
+    }
     // 描き直した後も、検索で光らせている国とマウスが乗っている国の見た目を引き継ぐ
     if (flashedCode) {
       flashed = layersByCode.get(flashedCode) || [];

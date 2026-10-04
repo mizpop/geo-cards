@@ -1380,3 +1380,7 @@ textarea { resize: vertical; line-height: 1.6; }
 .guard-item:hover { background: var(--surface-2); }
 .guard-item input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--accent); }
 .fact-note { margin-top: 6px; }
+
+.pfact-alt { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.pfact-alt > span:first-child { margin-right: 4px; }
+.alt-sign .chev-sign { width: 27px; height: 18px; }
