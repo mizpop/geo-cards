@@ -74,3 +74,42 @@ export function levelHtml(id) {
   const title = p ? `習熟度 ${box} / ${MAX_BOX}・覚えた / 正解 ${p.ok} 回・まだ / 不正解 ${p.ng} 回` : 'まだ覚え具合をつけていないカード';
   return `<span class="srs-level" title="${title}">${dots}<span class="srs-text">${p ? `${p.ok}○ ${p.ng}✗` : '新しいカード'}</span></span>`;
 }
+
+/* ---------------- 学習の記録（毎日の数・地域ごとの正答率。この端末に保存） ---------------- */
+const ACT_KEY = 'geo-cards-activity-v1';
+let act = (() => {
+  try { return JSON.parse(localStorage.getItem(ACT_KEY)) || { days: {}, regions: {} }; } catch { return { days: {}, regions: {} }; }
+})();
+window.addEventListener('storage', (e) => {
+  if (e.key !== ACT_KEY) return;
+  try { act = JSON.parse(e.newValue) || { days: {}, regions: {} }; } catch { /* そのまま */ }
+});
+export const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// ok: 覚えた・正解なら true / region: 地域 id（あれば地域ごとの正答率に）
+export function logActivity(ok, region) {
+  const k = dayKey();
+  const d = act.days[k] || { n: 0, ok: 0 };
+  d.n++;
+  if (ok) d.ok++;
+  act.days[k] = d;
+  if (region) {
+    const r = act.regions[region] || { n: 0, ok: 0 };
+    r.n++;
+    if (ok) r.ok++;
+    act.regions[region] = r;
+  }
+  try { localStorage.setItem(ACT_KEY, JSON.stringify(act)); } catch { /* 保存できなくても続行 */ }
+}
+export const activity = () => act;
+// 連続して学習した日数（今日まだなら昨日まででも数える）
+export function streak() {
+  let n = 0;
+  const d = new Date();
+  if (!act.days[dayKey(d)]) d.setDate(d.getDate() - 1);
+  while (act.days[dayKey(d)]?.n) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+export function resetActivity() {
+  act = { days: {}, regions: {} };
+  try { localStorage.removeItem(ACT_KEY); } catch { /* 無視 */ }
+}

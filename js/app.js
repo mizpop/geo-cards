@@ -3,11 +3,11 @@ import { initApi } from './api.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml } from './progress.js';
+import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity } from './progress.js';
 import { mountQuizMap, nearestKm } from './quizmap.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
@@ -86,9 +86,10 @@ const state = {
   urlsAt: 0,
   view: 'study',
   study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, review: false, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
-  quiz: { kind: 'cards', factTopic: 'chevron', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
+  quiz: { kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
-  compare: { codes: [] }, // 比較タブで並べる国
+  mapMatch: {}, // 地図の「条件で絞り込み」の条件 { topic: key }
+  compare: { codes: [], closed: new Set() }, // 比較タブで並べる国・閉じている項目
   mapFilter: { regionsOff: new Set(), catsOff: new Set(), openPick: null }, // 地図の絞り込み
   manage: { q: '', regionsOff: new Set(), catsOff: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
 };
@@ -107,6 +108,7 @@ const DEFAULT_SETTINGS = {
   mapMode: 'cards', // 地図の表示: カード / シェブロン / ガードレール / 通行 / 文字 / 苦手 // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
   liveSearch: true, // 地図: 検索バーに入力するたびに候補の国へ移動（オフなら Enter で移動）
   sound: true, // 効果音（右上のボタンでも切り替え）
+  dailyGoal: 30, // 1 日の目標（暗記の「覚えた / まだ」とクイズの回答の数）
   keys: {}, // キー割り当て（DEFAULT_KEYS からの変更分）
 };
 let settings = (() => {
@@ -399,6 +401,7 @@ async function refreshUrlsIfStale() {
 function bindGlobal() {
   window.addEventListener('hashchange', route);
   $('#settings-btn').addEventListener('click', openSettings);
+  $('#stats-btn').addEventListener('click', openStats);
   $('#sound-btn').addEventListener('click', () => {
     settings.sound = !settings.sound;
     saveSettings();
@@ -764,6 +767,30 @@ function stepCard(delta) {
   return true;
 }
 
+// カードのカテゴリーと地図のデータの対応（シェブロンのカードなら、その国のシェブロンの色見本を出す）
+const CAT_TOPIC = { シェブロン: 'chevron', ガードレール: 'guardrail', 電柱: 'pole', ボラード: 'bollard', ナンバープレート: 'plate', '道路標示・ライン': 'lines', 'Googleカー・カメラ': 'camera' };
+const cardTopic = (card) => CAT_TOPIC[catOf(card).name] || null;
+function cardFactsHtml(card) {
+  const t = cardTopic(card);
+  if (!t) return '';
+  const m = modeDef(t);
+  return `<div class="card-facts">
+    <div class="card-facts-head">🗺 地図のデータ: ${esc(m.icon)} ${esc(m.name)}</div>
+    ${card.countries.slice(0, 4).map((c) => `<div class="card-fact-row"><span class="cf-country">${flagImg(c)}${esc(countryName(c))}</span>${factPanelHtml(t, c).replace(/<div class="pfact-head">.*?<\/div>/, '')}</div>`).join('')}
+    <button type="button" class="btn btn-ghost btn-sm" data-map-topic="${t}" data-map-code="${card.countries[0]}">🗺 地図の「${esc(m.name)}」で見る</button>
+  </div>`;
+}
+function bindCardFacts(root) {
+  root.querySelectorAll('[data-map-topic]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settings.mapMode = b.dataset.mapTopic;
+    saveSettings();
+    focusOnNextRender(b.dataset.mapCode);
+    closeModal();
+    if (state.view === 'map') render(); else location.hash = '#map';
+  }));
+}
+
 function renderCardModal(card, entry = {}) {
   const ids = entry.list ? entry.list.filter((id) => cardById(id)) : [];
   const pos = ids.indexOf(card.id);
@@ -788,6 +815,7 @@ function renderCardModal(card, entry = {}) {
         ${answerHtml(card, 'md', true)}
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
         ${notesHtml(card)}
+        ${cardFactsHtml(card)}
       </div>
     </div>
     ${state.user.isEditor ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
@@ -796,6 +824,7 @@ function renderCardModal(card, entry = {}) {
   $('#modal').classList.add('modal-card');
   $('#modal').style.setProperty('--cat', catOf(card).color);
   attachZoom($('.detail-front .front-img'), pager ? { onSwipe: (d) => stepCard(d) } : {});
+  bindCardFacts($('#modal'));
   $('#card-prev')?.addEventListener('click', () => stepCard(-1));
   $('#card-next')?.addEventListener('click', () => stepCard(1));
   delete entry.enter;
@@ -806,6 +835,10 @@ function renderCardModal(card, entry = {}) {
 
 /* ================= 国の比較（カテゴリーごとに横並び） ================= */
 const MAX_COMPARE = 4;
+const COMPARE_TOPICS = ['chevron', 'guardrail', 'pole', 'bollard', 'plate', 'lines', 'drive', 'script', 'camera', 'snow'];
+// 比較の開閉できるまとまり（大見出し）と項目
+const cmpSection = (key, title, inner) => `<details class="cmp-sec" data-key="sec-${key}" ${state.compare.closed.has(`sec-${key}`) ? '' : 'open'}><summary>${title}</summary>${inner}</details>`;
+const cmpItem = (key, label, cells) => `<details class="cmp-item" data-key="${key}" ${state.compare.closed.has(key) ? '' : 'open'}><summary>${label}</summary><div class="cmp-cells">${cells}</div></details>`;
 // 比較に国を足して比較タブへ（国の詳細の「⚖ 比較」から）
 function openCompare(code) {
   const c = state.compare;
@@ -828,33 +861,39 @@ function renderCompare() {
         <h2 class="cmp-title">⚖ 国を比較</h2>
         ${codes.map((c) => `<span class="chip cmp-chip">${flagImg(c)}<button type="button" class="cmp-name" data-info="${c}" title="国の詳細">${esc(countryName(c))}</button><button type="button" class="cmp-rm" data-rm="${c}" aria-label="${esc(countryName(c))}を外す">✕</button></span>`).join('')}
         ${full ? `<span class="muted small">最大 ${MAX_COMPARE} か国まで</span>` : `<input type="text" id="cmp-input" class="cmp-input" list="country-list" placeholder="＋ 比べる国を追加" autocomplete="off">`}
-        ${codes.length ? '<button type="button" class="btn btn-ghost btn-sm" id="cmp-clear">すべて外す</button>' : ''}
+        ${codes.length ? `<span class="grow"></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="cmp-expand" title="すべての項目を開く">▾ すべて開く</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="cmp-collapse" title="すべての項目を閉じる">▸ すべて閉じる</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="cmp-clear">国をすべて外す</button>` : ''}
       </div>
       ${suggest.length && !full ? `<div class="cmp-suggest"><span class="muted small">隣の国:</span>${suggest.map((c) => `<button type="button" class="chip chip-btn" data-add="${c}">＋ ${flagImg(c)}${esc(countryName(c))}</button>`).join('')}</div>` : ''}
-      ${!codes.length ? `<div class="empty"><p>比べたい国を追加してください</p><p class="muted small">最大 ${MAX_COMPARE} か国のカードを、カテゴリーごとに横に並べて比べられます。<br>国の詳細の「⚖ 比較」からも追加できます</p></div>`
-        : cats.length ? `
-        <div class="cmp-scroll">
-          <div class="cmp-table" style="--cols:${codes.length}">
-            <div class="cmp-row cmp-headrow">
-              <div class="cmp-cat"></div>
-              ${codes.map((c) => `<div class="cmp-colhead">${flagImg(c)}<span>${esc(countryName(c))}</span><span class="muted small">${state.cards.filter((x) => x.countries.includes(c)).length} 枚</span></div>`).join('')}
-            </div>
-            ${cats.map((k) => `
-              <div class="cmp-row">
-                <div class="cmp-cat" style="${catVars(k)}"><span class="cat-dot"></span><span>${esc(k.name)}</span></div>
-                ${codes.map((code) => {
-                  const list = cardsOf(code, k.id);
-                  return `<div class="cmp-cell">${list.length ? `<div class="tiles tiles-compact cmp-tiles">${list.map((c) => tileHtml(c)).join('')}</div>` : '<span class="cmp-none">—</span>'}</div>`;
-                }).join('')}
-              </div>`).join('')}
+      ${!codes.length ? `<div class="empty"><p>比べたい国を追加してください</p><p class="muted small">最大 ${MAX_COMPARE} か国の地図のデータ（シェブロン・ガードレールなど）とカードを、横に並べて比べられます。<br>国の詳細の「⚖ 比較」からも追加できます</p></div>` : `
+      <div class="cmp-scroll">
+        <div class="cmp-table" style="--cols:${codes.length}">
+          <div class="cmp-headrow cmp-cells">
+            ${codes.map((c) => `<div class="cmp-colhead">${flagImg(c)}<span>${esc(countryName(c))}</span><span class="muted small">${state.cards.filter((x) => x.countries.includes(c)).length} 枚</span></div>`).join('')}
           </div>
-        </div>` : '<p class="muted cmp-empty">これらの国のカードはまだありません</p>'}
+          ${cmpSection('facts', '🗺 地図のデータ', COMPARE_TOPICS.map((t) => cmpItem(`fact-${t}`, `${modeDef(t).icon} ${esc(modeDef(t).name)}`,
+            codes.map((code) => `<div class="cmp-cell cmp-fact">${factPanelHtml(t, code).replace(/<div class="pfact-head">.*?<\/div>/, '')}</div>`).join(''))).join(''))}
+          ${cmpSection('cards', `🃏 カード`, cats.length ? cats.map((k) => cmpItem(`cat-${k.id}`, `<span class="cat-dot" style="${catVars(k)}"></span>${esc(k.name)}`,
+            codes.map((code) => {
+              const list = cardsOf(code, k.id);
+              return `<div class="cmp-cell">${list.length ? `<div class="tiles tiles-compact cmp-tiles">${list.map((c) => tileHtml(c)).join('')}</div>` : '<span class="cmp-none">—</span>'}</div>`;
+            }).join(''))).join('') : '<p class="muted cmp-empty">これらの国のカードはまだありません</p>')}
+        </div>
+      </div>`}
     </section>`;
   const update = (next) => { st.codes = next; renderCompare(); };
   $$('#view [data-rm]').forEach((b) => b.addEventListener('click', () => update(codes.filter((c) => c !== b.dataset.rm))));
   $$('#view [data-add]').forEach((b) => b.addEventListener('click', () => update([...codes, b.dataset.add])));
   $$('#view [data-info]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.info, b)));
   $('#cmp-clear')?.addEventListener('click', () => update([]));
+  // 開閉した項目を覚えておく
+  $$('#view details[data-key]').forEach((d) => d.addEventListener('toggle', () => {
+    if (d.open) st.closed.delete(d.dataset.key); else st.closed.add(d.dataset.key);
+  }));
+  $('#cmp-expand')?.addEventListener('click', () => { st.closed.clear(); renderCompare(); });
+  $('#cmp-collapse')?.addEventListener('click', () => { $$('#view details.cmp-item').forEach((d) => st.closed.add(d.dataset.key)); renderCompare(); });
   const input = $('#cmp-input');
   if (input) {
     attachInlineComplete(input, { regions: false, ja: true });
@@ -868,6 +907,73 @@ function renderCompare() {
     input.addEventListener('change', () => { if (findCountry(input.value)) add(); });
   }
   bindTiles();
+}
+
+/* ================= 学習記録（毎日の目標・連続日数・地域ごとの正答率） ================= */
+function openStats() {
+  const act = activity();
+  const goal = Math.max(1, Number(settings.dailyGoal) || 30);
+  const today = act.days[dayKey()] || { n: 0, ok: 0 };
+  const st = streak();
+  const prog = progStats(state.cards.map((c) => c.id));
+  // 直近 14 日
+  const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (13 - i)); return { d, k: dayKey(d), v: act.days[dayKey(d)] || { n: 0, ok: 0 } }; });
+  const max = Math.max(goal, ...days.map((x) => x.v.n), 1);
+  const W = 560; const H = 160; const padL = 28; const padB = 22; const bw = (W - padL) / 14;
+  const y = (n) => H - padB - ((H - padB - 8) * n) / max;
+  const bars = days.map((x, i) => {
+    const h = H - padB - y(x.v.n);
+    const bx = padL + i * bw + 3;
+    const w = bw - 6;
+    const r = Math.min(4, h / 2, w / 2);
+    const path = h > 0 ? `M${bx},${H - padB} V${y(x.v.n) + r} Q${bx},${y(x.v.n)} ${bx + r},${y(x.v.n)} H${bx + w - r} Q${bx + w},${y(x.v.n)} ${bx + w},${y(x.v.n) + r} V${H - padB} Z` : '';
+    const label = `${x.d.getMonth() + 1}/${x.d.getDate()}`;
+    const tip = `${label}: ${x.v.n} 回（正解・覚えた ${x.v.ok}）`;
+    return `<g class="st-bar ${x.v.n >= goal ? 'is-goal' : ''}" data-tip="${esc(tip)}">
+      <rect x="${padL + i * bw}" y="0" width="${bw}" height="${H - padB}" fill="transparent"/>
+      ${path ? `<path d="${path}"/>` : ''}
+      ${i % 2 === 1 || i === 13 ? `<text x="${bx + w / 2}" y="${H - 6}" text-anchor="middle">${label}</text>` : ''}
+    </g>`;
+  }).join('');
+  const regions = REGIONS.map((r) => ({ r, s: act.regions[r.id] })).filter((x) => x.s?.n).sort((a, b) => a.s.ok / a.s.n - b.s.ok / b.s.n);
+  openModal(`
+    <div class="modal-head"><h2>📈 学習記録</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    <div class="st-tiles">
+      <div class="st-tile"><div class="st-label">今日</div><div class="st-num">${today.n}<small> / ${goal}</small></div>
+        <div class="st-meter" role="progressbar" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${today.n}"><i style="width:${Math.min(100, (today.n / goal) * 100)}%"></i></div>
+        <div class="st-sub">${today.n >= goal ? '🎉 今日の目標を達成！' : `あと ${goal - today.n} 回`}</div></div>
+      <div class="st-tile"><div class="st-label">連続学習</div><div class="st-num">${st}<small> 日</small></div><div class="st-sub">${st ? '途切れないように続けましょう' : '今日から始めましょう'}</div></div>
+      <div class="st-tile"><div class="st-label">覚えたカード</div><div class="st-num">${prog.learned}<small> / ${prog.total}</small></div><div class="st-sub">習熟度 3 以上・復習待ち ${prog.due} 枚</div></div>
+    </div>
+    <h3 class="st-title">直近 14 日の回数 <span class="muted small">（点線は 1 日の目標）</span></h3>
+    <div class="st-chart">
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="直近 14 日の学習回数">
+        <line class="st-axis" x1="${padL}" x2="${W}" y1="${H - padB}" y2="${H - padB}"/>
+        <text class="st-ytick" x="${padL - 6}" y="${y(max) + 4}" text-anchor="end">${max}</text>
+        <text class="st-ytick" x="${padL - 6}" y="${H - padB}" text-anchor="end">0</text>
+        ${bars}
+        <line class="st-goal" x1="${padL}" x2="${W}" y1="${y(goal)}" y2="${y(goal)}"/>
+      </svg>
+      <div class="st-tip" hidden></div>
+    </div>
+    <h3 class="st-title">地域ごとの正答率 <span class="muted small">（苦手な順。暗記の「覚えた / まだ」とクイズの結果）</span></h3>
+    ${regions.length ? `<div class="st-regions">${regions.map(({ r, s: x }) => {
+      const pct = Math.round((x.ok / x.n) * 100);
+      return `<div class="st-region" title="${esc(r.name)}: ${x.ok} / ${x.n}"><span class="st-rname">${esc(r.name)}</span><span class="st-rbar"><i style="width:${pct}%"></i></span><span class="st-rpct">${pct}%</span><span class="st-rn muted">${x.n} 回</span></div>`;
+    }).join('')}</div>` : '<p class="muted small">まだ記録がありません。暗記カードやクイズを解くとここに出ます</p>'}
+    <div class="modal-foot">
+      <label class="st-goal-input">1 日の目標 <input type="number" id="st-goal" min="1" max="999" value="${goal}"> 回</label>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="st-reset" type="button">記録をリセット</button>
+      <button class="btn btn-primary" data-close type="button">閉じる</button>
+    </div>`, 'modal-md');
+  const tip = $('#modal .st-tip');
+  $$('#modal .st-bar').forEach((g) => {
+    g.addEventListener('pointerenter', () => { tip.textContent = g.dataset.tip; tip.hidden = false; const r = g.getBoundingClientRect(); const c = g.closest('.st-chart').getBoundingClientRect(); tip.style.left = `${r.left - c.left + r.width / 2}px`; });
+    g.addEventListener('pointerleave', () => { tip.hidden = true; });
+  });
+  $('#st-goal').addEventListener('change', (e) => { settings.dailyGoal = Math.max(1, Number(e.target.value) || 30); saveSettings(); openStats(); });
+  $('#st-reset').addEventListener('click', () => { if (confirm('学習記録（毎日の回数・地域ごとの正答率）をリセットしますか？カードの覚え具合はそのままです')) { resetActivity(); openStats(); } });
 }
 
 /* ================= 地図のインフォグラフィック: 国ごとの値の編集 ================= */
@@ -1092,6 +1198,7 @@ function renderStudy() {
             <div class="back-inner">
               <div class="back-answer">${answerHtml(card)}</div>
               <div class="srs-row">${levelHtml(card.id)}</div>
+              ${cardFactsHtml(card)}
               ${notesHtml(card)}
             </div>
           </div>
@@ -1120,6 +1227,7 @@ function renderStudy() {
     renderStudy();
     toast(s.review ? `復習モード: ${s.deck.length} 枚` : 'すべてのカードに戻りました');
   });
+  if (card) bindCardFacts($('#flashcard'));
   $('#study-ok')?.addEventListener('click', () => markStudy('ok'));
   $('#study-ng')?.addEventListener('click', () => markStudy('ng'));
   $('#study-split').addEventListener('click', () => { settings.studySplit = !settings.studySplit; saveSettings(); renderStudy(); });
@@ -1207,6 +1315,7 @@ function markStudy(result) {
   const card = cardById(s.deck[s.index]);
   if (!card || !(s.flipped || settings.studySplit)) return;
   record(card.id, result);
+  logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
   play(result === 'ok' ? 'correct' : 'partial');
   if (s.index < s.deck.length - 1) { moveStudy(1); return; }
   // 最後のカード: 復習なら残り（まだ のカードなど）で組み直す
@@ -1268,7 +1377,14 @@ function renderQuiz() {
         <div class="seg seg-wrap" id="q-topic">
           ${FACT_TOPICS.map((t) => `<button class="${q.factTopic === t ? 'on' : ''}" data-topic="${t}">${modeDef(t).icon} ${modeDef(t).name}</button>`).join('')}
         </div>
-        <p class="muted small">国旗と国名を見て、その国の${esc(modeDef(q.factTopic).name)}を 4 択で答えます。地図の「${esc(modeDef(q.factTopic).name)}」モードと同じデータです</p>
+        <div class="setup-label setup-sub"><span>問題の向き</span></div>
+        <div class="seg" id="q-dir">
+          <button class="${q.factDir === 'forward' ? 'on' : ''}" data-dir="forward">国 → 特徴（4 択）</button>
+          <button class="${q.factDir === 'reverse' ? 'on' : ''}" data-dir="reverse">特徴 → 国（地図で答える）</button>
+        </div>
+        <p class="muted small">${q.factDir === 'reverse'
+          ? `${esc(modeDef(q.factTopic).name)}の見本を見て、それが見られる国を地図でクリックします（当てはまる国ならどれでも正解）`
+          : `国旗と国名を見て、その国の${esc(modeDef(q.factTopic).name)}を 4 択で答えます`}。地図の「${esc(modeDef(q.factTopic).name)}」モードと同じデータです</p>
       </div>` : ''}
       <div class="setup-block">
         <div class="setup-label">
@@ -1350,12 +1466,13 @@ function renderQuiz() {
   $$('#q-order button').forEach((b) => b.addEventListener('click', () => { q.order = b.dataset.order; renderQuiz(); }));
   $$('#q-kind button').forEach((b) => b.addEventListener('click', () => { q.kind = b.dataset.kind; renderQuiz(); }));
   $$('#q-topic button').forEach((b) => b.addEventListener('click', () => { q.factTopic = b.dataset.topic; renderQuiz(); }));
+  $$('#q-dir button').forEach((b) => b.addEventListener('click', () => { q.factDir = b.dataset.dir; renderQuiz(); }));
   $('#q-start').addEventListener('click', () => (isFact ? startFactQuiz(factQuizPool(q.factTopic, q.regions)) : startQuiz(quizEligible(q.regions))));
 }
 
 /* ---- 国の特徴クイズ（地図のインフォグラフィックのデータで出題） ---- */
 const factChipHtmlSafe = (topic, code) => factPanelHtml(topic, code).replace(/<div class="pfact-head">.*?<\/div>/, '');
-const FACT_TOPICS = ['chevron', 'guardrail', 'pole', 'lines', 'drive', 'script', 'camera', 'snow'];
+const FACT_TOPICS = ['chevron', 'guardrail', 'pole', 'bollard', 'plate', 'lines', 'drive', 'script', 'camera', 'snow'];
 const allCodes = () => COUNTRIES.map((c) => c.code);
 function factQuizPool(topic, regions) {
   if (legendGroups(topic, allCodes()).length < 2) return [];
@@ -1374,6 +1491,67 @@ function alsoTrue(topic, code, group) {
   }
   return false;
 }
+// 特徴 → 国: 見本を見せて、地図で国をクリック
+function renderReverseQuestion() {
+  const q = state.quiz;
+  const item = q.questions[q.i];
+  const a = q.answered;
+  const m = modeDef(q.factTopic);
+  const okN = q.answers.filter((x) => x.result === 'ok').length;
+  const g = a?.given;
+  $('#view').innerHTML = `
+    <div class="toolbar">
+      <span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>
+      <span class="muted">○ ${okN}</span>
+      <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
+    </div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="qm-layout">
+      <div class="quiz-card fact-card rev-card">
+        <div class="muted">${esc(m.icon)} ${esc(m.name)}</div>
+        <div class="rev-swatch">${item.swatch}</div>
+        <div class="fact-country rev-label">${esc(item.label)}</div>
+        <p class="muted small">この${esc(m.name)}が見られる国を、地図でクリック（${item.answers.length} か国のどれでも正解）</p>
+      </div>
+      <div class="qm-side">
+        <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
+        ${a ? `
+          <div class="feedback fb-${a.result}">
+            <div class="feedback-head">
+              <div class="feedback-title">${a.result === 'ok' ? '○ 正解！' : '✗ 不正解'}</div>
+              <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+            </div>
+            ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 一番近い正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
+            <div class="rev-answers"><span class="muted small">当てはまる国:</span>${item.answers.map((c) => `<button type="button" class="chip chip-btn" data-info="${c}">${flagImg(c)}${esc(countryName(c))}</button>`).join('')}</div>
+          </div>` : ''}
+      </div>
+    </div>`;
+  $('#q-quit').addEventListener('click', () => { q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  $$('.rev-answers [data-info]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.info, b)));
+  const at = q.i;
+  mountQuizMap($('#quiz-map'), {
+    answers: item.answers,
+    answered: a ? { given: [g] } : null,
+    animate: settings.animations,
+    onPick: (code) => {
+      if (q.answered || q.i !== at || state.view !== 'quiz') return;
+      const result = item.answers.includes(code) ? 'ok' : 'ng';
+      q.answered = { given: code, result, km: result === 'ok' ? null : nearestKm(code, item.answers) };
+      q.answers.push({ code: item.code, given: code, givenLabel: countryName(code), result, reverse: true, label: item.label, swatch: item.swatch, n: item.answers.length });
+      play(result === 'ok' ? 'correct' : 'wrong');
+      logActivity(result === 'ok', COUNTRY_BY_CODE.get(item.code)?.region);
+      renderReverseQuestion();
+    },
+  }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
+    const el = $('#quiz-map .map-loading');
+    if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`;
+  });
+  if (a) {
+    $('#q-next').addEventListener('click', nextQuestion);
+    $('#q-next').focus({ preventScroll: true });
+  }
+}
+
 function startFactQuiz(pool) {
   const q = state.quiz;
   const groups = legendGroups(q.factTopic, allCodes());
@@ -1382,6 +1560,11 @@ function startFactQuiz(pool) {
   q.questions = codes.map((code) => {
     const right = classify(q.factTopic, code);
     const wrong = shuffle(groups.filter((g) => g.key !== right.key && !alsoTrue(q.factTopic, code, g))).slice(0, 3);
+    // 逆向き（特徴 → 国）: その分類に当てはまる国すべてが正解
+    if (q.factDir === 'reverse') {
+      const g = groups.find((x) => x.key === right.key);
+      return { code, answer: right.key, reverse: true, label: right.label, swatch: right.swatch || `<span class="sw" style="background:${right.color}"></span>`, answers: g ? g.codes : [code] };
+    }
     return { code, answer: right.key, options: shuffle([right, ...wrong]).map((g) => ({ key: g.key, label: g.label, swatch: g.swatch || `<span class="sw" style="background:${g.color}"></span>` })) };
   });
   q.i = 0;
@@ -1393,6 +1576,7 @@ function startFactQuiz(pool) {
 function renderFactQuestion() {
   const q = state.quiz;
   const item = q.questions[q.i];
+  if (item.reverse) { renderReverseQuestion(); return; }
   const a = q.answered;
   const m = modeDef(q.factTopic);
   const okN = q.answers.filter((x) => x.result === 'ok').length;
@@ -1437,6 +1621,7 @@ function renderFactQuestion() {
     q.answered = { given: b.dataset.key, result };
     q.answers.push({ code: item.code, given: b.dataset.key, givenLabel: item.options.find((o) => o.key === b.dataset.key)?.label, result });
     play(result === 'ok' ? 'correct' : 'wrong');
+    logActivity(result === 'ok', COUNTRY_BY_CODE.get(item.code)?.region);
     renderFactQuestion();
     if (result === 'ok' && settings.autoNext) {
       const at = q.i;
@@ -1684,6 +1869,7 @@ function submitAnswer(card, given) {
     if (result !== 'ok') km = nearestKm(g, card.countries);
   } else result = q.mode === 'choice' ? (card.countries.includes(given[0]) ? 'ok' : 'ng') : grade(card, given);
   record(card.id, result); // 覚え具合（暗記カードの復習にも反映）
+  logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
   q.answered = { given: [...given], result, km };
   q.answers.push({ cardId: card.id, given: [...given], result, correct: result === 'ok' });
   play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
@@ -1727,10 +1913,15 @@ function renderQuizResult() {
     </section>
     ${wrong.length && q.kind === 'fact' ? `
       <h3 class="section-title">間違えた国（${wrong.length}）</h3>
-      <div class="fact-wrong">${wrong.map((w) => `
+      <div class="fact-wrong">${wrong.map((w) => w.reverse ? `
+        <div class="fw-row">
+          <span class="fact-chip">${w.swatch}<span>${esc(w.label)}</span></span>
+          <span class="fw-given">✗ あなたの回答: ${esc(w.givenLabel || '')}</span>
+          <span class="muted small">当てはまる国は ${w.n} か国（例: <button type="button" class="link-btn fw-country" data-info="${w.code}">${esc(countryName(w.code))}</button>）</span>
+        </div>` : `
         <div class="fw-row">
           <button type="button" class="fw-country" data-info="${w.code}">${flagImg(w.code)}<b>${esc(countryName(w.code))}</b></button>
-          <span class="fw-given">✗ ${esc(w.givenLabel || '')}</span>
+          <span class="fw-given">✗ ${w.reverse ? `答え: ${esc(w.givenLabel || '')}` : esc(w.givenLabel || '')}</span>
           <span class="fw-right">${factChipHtmlSafe(q.factTopic, w.code)}</span>
         </div>`).join('')}</div>` : ''}
     ${wrong.length && q.kind !== 'fact' ? `
@@ -2739,6 +2930,9 @@ const mapCtx = {
   mapMode: () => settings.mapMode || 'cards',
   setMapMode: (m) => { settings.mapMode = m; saveSettings(); },
   isEditor: () => !!state.user?.isEditor,
+  matchConds: () => state.mapMatch,
+  setMatchCond: (t, k) => { if (k) state.mapMatch[t] = k; else delete state.mapMatch[t]; },
+  clearMatch: () => { state.mapMatch = {}; },
   editFact: (mode, code) => openFactEditor(mode, code),
   // 地図の地域・カテゴリーの絞り込み（暗記・編集画面と同じ部品）
   filterPicksHtml: () => `${regionPickHtml('map-region', state.mapFilter.regionsOff)}${catPickHtml('map-cat', state.mapFilter.catsOff)}`,

@@ -1,7 +1,7 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
-import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml } from './infomap.js';
+import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml, MATCH_TOPICS, matchOptions, matchAll } from './infomap.js';
 
 const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
 const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
@@ -46,6 +46,8 @@ let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 let legendOpenPref = null; // 凡例の開閉（未操作なら、広い画面は開く・スマホは閉じる）
 let currentFocus = null; // 選んでいる国（データ更新で描き直すときに引き継ぐ）
 let restoreFocus = null;
+let pendingFocus = null; // 次に地図を描いたときに移動する国（カードの「地図で見る」から）
+export function focusOnNextRender(code) { pendingFocus = code; }
 // カードが更新されたときの描き直し: 表示位置に加えて、選んでいる国もそのまま
 export function refreshMap(view, ctx) {
   restoreFocus = currentFocus;
@@ -175,6 +177,10 @@ export async function renderMap(view, ctx) {
     map = null;
   }
   const mode = ctx.mapMode();
+  // 条件で絞り込み: 当てはまる国
+  const conds = ctx.matchConds();
+  const matched = mode === 'match' ? new Set(matchAll(conds, [...GEO.keys()])) : null;
+  const factMode = mode !== 'cards' && mode !== 'match'; // 国ごとの値を出すモード
   let legendOpen = legendOpenPref ?? !window.matchMedia('(max-width: 760px)').matches;
   const patternMode = !!modeDef(mode).pattern;
   view.innerHTML = `
@@ -285,6 +291,7 @@ export async function renderMap(view, ctx) {
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1c7f55';
   const NO_PLAY = dark ? '#5d646c' : '#9aa0a6'; // 出題されない国の灰色
   const baseStyle = (f) => {
+    if (mode === 'match') return { stroke: false, color: accent, weight: 2, fillColor: '#2f9e44', fillOpacity: matched.has(f.properties.code) ? 0.6 : 0 };
     if (mode !== 'cards') return { stroke: false, color: accent, weight: 2, ...infoStyle(mode, f.properties.code) };
     const n = byCountry.get(f.properties.code)?.length || 0;
     if (f.properties.code && !isPlayable(f.properties.code)) {
@@ -516,7 +523,7 @@ export async function renderMap(view, ctx) {
     const n = byCountry.get(code)?.length || 0;
     bubble.dataset.code = code;
     bubble.className = `hover-bubble is-compact show${animate ? ' anim-out' : ''}${isPlayable(code) ? '' : ' no-play'}`;
-    bubble.innerHTML = `<div class="hb-body hb-compact">${ctx.flagImg(code)}<b>${ctx.esc(ctx.countryName(code))}</b>${mode === 'cards' ? (n ? `<span class="hb-n">${n} 枚</span>` : '') : factChipHtml(mode, code)}${isPlayable(code) ? '' : '<span class="no-play-tag">出題なし</span>'}</div>`;
+    bubble.innerHTML = `<div class="hb-body hb-compact">${ctx.flagImg(code)}<b>${ctx.esc(ctx.countryName(code))}</b>${mode === 'cards' ? (n ? `<span class="hb-n">${n} 枚</span>` : '') : mode === 'match' ? (matched.has(code) ? '<span class="fact-chip">✓ 条件に当てはまる</span>' : '') : factChipHtml(mode, code)}${isPlayable(code) ? '' : '<span class="no-play-tag">出題なし</span>'}</div>`;
     placeBubble();
     scheduleExpand(code);
   }
@@ -525,7 +532,7 @@ export async function renderMap(view, ctx) {
     const fan = fanHtml(code);
     bubble.dataset.code = code;
     bubble.className = `hover-bubble is-full show${fan ? ' has-fan' : ''}${animate ? ' anim-in' : ''}${isPlayable(code) ? '' : ' no-play'}`;
-    bubble.innerHTML = `${fan}<div class="hb-body">${mode === 'cards' ? '' : `<div class="pfact hb-fact">${factPanelHtml(mode, code)}</div>`}${ctx.countrySummaryHtml(code)}</div>`;
+    bubble.innerHTML = `${fan}<div class="hb-body">${factMode ? `<div class="pfact hb-fact">${factPanelHtml(mode, code)}</div>` : ''}${ctx.countrySummaryHtml(code)}</div>`;
     placeBubble();
   }
   // 吹き出しの右上に、その国のカードを扇状に（本体の後ろから上だけ見える）
@@ -733,7 +740,7 @@ export async function renderMap(view, ctx) {
         : '';
       return;
     }
-    el.innerHTML = (mode === 'cards' ? '' : `<div class="pfact">${factPanelHtml(mode, code)}${modeDef(mode).editable && ctx.isEditor() ? `<button type="button" class="btn btn-sm pfact-edit" data-edit-fact>✏️ 編集</button>` : ''}</div>`)
+    el.innerHTML = (!factMode ? '' : `<div class="pfact">${factPanelHtml(mode, code)}${modeDef(mode).editable && ctx.isEditor() ? `<button type="button" class="btn btn-sm pfact-edit" data-edit-fact>✏️ 編集</button>` : ''}</div>`)
       + ctx.countrySummaryHtml(code)
       + '<button type="button" class="icon-btn pinfo-close" title="選択を解除（Esc）" aria-label="選択を解除">✕</button>';
     el.querySelector('[data-edit-fact]')?.addEventListener('click', () => ctx.editFact(mode, code));
@@ -760,6 +767,15 @@ export async function renderMap(view, ctx) {
   function renderList() {
     const el = $id('plist');
     if (!el) return;
+    if (mode === 'match' && !focused) {
+      const codes = [...matched].sort((a, b) => ctx.countryName(a).localeCompare(ctx.countryName(b), 'ja'));
+      const n = Object.values(conds).filter(Boolean).length;
+      el.innerHTML = !n ? '<p class="muted small">左下の欄で条件を選ぶと、すべてに当てはまる国が緑色になります</p>'
+        : `<h3 class="list-title">当てはまる国 <span class="muted">${codes.length}</span></h3>
+          ${codes.length ? `<div class="fgroup-codes">${codes.map((c) => `<button type="button" class="chip chip-btn" data-go="${c}">${ctx.flagImg(c)}${ctx.esc(ctx.countryName(c))}</button>`).join('')}</div>` : '<p class="muted small">当てはまる国はありません。条件を減らしてみてください</p>'}`;
+      el.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => focusCountry(b.dataset.go)));
+      return;
+    }
     if (mode !== 'cards' && !focused) {
       // インフォグラフィック: 分類ごとに国を並べる（表示中の国を先に）
       const all = [...new Set([...GEO.keys()])];
@@ -971,10 +987,22 @@ export async function renderMap(view, ctx) {
     e.currentTarget.setAttribute('aria-expanded', String(legendOpen));
   });
   const legendItems = view.querySelector('#map-legend .lg-items');
-  if (legendItems) legendItems.innerHTML = legendHtml(mode, [...GEO.keys()]);
+  if (legendItems && mode === 'match') {
+    const all = [...GEO.keys()];
+    legendItems.innerHTML = `<div class="match-form">${MATCH_TOPICS.map((t) => `
+      <label class="match-row"><span>${modeDef(t).icon} ${modeDef(t).name}</span>
+        <select class="select select-sm" data-topic="${t}">
+          <option value="">指定しない</option>
+          ${matchOptions(t, all).map((o) => `<option value="${ctx.esc(o.key)}" ${conds[t] === o.key ? 'selected' : ''}>${ctx.esc(o.label)}</option>`).join('')}
+        </select></label>`).join('')}
+      <div class="match-foot"><b>${matched.size}</b> か国が当てはまる<button type="button" class="btn btn-ghost btn-sm" id="match-clear">条件をクリア</button></div></div>`;
+    legendItems.querySelectorAll('select[data-topic]').forEach((sel) => sel.addEventListener('change', () => { ctx.setMatchCond(sel.dataset.topic, sel.value); refreshMap(view, ctx); }));
+    legendItems.querySelector('#match-clear').addEventListener('click', () => { ctx.clearMatch(); refreshMap(view, ctx); });
+  } else if (legendItems) legendItems.innerHTML = legendHtml(mode, [...GEO.keys()]);
   currentFocus = null;
   if (restoreFocus && bounds.has(restoreFocus)) { setFocused(restoreFocus); renderPanel(); }
   restoreFocus = null;
+  if (pendingFocus) { const c = pendingFocus; pendingFocus = null; focusCountry(c); }
 
   // 精細な国境データを裏で読み込み、届いたら差し替える（選択・強調・ホバーの状態は引き継ぐ）
   if (!patternMode) loadWorld('10m').then((w10) => {

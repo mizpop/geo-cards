@@ -143,3 +143,59 @@ export const SNOW_DATA = Object.fromEntries(SNOW_RAW.split(' ').map((x) => x.spl
 
 // 電柱のうち、GeoHints の写真から種類を判断した国（出典の表示用）
 export const POLE_PHOTO = new Set('BA BD BW CH CO CR CX FO GL IS KR LI LS LU LV MG ML MT MY NO PE PM PR PY RS RW SE SI TN TW UG UY ZA'.split(' '));
+
+// ---- ナンバープレート（GeoHints https://geohints.com/meta/licensePlates の自家用車の画像の色を読み取ったもの）
+export const PLATE_SRC = { name: 'GeoHints', url: 'https://geohints.com/meta/licensePlates' };
+export const PLATE_TYPES = [
+  { id: 'w-eu', name: '白・左に青い帯（EU 式）', color: '#1971c2' },
+  { id: 'y-eu', name: '黄・左に青い帯', color: '#e67700' },
+  { id: 'mercosur', name: '白・上に青い帯（メルコスール）', color: '#22b8cf' },
+  { id: 'w', name: '白', color: '#e9ecef' },
+  { id: 'wy', name: '前が白・後ろが黄', color: '#fcc419', stripes: ['#f8f9fa', '#fcc419'] },
+  { id: 'y', name: '黄', color: '#fab005' },
+  { id: 'k', name: '黒', color: '#212529' },
+  { id: 'b', name: '青', color: '#364fc7' },
+  { id: 'r', name: '赤', color: '#e03131' },
+  { id: 'design', name: '絵柄入り（地域ごとに違う）', color: '#be4bdb' },
+];
+const PLATE_RAW = `
+BW:wy EG:w SZ:design GH:w KE:wy LS:w MG:k NA:y NG:w RW:wy SN:b ZA:w ST:k TN:k UG:wy
+BD:w BT:r KH:w CX:y CC:w IN:w ID:k IL:y JP:w JO:w KZ:w KG:w LA:y LB:w MY:k MN:w NP:w OM:y PK:w PH:w QA:w
+RU:w SG:wy KR:w LK:wy TW:w TH:w AE:w VN:w
+AL:w-eu AD:w AT:w-eu BE:w-eu BA:w-eu BG:w-eu HR:w-eu CY:w-eu CZ:w-eu DK:w-eu EE:w-eu FO:w-eu FI:w-eu FR:w-eu GE:w-eu
+DE:w-eu GI:wy GR:w-eu HU:w-eu IS:w-eu IE:w-eu IM:wy IT:w-eu JE:wy XK:w-eu LV:w-eu LI:k LT:w-eu LU:y-eu MT:w-eu MC:w
+ME:w-eu NL:y-eu MK:w-eu NO:w-eu PL:w-eu PT:w-eu RO:w-eu SM:w RS:w-eu SK:w-eu SI:w-eu ES:w-eu SE:w-eu CH:w TR:w-eu
+UA:w-eu GB:wy BM:w CR:w CW:w GL:w GT:w VI:design AS:design AU:design GU:w NZ:w
+AR:mercosur BO:mercosur BR:mercosur CL:w CO:y EC:w PY:mercosur PE:w UY:mercosur
+`;
+export const PLATE_DATA = Object.fromEntries(PLATE_RAW.trim().split(/\s+/).map((x) => { const [c, t] = x.split(':'); return [c, { types: [t] }]; }));
+
+// ---- ボラード（GeoHints https://geohints.com/meta/bollards の写真から、本体と帯の色でおおまかに分類）
+// 反射板の形や色など細かい違いは国ごとに異なるので、写真で確認してください
+export const BOLLARD_SRC = { name: 'GeoHints（写真）', url: 'https://geohints.com/meta/bollards' };
+export const BOLLARD_TYPES = [
+  { id: 'wk', name: '白・黒い帯（反射板つき・ヨーロッパ型）', color: '#868e96', body: '#f8f9fa', band: '#212529' },
+  { id: 'wr', name: '白・赤い帯や反射板', color: '#e03131', body: '#f8f9fa', band: '#e03131' },
+  { id: 'wy', name: '白・黄色い帯', color: '#fcc419', body: '#f8f9fa', band: '#fcc419' },
+  { id: 'wg', name: '白・緑の帯', color: '#2f9e44', body: '#f8f9fa', band: '#2f9e44' },
+  { id: 'wb', name: '白・青い印', color: '#1c7ed6', body: '#f8f9fa', band: '#1c7ed6' },
+  { id: 'w', name: '白（帯なし・小さな反射板）', color: '#f1f3f5', body: '#f8f9fa', band: '#dee2e6' },
+  { id: 'skw', name: '黒白の縞', color: '#495057', body: '#f8f9fa', band: '#212529', stripes: ['#f8f9fa', '#212529'] },
+  { id: 'srw', name: '赤白の縞', color: '#fa5252', body: '#f8f9fa', band: '#e03131', stripes: ['#f8f9fa', '#e03131'] },
+  { id: 'syk', name: '黄黒の縞', color: '#fab005', body: '#fcc419', band: '#212529', stripes: ['#fcc419', '#212529'] },
+  { id: 'y', name: '黄色', color: '#ffd43b', body: '#ffd43b', band: '#fab005' },
+  { id: 'sy', name: '灰色・黄色い帯', color: '#adb5bd', body: '#adb5bd', band: '#fcc419' },
+  { id: 'k', name: '黒・濃い色', color: '#212529', body: '#343a40', band: '#495057' },
+  { id: 'b', name: '青', color: '#1864ab', body: '#1864ab', band: '#e03131' },
+  { id: 'r', name: '赤・オレンジ', color: '#c92a2a', body: '#e8590c', band: '#c92a2a' },
+  { id: 'c', name: 'コンクリートの塊', color: '#c2a878', body: '#e9ecef', band: '#868e96' },
+];
+const BOLLARD_RAW = `
+GH:wr KE:c LS:srw NA:wy NG:wk RW:wr RE:wk SN:wr TN:wb UG:w BD:wr BT:c KH:wr CX:wr CC:b IN:skw ID:skw IL:wk JP:srw
+KZ:wk KG:wk LA:wk LB:wr MY:wr MN:wr NP:skw OM:wr PH:syk QA:srw RU:wk KR:sy LK:c TW:syk TH:skw AE:srw VN:c
+AL:wk AD:wg AT:wk BY:k BE:wr BA:wk BG:wr HR:wk CY:wr CZ:wk DK:w EE:w FO:k FI:wk FR:wk GE:wk DE:wk GR:wk HU:wk IS:y
+IE:wg IM:wk IT:wk JE:k XK:wk LV:wk LI:wk LT:wk LU:wk MT:wk MC:wr ME:wr NL:k MK:wk NO:wk PL:wk PT:wk RO:wr SM:wk RS:wr
+SK:wk SI:wk ES:w SE:wk CH:wk TR:wr UA:wk GB:wk CA:k CR:y GT:skw MX:wk PA:w AU:r NZ:wr AR:wg BO:wr BR:wr CL:wk CO:wy
+EC:wr PE:wy UY:y
+`;
+export const BOLLARD_DATA = Object.fromEntries(BOLLARD_RAW.trim().split(/\s+/).map((x) => { const [c, t] = x.split(':'); return [c, { types: [t] }]; }));

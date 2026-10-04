@@ -3,20 +3,23 @@
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { getProg, MAX_BOX } from './progress.js';
-import { CHEV_DATA, GUARD_DATA, POLE_DATA, GUARD_TYPES, POLE_TYPES, CHEV_SRC, PLONKIT_SRC, LINE_TYPES, LINE_DATA, LINE_SRC, CAM_DATA, SNOW_DATA, POLE_PHOTO } from './infodata.js';
+import { CHEV_DATA, GUARD_DATA, POLE_DATA, GUARD_TYPES, POLE_TYPES, CHEV_SRC, PLONKIT_SRC, LINE_TYPES, LINE_DATA, LINE_SRC, CAM_DATA, SNOW_DATA, POLE_PHOTO, PLATE_TYPES, PLATE_DATA, PLATE_SRC, BOLLARD_TYPES, BOLLARD_DATA, BOLLARD_SRC } from './infodata.js';
 
-export { GUARD_TYPES, POLE_TYPES, LINE_TYPES };
+export { GUARD_TYPES, POLE_TYPES, LINE_TYPES, PLATE_TYPES, BOLLARD_TYPES };
 
 export const MAP_MODES = [
   { id: 'cards', icon: '🃏', name: 'カード', desc: '国ごとのカードの枚数とサムネイル' },
   { id: 'chevron', icon: '⟫', name: 'シェブロン', desc: 'カーブの矢印標識の色（背景と矢印）', editable: true, pattern: true },
   { id: 'guardrail', icon: '🛡', name: 'ガードレール', desc: 'ガードレールの種類（A / B / 細い B など）と反射板の色', editable: true, pattern: true },
   { id: 'pole', icon: '⚡', name: '電柱', desc: 'よく見る電柱の種類', editable: true, pattern: true },
+  { id: 'bollard', icon: '🚧', name: 'ボラード', desc: '道路脇のポール（デリニエーター）の色と帯', editable: true, pattern: true },
+  { id: 'plate', icon: '🚘', name: 'ナンバープレート', desc: '自家用車のナンバープレートの色', editable: true, pattern: true },
   { id: 'lines', icon: '🛣', name: '道路の線', desc: '外側の線と中央線の色（白・黄）', editable: true, pattern: true },
   { id: 'drive', icon: '🚗', name: '通行', desc: '左側通行 / 右側通行' },
   { id: 'script', icon: '🔤', name: '文字', desc: '看板で使われる主な文字（ラテン文字以外があればそれ）' },
   { id: 'camera', icon: '📷', name: 'カメラ世代', desc: 'Google カーのカメラの世代（Gen 1〜4）と Low / Small / Bad Cam' },
   { id: 'snow', icon: '❄', name: '雪', desc: '雪景色のカバレッジがある国' },
+  { id: 'match', icon: '🔎', name: '条件で絞り込み', desc: 'シェブロン・道路の線・通行などの条件を組み合わせて、当てはまる国を探す' },
   { id: 'weak', icon: '🧠', name: '苦手', desc: 'この端末での覚え具合（暗記の「覚えた / まだ」とクイズの結果）' },
 ];
 export const modeDef = (id) => MAP_MODES.find((m) => m.id === id) || MAP_MODES[0];
@@ -43,13 +46,13 @@ export function chevSignSvg(v, w = 36, h = 24) {
 }
 
 /* ---------------- ガードレール・電柱（種類を 1〜2 つ） ---------------- */
-export const typesOf = (topic) => (topic === 'pole' ? POLE_TYPES : topic === 'lines' ? LINE_TYPES : GUARD_TYPES);
+export const typesOf = (topic) => ({ pole: POLE_TYPES, lines: LINE_TYPES, plate: PLATE_TYPES, bollard: BOLLARD_TYPES }[topic] || GUARD_TYPES);
 const typeOf = (topic, id) => typesOf(topic).find((t) => t.id === id) || null;
 export const typesLabel = (topic, v) => (v.types || []).map((t) => typeOf(topic, t)?.name || t).join(' ＋ ');
 
 /* ---------------- 初期データ（資料から作成。編集画面で直せます） ---------------- */
-const SEED = { chevron: CHEV_DATA, guardrail: GUARD_DATA, pole: POLE_DATA, lines: LINE_DATA };
-const SEED_SRC = { chevron: CHEV_SRC, guardrail: PLONKIT_SRC, pole: PLONKIT_SRC, lines: LINE_SRC };
+const SEED = { chevron: CHEV_DATA, guardrail: GUARD_DATA, pole: POLE_DATA, lines: LINE_DATA, plate: PLATE_DATA, bollard: BOLLARD_DATA };
+const SEED_SRC = { chevron: CHEV_SRC, guardrail: PLONKIT_SRC, pole: PLONKIT_SRC, lines: LINE_SRC, plate: PLATE_SRC, bollard: BOLLARD_SRC };
 
 // facts: Map(topic → Map(code → value))。保存した値があればそれ、なければ初期値（seed: true）
 let facts = new Map();
@@ -138,6 +141,14 @@ const CAM_CLASSES = [
 const CAM_NAMES = { 1: 'Gen 1', 2: 'Gen 2', 3: 'Gen 3', 4: 'Gen 4', l: 'Low Cam', s: 'Small Cam', b: 'Bad Cam', t: 'トレッカー' };
 const SNOW_CLASSES = { o: { name: '屋外で雪の景色あり', color: '#74c0fc' }, b: { name: '屋外と屋内（スキー場など）', color: '#4dabf7' }, i: { name: '屋内のみ（スキー場など）', color: '#ced4da' } };
 
+// ボラードの小さな絵（本体と帯の色）
+function bollardSvg(t) {
+  const striped = !!t.stripes;
+  return `<svg class="bollard-sign" viewBox="0 0 14 24" width="12" height="22" aria-hidden="true"><rect x="2" y="1" width="10" height="22" rx="2" fill="${t.body}" stroke="rgba(0,0,0,.4)"/>${striped
+    ? [3, 9, 15].map((y) => `<rect x="2" y="${y}" width="10" height="3" fill="${t.band}"/>`).join('')
+    : `<rect x="2" y="3" width="10" height="5" fill="${t.band}"/>`}</svg>`;
+}
+
 export function classify(mode, code) {
   if (mode === 'camera') {
     const f = CAM_DATA[code];
@@ -187,7 +198,7 @@ export function classify(mode, code) {
       extra: types.length > 1 ? `見られる組み合わせ: ${typesLabel('lines', { types })}` : '',
     };
   }
-  if (mode === 'guardrail' || mode === 'pole') {
+  if (mode === 'guardrail' || mode === 'pole' || mode === 'plate' || mode === 'bollard') {
     const v = factOf(mode, code);
     let types = (v?.types || []).filter((t) => typeOf(mode, t));
     if (!types.length) return null;
@@ -195,10 +206,13 @@ export function classify(mode, code) {
     const others = mode === 'pole' ? types.slice(1) : [];
     if (mode === 'pole') types = types.slice(0, 1);
     const key = [...types].sort().join('+');
-    const colors = types.map((t) => typeOf(mode, t).color);
+    // 縞模様の種類（黒白の縞など）は 1 種類でも模様で塗る
+    const t0 = typeOf(mode, types[0]);
+    const colors = types.length > 1 ? types.map((t) => typeOf(mode, t).color) : t0.stripes || [t0.color];
+    const swatchHtml = mode === 'bollard' ? bollardSvg(t0) : `<span class="sw-multi">${colors.map((c) => `<i style="background:${c}"></i>`).join('')}</span>`;
     return {
-      key, label: typesLabel(mode, { types }), color: colors[0], pattern: types.length > 1 ? `${mode}-${key}` : null, colors,
-      swatch: `<span class="sw-multi">${colors.map((c) => `<i style="background:${c}"></i>`).join('')}</span>`, seed: v.seed, src: v.src, note: v.note, value: v,
+      key, label: typesLabel(mode, { types }), color: colors[0], pattern: colors.length > 1 ? `${mode}-${key}` : null, colors,
+      swatch: swatchHtml, seed: v.seed, src: v.src, note: v.note, value: v,
       extra: others.length ? `ほかに: ${typesLabel(mode, { types: others })}` : '',
     };
   }
@@ -282,3 +296,27 @@ export function factPanelHtml(mode, code) {
     ${c?.alt?.length ? `<div class="pfact-alt"><span>ほかに見られる種類</span>${c.alt.map((x) => `<span class="alt-sign" title="${esc(chevLabel(x))}">${chevSignSvg(x)}</span>`).join('')}</div>` : ''}
     ${c?.note ? `<div class="pfact-note">${esc(c.note)}</div>` : ''}`;
 }
+
+/* ---------------- 条件で絞り込み（特徴の掛け合わせ） ---------------- */
+export const MATCH_TOPICS = ['chevron', 'guardrail', 'pole', 'bollard', 'plate', 'lines', 'drive', 'script', 'camera', 'snow'];
+const TYPE_TOPICS = new Set(['guardrail', 'pole', 'bollard', 'plate']);
+// 条件の選択肢: 種類のあるもの（ガードレールなど）は種類ごと、それ以外は凡例の分類ごと
+export function matchOptions(topic, codes) {
+  if (TYPE_TOPICS.has(topic)) {
+    const used = new Set();
+    for (const c of codes) for (const t of factOf(topic, c)?.types || []) used.add(t);
+    return typesOf(topic).filter((t) => used.has(t.id)).map((t) => ({ key: t.id, label: t.name }));
+  }
+  return legendGroups(topic, codes).map((g) => ({ key: g.key, label: g.label }));
+}
+// その国が条件に当てはまるか（シェブロンはほかに見られる種類も、種類のあるものは 2 つ目の種類も含める）
+export function matches(topic, code, key) {
+  if (TYPE_TOPICS.has(topic)) return (factOf(topic, code)?.types || []).includes(key);
+  const c = classify(topic, code);
+  if (!c) return false;
+  if (c.key === key) return true;
+  if (topic === 'chevron') return (c.alt || []).some((x) => `${x.bg}-${x.fg}` === key);
+  return false;
+}
+// conds: { topic: key }。すべての条件に当てはまる国
+export const matchAll = (conds, codes) => codes.filter((code) => Object.entries(conds).every(([t, k]) => !k || matches(t, code, k)));
