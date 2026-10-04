@@ -757,7 +757,7 @@ export async function renderMap(view, ctx) {
     if (photoOn) {
       const photos = photoList(code);
       el.querySelector('.pfact')?.insertAdjacentHTML('afterend', photos.length
-        ? `<div class="pphotos"><div class="pphotos-head">📷 参考写真 <a href="${REF_PAGES[mode]}" target="_blank" rel="noopener" class="muted small">GeoHints ↗</a></div><div class="pphotos-grid">${photos.map((p) => `<button type="button" class="pphoto" data-src="${ctx.esc(p.src)}"><img src="${ctx.esc(p.src)}" alt="" loading="lazy"></button>`).join('')}</div></div>`
+        ? `<div class="pphotos"><div class="pphotos-head">📷 参考写真 <a href="${REF_PAGES[mode]}" target="_blank" rel="noopener" class="muted small">GeoHints ↗</a></div><div class="pphotos-grid">${photos.map((p) => { const n = ctx.photoNote(mode, p.src, code); return `<button type="button" class="pphoto ${n ? 'has-note' : ''}" data-src="${ctx.esc(p.src)}" title="${ctx.esc(n || '参考写真（GeoHints）')}"><img src="${ctx.esc(p.src)}" alt="" loading="lazy"></button>`; }).join('')}</div></div>`
         : '<div class="pphotos muted small">この国の参考写真はありません</div>');
       el.querySelectorAll('.pphoto').forEach((b, i) => b.addEventListener('click', () => ctx.openPhoto(mode, code, photos.map((p) => p.src), i, b)));
     } else if (mode === 'guardrail') {

@@ -828,7 +828,7 @@ function countryFactsHtml(code) {
     return `<div class="cfacts-row">
       <div class="cfacts-head">${esc(m.icon)} ${esc(m.name)}<button type="button" class="link-btn cfacts-map" data-topic="${t}" title="地図の「${esc(m.name)}」で見る">地図で見る</button></div>
       <div class="cfacts-body">${factPanelHtml(t, code).replace(/<div class="pfact-head">.*?<\/div>/, '')}</div>
-      ${photos.length ? `<div class="cfacts-photos">${photos.map((r, i) => `<button type="button" class="cfacts-photo" data-topic="${t}" data-i="${i}" title="参考写真（GeoHints）"><img src="${esc(REF_BASE + r)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
+      ${photos.length ? `<div class="cfacts-photos">${photos.map((r, i) => { const n = photoNote(t, REF_BASE + r, code); return `<button type="button" class="cfacts-photo ${n ? 'has-note' : ''}" data-topic="${t}" data-i="${i}" title="${esc(n || '参考写真（GeoHints）')}"><img src="${esc(REF_BASE + r)}" alt="" loading="lazy"></button>`; }).join('')}</div>` : ''}
     </div>`;
   }).join('');
   return `<details class="cinfo-facts" ${settings.countryFactsOpen === false ? '' : 'open'}>
@@ -844,12 +844,19 @@ function openPhotoModal(topic, code, srcs, i, src = null) {
   navModal({ kind: 'photo', topic, code, srcs, i });
   if (src && fresh) popFrom($('#modal'), src);
 }
-// 写真ごとの説明（撮影場所・種類）と Google マップへのリンク
+// 写真ごとのメモ（見どころ）: 国ごとの情報と同じテーブル（country_facts）に topic「photo|種類|画像のパス」で保存
+const relOf = (src) => (src.startsWith(REF_BASE) ? src.slice(REF_BASE.length) : src);
+const photoNoteKey = (topic, src) => `photo|${topic}|${relOf(src)}`;
+const photoNote = (topic, src, code) => state.facts.get(photoNoteKey(topic, src))?.get(code)?.note || '';
+
+// 写真ごとの説明（撮影場所・種類・見どころのメモ）と Google マップへのリンク
 function photoInfoHtml(topic, src, code) {
-  const info = refInfo(topic, src.startsWith(REF_BASE) ? src.slice(REF_BASE.length) : src) || {};
+  const info = refInfo(topic, relOf(src)) || {};
   const note = factOf(topic, code)?.note || '';
-  if (!info.desc && !info.map && !note) return '';
+  const pnote = photoNote(topic, src, code);
+  if (!info.desc && !info.map && !note && !pnote) return '';
   return `<div class="photo-info">
+    ${pnote ? `<p class="photo-desc photo-pnote">📝 <b>この写真の見どころ:</b> ${esc(pnote)}</p>` : ''}
     ${info.desc ? `<p class="photo-desc">${esc(info.desc)}</p>` : ''}
     ${note ? `<p class="photo-desc photo-note"><b>見分け方:</b> ${esc(note)}</p>` : ''}
     ${info.map ? `<a class="btn btn-sm photo-map" href="${esc(info.map)}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a>` : ''}
@@ -870,7 +877,7 @@ async function photoToCard(topic, code, src, btn) {
     const catId = state.categories.find((k) => CAT_TOPIC[k.name] === topic)?.id || null;
     openEditor(null, {
       countries: [code], categoryId: catId, blob, area: place,
-      notes: [note, `出典: GeoHints（${REF_PAGES[topic] || 'https://geohints.com/'}）${info.map ? `\n撮影地点: ${info.map}` : ''}`].filter(Boolean).join('\n'),
+      notes: [photoNote(topic, src, code), note, `出典: GeoHints（${REF_PAGES[topic] || 'https://geohints.com/'}）${info.map ? `\n撮影地点: ${info.map}` : ''}`].filter(Boolean).join('\n'),
     });
   } catch (ex) {
     toast(ex.message, 'error');
@@ -911,6 +918,8 @@ function renderPhotoModal(entry) {
         ${answerHtml({ countries: [code], area: '' }, 'md', true)}
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
         ${photoInfoHtml(topic, srcs[i], code)}
+        ${state.user.isEditor ? `<label class="field photo-note-edit"><span>📝 この写真の見どころ（メモ）<span class="muted small" id="pnote-status"></span></span>
+          <textarea id="pnote-input" rows="3" placeholder="例: 反射板の形がポイント。左のボラードは赤い帯が一周している。入力が止まると自動で保存されます">${esc(photoNote(topic, srcs[i], code))}</textarea></label>` : ''}
         ${state.user.isEditor ? '<button type="button" class="btn btn-sm" id="photo-to-card" title="この写真を自分のカードにする（国・カテゴリー・見分け方を入れた状態で作成画面を開きます）">＋ この写真でカードを作る</button>' : ''}
         <div class="og-export">
           ${allSpotsLink()}
@@ -924,6 +933,35 @@ function renderPhotoModal(entry) {
     </div>`, 'modal-wide', true);
   attachZoom($('.detail-front .front-img'), srcs.length > 1 ? { onSwipe: (d) => stepPhoto(d) } : {});
   $('#photo-to-card')?.addEventListener('click', (e) => photoToCard(topic, code, srcs[i], e.currentTarget));
+  // 写真ごとのメモ: 入力が止まって 0.8 秒、または欄から離れたら保存
+  const pin = $('#pnote-input');
+  if (pin) {
+    const key = photoNoteKey(topic, srcs[i]);
+    let saved = pin.value;
+    let timer = null;
+    const save = async () => {
+      clearTimeout(timer);
+      const text = pin.value.trim();
+      if (text === saved.trim()) return;
+      if (state.factsMissing) { $('#pnote-status').textContent = '保存先のテーブルがありません（supabase/country-facts.sql を実行してください）'; return; }
+      $('#pnote-status').textContent = '保存中…';
+      try {
+        await api.saveFact(code, key, text ? { note: text } : null);
+        saved = pin.value;
+        if (!state.facts.has(key)) state.facts.set(key, new Map());
+        if (text) state.facts.get(key).set(code, { note: text }); else state.facts.get(key).delete(code);
+        setFacts(state.facts);
+        $('#pnote-status').textContent = '保存しました';
+        window.dispatchEvent(new Event('geo:notes')); // 地図の右パネル（写真の 📝 印）に反映
+      } catch (ex) {
+        $('#pnote-status').textContent = '';
+        toast(`メモを保存できませんでした: ${ex.message}`, 'error');
+      }
+    };
+    pin.addEventListener('input', () => { $('#pnote-status').textContent = ''; clearTimeout(timer); timer = setTimeout(save, 800); });
+    pin.addEventListener('blur', save);
+    $('#modal').addEventListener('close', save, { once: true });
+  }
   // OpenGuessr / WorldGuessr 用の書き出し（この写真 / この国のこの種類の写真すべて）
   $('#modal .og-site')?.addEventListener('change', (e) => { settings.playSite = e.target.value; saveSettings(); });
   const refOf = (src) => { const list = REF_IMAGES[topic]?.[code] || []; const k = list.indexOf(src.slice(REF_BASE.length)); return k >= 0 ? refCard(`ref|${topic}|${code}|${k}`) : null; };
@@ -3353,6 +3391,7 @@ const mapCtx = {
   mapMode: () => settings.mapMode || 'cards',
   mapPhotos: () => settings.mapPhotos !== false,
   openPhoto: (topic, code, srcs, i, src) => openPhotoModal(topic, code, srcs, i, src),
+  photoNote: (topic, src, code) => photoNote(topic, src, code),
   setMapPhotos: (on) => { settings.mapPhotos = on; saveSettings(); },
   setMapMode: (m) => { settings.mapMode = m; saveSettings(); },
   isEditor: () => !!state.user?.isEditor,

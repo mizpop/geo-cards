@@ -1586,3 +1586,12 @@ textarea { resize: vertical; line-height: 1.6; }
 .og-export .og-site { width: auto; margin-left: 6px; }
 
 .og-all { text-decoration: none; flex-basis: auto; }
+/* 地図のサムネイル: Leaflet の標準スタイル（マーカー内の画像は width: auto）に負けないように、枠いっぱい・中央に */
+.leaflet-container .leaflet-marker-pane .map-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+
+/* 写真ごとのメモ */
+.photo-pnote { padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, #f5c400 12%, transparent); }
+.photo-note-edit { margin: 0 0 10px; }
+.photo-note-edit textarea { min-height: 64px; background: color-mix(in srgb, #f5c400 6%, var(--surface)); }
+.pphoto.has-note::after, .cfacts-photo.has-note::after { content: '📝'; position: absolute; top: 2px; right: 3px; font-size: 12px; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.cfacts-photo { position: relative; }
