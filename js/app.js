@@ -9,6 +9,7 @@ import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
 import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml } from './progress.js';
 import { mountQuizMap, nearestKm } from './quizmap.js';
+import { setFacts, setCards as setInfoCards, CHEV_COLORS, GUARD_TYPES, chevSignSvg, factOf, modeDef } from './infomap.js';
 
 /* ================= ユーティリティ ================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -101,7 +102,8 @@ const DEFAULT_SETTINGS = {
   showDesc: true, // 表面に説明文を表示（暗記・クイズ）
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
-  studySplit: false, // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
+  studySplit: false,
+  mapMode: 'cards', // 地図の表示: カード / シェブロン / ガードレール / 通行 / 文字 / 苦手 // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
   liveSearch: true, // 地図: 検索バーに入力するたびに候補の国へ移動（オフなら Enter で移動）
   sound: true, // 効果音（右上のボタンでも切り替え）
   keys: {}, // キー割り当て（DEFAULT_KEYS からの変更分）
@@ -373,6 +375,10 @@ async function reloadCards() {
     state.cards = await api.listCards();
     // メモのテーブルがまだない（setup.sql を更新前）場合も、ほかの機能は動くように
     state.countryNotes = await api.listCountryNotes().catch((e) => { console.warn('国のメモを読み込めませんでした', e); return new Map(); });
+    // 地図のインフォグラフィックの値（テーブルがまだない場合は初期値だけで動く）
+    state.facts = await (api.listFacts ? api.listFacts() : Promise.resolve(new Map())).catch((e) => { console.warn('国の情報を読み込めませんでした', e); state.factsMissing = true; return new Map(); });
+    setFacts(state.facts);
+    setInfoCards(state.cards);
     state.urls = await api.imageUrls(state.cards);
     state.urlsAt = Date.now();
   } catch (e) {
@@ -853,6 +859,67 @@ function renderCompareModal(entry) {
   }
   bindTiles();
   bindModalNav();
+}
+
+/* ================= 地図のインフォグラフィック: 国ごとの値の編集 ================= */
+function openFactEditor(topic, code) {
+  if (!state.user.isEditor) return;
+  if (state.factsMissing) { toast('保存先のテーブルがありません。supabase/country-facts.sql を実行してください', 'error'); return; }
+  const cur = factOf(topic, code);
+  const m = modeDef(topic);
+  const draft = topic === 'chevron'
+    ? { bg: cur?.bg || 'yellow', fg: cur?.fg || 'black', note: cur?.note || '' }
+    : { types: [...(cur?.types || [])], note: cur?.note || '' };
+  openModal(`
+    <div class="modal-head"><h2>${m.icon} ${esc(m.name)}: ${flagImg(code)} ${esc(countryName(code))}</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    ${cur?.seed ? '<p class="muted small">今の値はアプリに最初から入っている初期値です。正しいか確認して保存してください</p>' : ''}
+    <div id="fact-form"></div>
+    <label class="field fact-note"><span>メモ（任意: 地域による違い・見分けるコツなど）</span><textarea id="fact-note" rows="2">${esc(draft.note)}</textarea></label>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="fact-none" type="button" title="この国にはデータなし（初期値も使わない）にします">データなし</button>
+      <span class="grow"></span>
+      <button class="btn btn-ghost" data-close type="button">キャンセル</button>
+      <button class="btn btn-primary" id="fact-save" type="button">保存</button>
+    </div>`, 'modal-sm');
+  const form = $('#fact-form');
+  const draw = () => {
+    if (topic === 'chevron') {
+      const row = (key, label) => `<div class="fact-row"><span class="fact-label">${label}</span><div class="swatches">${CHEV_COLORS.map((c) => `<button type="button" class="swatch-btn ${draft[key] === c.id ? 'on' : ''}" data-key="${key}" data-v="${c.id}" style="--sw:${c.hex}" title="${c.name}" aria-label="${label}: ${c.name}"></button>`).join('')}</div></div>`;
+      form.innerHTML = `<div class="fact-preview">${chevSignSvg(draft, 108, 72)}</div>${row('bg', '背景の色')}${row('fg', '矢印の色')}`;
+      $$('.swatch-btn', form).forEach((b) => b.addEventListener('click', () => { draft[b.dataset.key] = b.dataset.v; draw(); }));
+    } else {
+      form.innerHTML = `<p class="muted small">よく見る種類を選んでください（2 つまで）</p>
+        <div class="guard-list">${GUARD_TYPES.map((t) => `
+          <label class="guard-item"><input type="checkbox" value="${t.id}" ${draft.types.includes(t.id) ? 'checked' : ''}><span class="sw" style="background:${t.color}"></span>${esc(t.name)}</label>`).join('')}</div>`;
+      $$('input', form).forEach((cb) => cb.addEventListener('change', () => {
+        if (cb.checked) { draft.types.push(cb.value); if (draft.types.length > 2) draft.types.shift(); }
+        else draft.types = draft.types.filter((x) => x !== cb.value);
+        draw();
+      }));
+    }
+  };
+  draw();
+  const save = async (value, msg) => {
+    try {
+      await api.saveFact(code, topic, value);
+      if (!state.facts.has(topic)) state.facts.set(topic, new Map());
+      state.facts.get(topic).set(code, value);
+      setFacts(state.facts);
+      closeModal();
+      toast(msg);
+      if (state.view === 'map') refreshMap($('#view'), mapCtx);
+    } catch (ex) {
+      toast(`保存できませんでした: ${ex.message}`, 'error');
+    }
+  };
+  $('#fact-save').addEventListener('click', () => {
+    const note = $('#fact-note').value.trim();
+    if (topic === 'guardrail' && !draft.types.length) { toast('種類を選んでください（なければ「データなし」）', 'error'); return; }
+    const value = topic === 'chevron' ? { bg: draft.bg, fg: draft.fg } : { types: draft.types };
+    if (note) value.note = note;
+    save(value, '保存しました');
+  });
+  $('#fact-none').addEventListener('click', () => save({ none: true }, 'データなしにしました'));
 }
 
 /* ================= モーダル ================= */
@@ -2534,6 +2601,10 @@ const mapCtx = {
   animations: () => settings.animations,
   hoverAutoExpand: () => settings.hoverExpand,
   liveSearch: () => settings.liveSearch,
+  mapMode: () => settings.mapMode || 'cards',
+  setMapMode: (m) => { settings.mapMode = m; saveSettings(); },
+  isEditor: () => !!state.user?.isEditor,
+  editFact: (mode, code) => openFactEditor(mode, code),
   // 地図の地域・カテゴリーの絞り込み（暗記・編集画面と同じ部品）
   filterPicksHtml: () => `${regionPickHtml('map-region', state.mapFilter.regionsOff)}${catPickHtml('map-cat', state.mapFilter.catsOff)}`,
   bindFilterPicks: (onChange) => {

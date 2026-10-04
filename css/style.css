@@ -1326,3 +1326,57 @@ textarea { resize: vertical; line-height: 1.6; }
   .toolbar:has(#study-review) .mpick { flex: 1 1 40%; min-width: 0; }
   .toolbar:has(#study-review) .mpick-btn { max-width: none; width: 100%; }
 }
+
+/* ---------- 地図のインフォグラフィック ---------- */
+.map-modes { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.map-modes button { white-space: nowrap; }
+.map-legend {
+  position: absolute; left: 10px; bottom: 26px; z-index: 600; max-width: min(300px, calc(100% - 20px)); max-height: 45%;
+  overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .25); font-size: 12px; backdrop-filter: blur(4px);
+}
+.map-legend .lg-title { font-weight: 800; font-size: 13px; margin-bottom: 6px; }
+.lg-item { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.lg-item b { margin-left: auto; color: var(--muted); font-weight: 600; }
+.lg-empty, .lg-hint { color: var(--muted); }
+.lg-hint { margin-top: 6px; font-size: 11px; }
+.sw { display: inline-block; width: 22px; height: 14px; border-radius: 3px; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
+.sw-multi { display: inline-flex; width: 22px; height: 14px; border-radius: 3px; overflow: hidden; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
+.sw-multi i { flex: 1; }
+.chev-sign { display: block; flex: none; }
+.fact-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+.fact-chip .chev-sign { width: 30px; height: 20px; }
+.fact-chip.is-none { color: var(--muted); font-weight: 500; }
+.seed-tag { font-size: 10px; font-weight: 600; color: var(--muted); border: 1px dashed var(--muted); border-radius: 999px; padding: 0 6px; }
+.hb-compact .fact-chip { font-size: 12px; }
+.pfact { position: relative; margin: -2px 0 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border: 1px solid var(--border); }
+.pfact-head { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+.pfact-note { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: pre-wrap; }
+.pfact-edit { position: absolute; top: 8px; right: 8px; }
+.hb-fact { margin: 0 0 10px; }
+.pinfo .pfact { margin-right: 32px; }
+.fgroup { margin-bottom: 14px; }
+.fgroup-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.fgroup-head .muted { margin-left: auto; }
+.fgroup-codes { display: flex; flex-wrap: wrap; gap: 4px; }
+.fgroup-codes .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.fgroup-codes .chip.is-off { opacity: .55; }
+.map-modes .mode-name { }
+@media (max-width: 760px) {
+  .map-modes .mode-name { display: none; }
+  .map-modes button { padding: 0 10px; }
+  .map-legend { bottom: 18px; max-height: 38%; font-size: 11px; }
+}
+/* 値の編集 */
+.fact-preview { display: flex; justify-content: center; padding: 8px 0 14px; }
+.fact-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.fact-label { width: 72px; font-size: 13px; font-weight: 700; }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatch-btn { width: 32px; height: 32px; border-radius: 8px; border: 2px solid var(--border); background: var(--sw); cursor: pointer; }
+.swatch-btn.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.guard-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.guard-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.guard-item:hover { background: var(--surface-2); }
+.guard-item input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--accent); }
+.fact-note { margin-top: 6px; }

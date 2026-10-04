@@ -159,7 +159,7 @@ function createSupabaseApi(sb) {
     // カード・カテゴリー・国のメモが誰かに変更されたら通知（Supabase Realtime）。戻り値は購読解除の関数
     subscribeCards(handler) {
       const ch = sb.channel('cards-changes');
-      for (const table of ['cards', 'categories', 'country_notes']) {
+      for (const table of ['cards', 'categories', 'country_notes', 'country_facts']) {
         ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => handler(table));
       }
       ch.subscribe();
@@ -167,6 +167,20 @@ function createSupabaseApi(sb) {
     },
 
     // 国ごとのメモ: Map(code -> note)
+    // 国ごとの情報（地図のインフォグラフィック）: Map(topic → Map(code → value))
+    async listFacts() {
+      const { data, error } = await sb.from('country_facts').select('code, topic, value');
+      if (error) throw error;
+      const m = new Map();
+      for (const r of data) { if (!m.has(r.topic)) m.set(r.topic, new Map()); m.get(r.topic).set(r.code, r.value); }
+      return m;
+    },
+    async saveFact(code, topic, value) {
+      const { error } = value
+        ? await sb.from('country_facts').upsert({ code, topic, value, updated_at: new Date().toISOString() })
+        : await sb.from('country_facts').delete().eq('code', code).eq('topic', topic);
+      if (error) throw error;
+    },
     async listCountryNotes() {
       const { data, error } = await sb.from('country_notes').select('code, note');
       if (error) throw error;
@@ -213,6 +227,7 @@ function createDemoApi() {
   const CAT_KEY = 'geo-cards-demo-categories-v1';
   const NOTES_KEY = 'geo-cards-demo-country-notes-v1';
   const MEMOS_KEY = 'geo-cards-demo-memos-v1';
+  const FACTS_KEY = 'geo-cards-demo-facts-v1';
   const loadCats = () => {
     try {
       const v = JSON.parse(localStorage.getItem(CAT_KEY));
@@ -264,6 +279,18 @@ function createDemoApi() {
     async listCountryNotes() {
       try { return new Map(Object.entries(JSON.parse(localStorage.getItem(NOTES_KEY)) || {})); } catch { return new Map(); }
     },
+    async listFacts() {
+      let raw = {};
+      try { raw = JSON.parse(localStorage.getItem(FACTS_KEY)) || {}; } catch { /* 空 */ }
+      return new Map(Object.entries(raw).map(([topic, v]) => [topic, new Map(Object.entries(v))]));
+    },
+    async saveFact(code, topic, value) {
+      let raw = {};
+      try { raw = JSON.parse(localStorage.getItem(FACTS_KEY)) || {}; } catch { /* 空 */ }
+      raw[topic] = raw[topic] || {};
+      if (value) raw[topic][code] = value; else delete raw[topic][code];
+      try { localStorage.setItem(FACTS_KEY, JSON.stringify(raw)); } catch { throw new Error('ブラウザの保存容量が不足しています'); }
+    },
     async listMemos() {
       try { return JSON.parse(localStorage.getItem(MEMOS_KEY)) || []; } catch { return []; }
     },
@@ -285,7 +312,7 @@ function createDemoApi() {
       return () => window.removeEventListener('storage', onStorage);
     },
     subscribeCards(handler) {
-      const keys = { [KEY]: 'cards', [CAT_KEY]: 'categories', [NOTES_KEY]: 'country_notes' };
+      const keys = { [KEY]: 'cards', [CAT_KEY]: 'categories', [NOTES_KEY]: 'country_notes', [FACTS_KEY]: 'country_facts' };
       const onStorage = (e) => { if (keys[e.key]) handler(keys[e.key]); };
       window.addEventListener('storage', onStorage);
       return () => window.removeEventListener('storage', onStorage);

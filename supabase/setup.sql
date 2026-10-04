@@ -58,6 +58,22 @@ create table if not exists public.country_notes (
   updated_at timestamptz not null default now()
 );
 
+-- 国ごとの情報（地図のインフォグラフィック: シェブロンの色・ガードレールの種類など）
+create table if not exists public.country_facts (
+  code       text not null,
+  topic      text not null,
+  value      jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (code, topic)
+);
+alter table public.country_facts enable row level security;
+drop policy if exists "country_facts: read"  on public.country_facts;
+drop policy if exists "country_facts: write" on public.country_facts;
+create policy "country_facts: read"  on public.country_facts for select to authenticated using (true);
+create policy "country_facts: write" on public.country_facts for all to authenticated using (public.is_editor()) with check (public.is_editor());
+revoke all on public.country_facts from anon;
+grant select, insert, update, delete on public.country_facts to authenticated;
+
 -- チャット形式のメモ（画面右下のボタン）
 create table if not exists public.memos (
   id         uuid primary key default gen_random_uuid(),
@@ -136,7 +152,7 @@ create policy "card-images: delete" on storage.objects for delete to authenticat
 do $$
 declare t text;
 begin
-  foreach t in array array['memos', 'cards', 'categories', 'country_notes'] loop
+  foreach t in array array['memos', 'cards', 'categories', 'country_notes', 'country_facts'] loop
     if not exists (
       select 1 from pg_publication_tables
       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

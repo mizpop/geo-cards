@@ -115,10 +115,12 @@ js/chat.js              チャット形式のメモ
 js/sound.js             効果音（Web Audio で合成）
 js/progress.js          カードごとの覚え具合（間隔反復・この端末に保存）
 js/quizmap.js           地図で答えるクイズの地図
+js/infomap.js           地図のインフォグラフィック（シェブロン・ガードレール・通行・文字・苦手）
 js/image.js             画像の圧縮・クリップボード
 supabase/setup.sql      テーブル・RLS・ストレージの初期設定
 supabase/add-editor.sql 編集者の登録
 supabase/realtime-cards.sql カードの変更をリアルタイムで反映する設定（既存の環境に追加）
+supabase/country-facts.sql 地図のインフォグラフィックの値を保存するテーブル（既存の環境に追加）
 ```
 
 画像はアップロード時に、長辺 1600px の WebP に圧縮されます（1 枚あたり約 100〜250KB）。無料枠のストレージ 1GB で、数千枚を保存できます。

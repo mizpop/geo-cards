@@ -1,6 +1,7 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
+import { MAP_MODES, modeDef, infoStyle, ensurePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml } from './infomap.js';
 
 const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
 const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
@@ -172,12 +173,16 @@ export async function renderMap(view, ctx) {
     map.remove();
     map = null;
   }
-  const cats = ctx.allCats();
+  const mode = ctx.mapMode();
+  const patternMode = !!modeDef(mode).pattern;
   view.innerHTML = `
-    <div class="toolbar">
-      ${ctx.filterPicksHtml()}
+    <div class="toolbar map-toolbar">
+      <div class="seg map-modes" role="tablist" aria-label="地図の表示">
+        ${MAP_MODES.map((m) => `<button type="button" class="${m.id === mode ? 'on' : ''}" data-mode="${m.id}" title="${m.name}: ${m.desc}" aria-selected="${m.id === mode}">${m.icon}<span class="mode-name"> ${m.name}</span></button>`).join('')}
+      </div>
+      ${mode === 'cards' ? ctx.filterPicksHtml() : ''}
       <button class="btn btn-ghost btn-sm" id="map-world">🌐 世界全体</button>
-      <span class="muted small map-hint">クリック・拡大でカード表示 ／ Ctrl+クリック・Ctrl+Enter で Plonkit ／ Alt+クリック・Alt+Enter で国の詳細</span>
+      <span class="muted small map-hint">${mode === 'cards' ? 'クリック・拡大でカード表示' : 'クリックで国を選択'} ／ Ctrl+クリック・Ctrl+Enter で Plonkit ／ Alt+クリック・Alt+Enter で国の詳細</span>
     </div>
     <div class="map-layout">
       <div class="map-box">
@@ -188,6 +193,7 @@ export async function renderMap(view, ctx) {
           <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動（設定でオフにできます） ／ Enter: 確定して入力を終える ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
         </div>
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
+        ${mode === 'cards' ? '' : `<div class="map-legend" id="map-legend"><div class="lg-title">${modeDef(mode).icon} ${modeDef(mode).name}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
       </div>
       <aside class="map-panel" id="map-panel">
         <section class="pinfo" id="pinfo"></section>
@@ -212,7 +218,8 @@ export async function renderMap(view, ctx) {
   map = L.map('map', {
     worldCopyJump: true, minZoom: 2, maxZoom: 12, zoomSnap: 0.5, preferCanvas: true,
     // 塗りは画面の外側も多めに描いておく（既定の 0.1 だと、ドラッグ中に端が切れて見える）
-    renderer: L.canvas({ padding: 0.8 }),
+    // シェブロン・ガードレールは模様で塗るので SVG で描く（それ以外は軽い canvas）
+    renderer: patternMode ? L.svg({ padding: 0.6 }) : L.canvas({ padding: 0.8 }),
     zoomAnimation: anim, fadeAnimation: anim, markerZoomAnimation: anim,
   });
   window.__geoMap = map; // デバッグ・動作確認用
@@ -271,6 +278,7 @@ export async function renderMap(view, ctx) {
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1c7f55';
   const NO_PLAY = dark ? '#5d646c' : '#9aa0a6'; // 出題されない国の灰色
   const baseStyle = (f) => {
+    if (mode !== 'cards') return { stroke: false, color: accent, weight: 2, ...infoStyle(mode, f.properties.code) };
     const n = byCountry.get(f.properties.code)?.length || 0;
     if (f.properties.code && !isPlayable(f.properties.code)) {
       return { stroke: false, color: NO_PLAY, weight: 2, fillColor: NO_PLAY, fillOpacity: dark ? 0.5 : 0.45 };
@@ -288,8 +296,11 @@ export async function renderMap(view, ctx) {
   const layersByCode = new Map();
   const partBounds = new Map(); // code -> 島などの各部分の範囲（表示範囲との重なり判定用）
   // 選んでいる国は黄色の輪郭と薄い塗りで強調し続ける
+  // （インフォグラフィックでは塗りはそのままで、黄色の輪郭だけ）
   const styleFor = (f) => (f.properties.code && f.properties.code === focused
-    ? { ...baseStyle(f), stroke: true, color: '#f5c400', weight: 2.5, fillColor: '#f5c400', fillOpacity: 0.22 }
+    ? (mode === 'cards'
+      ? { ...baseStyle(f), stroke: true, color: '#f5c400', weight: 2.5, fillColor: '#f5c400', fillOpacity: 0.22 }
+      : { ...baseStyle(f), stroke: true, color: '#f5c400', weight: 3.5 })
     : baseStyle(f));
   const restyle = (code) => { for (const l of (code && layersByCode.get(code)) || []) layer.resetStyle(l); };
   let layer = null;
@@ -382,6 +393,7 @@ export async function renderMap(view, ctx) {
     layer = L.geoJSON({ type: 'FeatureCollection', features }, { style: styleFor, onEachFeature: wireCountry, ...POLY_OPTS }).addTo(map);
     bordersLayer = L.geoJSON({ type: 'MultiLineString', coordinates: borderLines }, { interactive: false, style: BORDER_STYLE, ...POLY_OPTS }).addTo(map);
     layer.bringToBack();
+    if (patternMode) ensurePatterns(map.getPane('overlayPane').querySelector('svg'), mode, features.map((f) => f.properties.code).filter(Boolean));
     // 描き直した後も、検索で光らせている国とマウスが乗っている国の見た目を引き継ぐ
     if (flashedCode) {
       flashed = layersByCode.get(flashedCode) || [];
@@ -394,7 +406,7 @@ export async function renderMap(view, ctx) {
 
   // ---- 国ごとのマーカー（遠いと枚数バッジ、拡大するとカードのサムネイル）
   const markers = new Map();
-  for (const [code, list] of byCountry) {
+  for (const [code, list] of (mode === 'cards' ? byCountry : [])) {
     const g = GEO.get(code);
     if (!g) continue;
     // 日付変更線の向こう側にも置く（国の塗りの複製と同じ考え方）
@@ -493,7 +505,7 @@ export async function renderMap(view, ctx) {
     const n = byCountry.get(code)?.length || 0;
     bubble.dataset.code = code;
     bubble.className = `hover-bubble is-compact show${animate ? ' anim-out' : ''}${isPlayable(code) ? '' : ' no-play'}`;
-    bubble.innerHTML = `<div class="hb-body hb-compact">${ctx.flagImg(code)}<b>${ctx.esc(ctx.countryName(code))}</b>${n ? `<span class="hb-n">${n} 枚</span>` : ''}${isPlayable(code) ? '' : '<span class="no-play-tag">出題なし</span>'}</div>`;
+    bubble.innerHTML = `<div class="hb-body hb-compact">${ctx.flagImg(code)}<b>${ctx.esc(ctx.countryName(code))}</b>${mode === 'cards' ? (n ? `<span class="hb-n">${n} 枚</span>` : '') : factChipHtml(mode, code)}${isPlayable(code) ? '' : '<span class="no-play-tag">出題なし</span>'}</div>`;
     placeBubble();
     scheduleExpand(code);
   }
@@ -502,11 +514,12 @@ export async function renderMap(view, ctx) {
     const fan = fanHtml(code);
     bubble.dataset.code = code;
     bubble.className = `hover-bubble is-full show${fan ? ' has-fan' : ''}${animate ? ' anim-in' : ''}${isPlayable(code) ? '' : ' no-play'}`;
-    bubble.innerHTML = `${fan}<div class="hb-body">${ctx.countrySummaryHtml(code)}</div>`;
+    bubble.innerHTML = `${fan}<div class="hb-body">${mode === 'cards' ? '' : `<div class="pfact hb-fact">${factPanelHtml(mode, code)}</div>`}${ctx.countrySummaryHtml(code)}</div>`;
     placeBubble();
   }
   // 吹き出しの右上に、その国のカードを扇状に（本体の後ろから上だけ見える）
   function fanHtml(code) {
+    if (mode !== 'cards') return '';
     const list = byCountry.get(code) || [];
     if (!list.length) return '';
     const show = list.slice(0, 5);
@@ -709,8 +722,10 @@ export async function renderMap(view, ctx) {
         : '';
       return;
     }
-    el.innerHTML = ctx.countrySummaryHtml(code)
+    el.innerHTML = (mode === 'cards' ? '' : `<div class="pfact">${factPanelHtml(mode, code)}${modeDef(mode).editable && ctx.isEditor() ? `<button type="button" class="btn btn-sm pfact-edit" data-edit-fact>✏️ 編集</button>` : ''}</div>`)
+      + ctx.countrySummaryHtml(code)
       + '<button type="button" class="icon-btn pinfo-close" title="選択を解除（Esc）" aria-label="選択を解除">✕</button>';
+    el.querySelector('[data-edit-fact]')?.addEventListener('click', () => ctx.editFact(mode, code));
     el.scrollTop = 0;
     el.querySelector('.pinfo-close')?.addEventListener('click', clearFocus);
     el.querySelector('[data-more]')?.addEventListener('click', (e) => ctx.openCountry(code, e.currentTarget));
@@ -734,6 +749,21 @@ export async function renderMap(view, ctx) {
   function renderList() {
     const el = $id('plist');
     if (!el) return;
+    if (mode !== 'cards' && !focused) {
+      // インフォグラフィック: 分類ごとに国を並べる（表示中の国を先に）
+      const all = [...new Set([...GEO.keys()])];
+      const groups = legendGroups(mode, all);
+      const shownSet = new Set(shownCodes);
+      el.innerHTML = groups.length ? groups.map((g) => {
+        const codes = [...g.codes].sort((a, b) => (shownSet.has(b) - shownSet.has(a)) || ctx.countryName(a).localeCompare(ctx.countryName(b), 'ja'));
+        return `<div class="fgroup">
+          <div class="fgroup-head">${factChipHtml(mode, g.codes[0]).replace(/<small class="seed-tag"[^>]*>[^<]*<\/small>/, '')}<span class="muted small">${g.codes.length} か国</span></div>
+          <div class="fgroup-codes">${codes.map((c) => `<button type="button" class="chip chip-btn ${shownSet.has(c) ? '' : 'is-off'}" data-go="${c}">${ctx.flagImg(c)}${ctx.esc(ctx.countryName(c))}</button>`).join('')}</div>
+        </div>`;
+      }).join('') : `<p class="muted small">${mode === 'weak' ? '暗記カードの「覚えた / まだ」やクイズの結果が、ここに国ごとに出ます' : modeDef(mode).editable ? 'まだ登録がありません。国を選んで「編集」から登録できます' : 'データがありません'}</p>`;
+      el.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => focusCountry(b.dataset.go)));
+      return;
+    }
     if (focused) {
       const all = byCountry.get(focused) || [];
       const catsHere = ctx.allCats().filter((k) => all.some((x) => ctx.catKey(x) === k.id));
@@ -918,12 +948,19 @@ export async function renderMap(view, ctx) {
     ms.dispatchEvent(new Event('input'));
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
+  view.querySelectorAll('.map-modes [data-mode]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.mode === mode) return;
+    ctx.setMapMode(b.dataset.mode);
+    refreshMap(view, ctx); // 表示位置・選んでいる国はそのまま
+  }));
+  const legendItems = view.querySelector('#map-legend .lg-items');
+  if (legendItems) legendItems.innerHTML = legendHtml(mode, [...GEO.keys()]);
   currentFocus = null;
   if (restoreFocus && bounds.has(restoreFocus)) { setFocused(restoreFocus); renderPanel(); }
   restoreFocus = null;
 
   // 精細な国境データを裏で読み込み、届いたら差し替える（選択・強調・ホバーの状態は引き継ぐ）
-  loadWorld('10m').then((w10) => {
+  if (!patternMode) loadWorld('10m').then((w10) => {
     if (seq !== renderSeq || !map || !layer) return;
     worlds.hi = w10;
     drawCountries(true);
