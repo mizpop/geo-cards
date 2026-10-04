@@ -2,7 +2,6 @@
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
 import { REF_IMAGES, REF_BASE, REF_PAGES } from './refimages.js';
-import { openViewer } from './zoom.js';
 import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml, MATCH_TOPICS, matchOptions, matchAll } from './infomap.js';
 
 const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
@@ -450,7 +449,7 @@ export async function renderMap(view, ctx) {
       const id = e.originalEvent?.target?.closest?.('[data-card]')?.dataset.card;
       if (id) {
         const card = list.find((c) => c.id === id);
-        if (card?.photo) openViewer(card.src); // 参考写真は大きく表示
+        if (card?.photo) ctx.openPhoto(mode, code, list.map((c) => c.src), list.indexOf(card), e.originalEvent.target.closest('[data-card]')); // 参考写真はカードと同じ画面で
         else if (card) ctx.openCard(card, e.originalEvent.target.closest('[data-card]'), list.map((c) => c.id)); // ← → でこの国のカードを順に
       } else {
         toggleFocus(code);
@@ -760,7 +759,7 @@ export async function renderMap(view, ctx) {
       el.querySelector('.pfact')?.insertAdjacentHTML('afterend', photos.length
         ? `<div class="pphotos"><div class="pphotos-head">📷 参考写真 <a href="${REF_PAGES[mode]}" target="_blank" rel="noopener" class="muted small">GeoHints ↗</a></div><div class="pphotos-grid">${photos.map((p) => `<button type="button" class="pphoto" data-src="${ctx.esc(p.src)}"><img src="${ctx.esc(p.src)}" alt="" loading="lazy"></button>`).join('')}</div></div>`
         : '<div class="pphotos muted small">この国の参考写真はありません</div>');
-      el.querySelectorAll('.pphoto').forEach((b) => b.addEventListener('click', () => openViewer(b.dataset.src)));
+      el.querySelectorAll('.pphoto').forEach((b, i) => b.addEventListener('click', () => ctx.openPhoto(mode, code, photos.map((p) => p.src), i, b)));
     } else if (mode === 'guardrail') {
       const url = plonkitUrl(code);
       if (url) el.querySelector('.pfact')?.insertAdjacentHTML('beforeend', `<a class="pfact-link" href="${url}" target="_blank" rel="noopener">Plonkit でガードレールの写真を見る ↗</a>`);

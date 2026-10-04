@@ -9,6 +9,7 @@ import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
 import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity } from './progress.js';
 import { mountQuizMap, nearestKm } from './quizmap.js';
+import { REF_PAGES } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
 /* ================= ユーティリティ ================= */
@@ -597,6 +598,8 @@ function onKeydown(e) {
     if (!modalCurrent) return; // 編集・設定などの画面では無効
     const card = modalCurrent.kind === 'card' ? cardById(modalCurrent.id) : null;
     if (act === 'back') { e.preventDefault(); if (modalStack.length) modalBack(); else closeModal(); }
+    else if (modalCurrent.kind === 'photo' && (e.key === 'ArrowLeft' || act === 'prev')) { e.preventDefault(); stepPhoto(-1); }
+    else if (modalCurrent.kind === 'photo' && (e.key === 'ArrowRight' || act === 'next')) { e.preventDefault(); stepPhoto(1); }
     else if (card && (e.key === 'ArrowLeft' || act === 'prev')) { e.preventDefault(); stepCard(-1); }
     else if (card && (e.key === 'ArrowRight' || act === 'next')) { e.preventDefault(); stepCard(1); }
     else if (act === 'country' && card) { e.preventDefault(); openCountryInfo(card.countries[0]); }
@@ -709,6 +712,8 @@ function showNav(entry) {
     const card = cardById(entry.id);
     if (!card) { closeModal(); return; }
     renderCardModal(card, entry);
+  } else if (entry.kind === 'photo') {
+    renderPhotoModal(entry);
   } else {
     renderCountryModal(entry);
   }
@@ -721,7 +726,7 @@ function modalBack() {
 function backBtnHtml() {
   const prev = modalStack[modalStack.length - 1];
   if (!prev) return '';
-  const label = prev.kind === 'country' ? countryName(prev.code) : 'カード';
+  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : 'カード';
   return `<button class="btn btn-ghost btn-sm modal-back" id="modal-back" type="button">← ${esc(label)}</button>`;
 }
 function bindModalNav() {
@@ -789,6 +794,55 @@ function bindCardFacts(root) {
     closeModal();
     if (state.view === 'map') render(); else location.hash = '#map';
   }));
+}
+
+/* ---- 地図の参考写真（GeoHints）: カード詳細と同じ画面で開く ---- */
+// entry: { kind: 'photo', topic, code, srcs: [...], i }
+function openPhotoModal(topic, code, srcs, i, src = null) {
+  const fresh = !$('#modal').open;
+  navModal({ kind: 'photo', topic, code, srcs, i });
+  if (src && fresh) popFrom($('#modal'), src);
+}
+function stepPhoto(delta) {
+  const e = modalCurrent;
+  if (e?.kind !== 'photo') return;
+  const i = e.i + delta;
+  if (i < 0 || i >= e.srcs.length) return;
+  play('slide');
+  showNav({ ...e, i, enter: delta > 0 ? 'next' : 'prev' });
+}
+function renderPhotoModal(entry) {
+  const { topic, code, srcs, i } = entry;
+  const m = modeDef(topic);
+  const pager = srcs.length > 1 ? `
+    <div class="card-pager">
+      <button class="icon-btn pager-btn" id="photo-prev" type="button" aria-label="前の写真" title="前の写真（←）" ${i === 0 ? 'disabled' : ''}>‹</button>
+      <span class="pager-pos">${i + 1} / ${srcs.length}</span>
+      <button class="icon-btn pager-btn" id="photo-next" type="button" aria-label="次の写真" title="次の写真（→）" ${i === srcs.length - 1 ? 'disabled' : ''}>›</button>
+    </div>` : '';
+  openModal(`
+    <div class="modal-head">
+      ${backBtnHtml()}
+      <h2>参考写真: ${esc(m.icon)} ${esc(m.name)}</h2>
+      ${pager}
+      <button class="icon-btn" data-close aria-label="閉じる">✕</button>
+    </div>
+    <div class="detail ${entry.enter ? `enter-${entry.enter}` : ''}">
+      <div class="detail-front">
+        <div class="front-img"><img src="${esc(srcs[i])}" alt="${esc(countryName(code))}の${esc(m.name)}の参考写真"></div>
+        <p class="muted small photo-credit">写真: <a href="${REF_PAGES[topic] || 'https://geohints.com/'}" target="_blank" rel="noopener">GeoHints</a></p>
+      </div>
+      <div class="detail-back">
+        ${answerHtml({ countries: [code], area: '' }, 'md', true)}
+        <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
+        <div class="pfact">${factPanelHtml(topic, code)}</div>
+      </div>
+    </div>`, 'modal-wide', true);
+  attachZoom($('.detail-front .front-img'), srcs.length > 1 ? { onSwipe: (d) => stepPhoto(d) } : {});
+  $('#photo-prev')?.addEventListener('click', () => stepPhoto(-1));
+  $('#photo-next')?.addEventListener('click', () => stepPhoto(1));
+  delete entry.enter;
+  bindModalNav();
 }
 
 function renderCardModal(card, entry = {}) {
@@ -2940,6 +2994,7 @@ const mapCtx = {
   liveSearch: () => settings.liveSearch,
   mapMode: () => settings.mapMode || 'cards',
   mapPhotos: () => settings.mapPhotos !== false,
+  openPhoto: (topic, code, srcs, i, src) => openPhotoModal(topic, code, srcs, i, src),
   setMapPhotos: (on) => { settings.mapPhotos = on; saveSettings(); },
   setMapMode: (m) => { settings.mapMode = m; saveSettings(); },
   isEditor: () => !!state.user?.isEditor,
