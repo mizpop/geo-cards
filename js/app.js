@@ -913,6 +913,7 @@ function renderPhotoModal(entry) {
         ${photoInfoHtml(topic, srcs[i], code)}
         ${state.user.isEditor ? '<button type="button" class="btn btn-sm" id="photo-to-card" title="この写真を自分のカードにする（国・カテゴリー・見分け方を入れた状態で作成画面を開きます）">＋ この写真でカードを作る</button>' : ''}
         <div class="og-export">
+          ${allSpotsLink()}
           <span class="muted small">🎮 この場所から遊ぶ（マップとして書き出し）:
             <select class="select select-sm og-site" aria-label="書き出し先">${Object.entries(PLAY_SITES).map(([k, v]) => `<option value="${k}" ${playSite() === v ? 'selected' : ''}>${v.name}</option>`).join('')}</select></span>
           <button type="button" class="btn btn-ghost btn-sm" data-og="one">この写真の地点</button>
@@ -1578,6 +1579,7 @@ function renderQuiz() {
         </div>
         <p class="muted small">地図の参考写真（約 1,000 枚）から出題します。答えたあとに撮影場所と Google マップのリンクが出ます</p>
         <div class="og-export">
+          ${allSpotsLink()}
           <span class="muted small">🎮 この条件の写真の撮影地点を、ほかのサイトで遊べるマップ（GeoGuessr 形式の JSON）として書き出し</span>
           <select class="select select-sm og-site" id="q-og-site" aria-label="書き出し先">${Object.entries(PLAY_SITES).map(([k, v]) => `<option value="${k}" ${playSite() === v ? 'selected' : ''}>${v.name} 用</option>`).join('')}</select>
           <button type="button" class="btn btn-ghost btn-sm" id="q-og">書き出す</button>
@@ -2088,6 +2090,9 @@ const PLAY_SITES = {
   openguessr: { name: 'OpenGuessr', url: 'https://www.openguessr.com/maps/create', how: 'OpenGuessr の「マップ作成」でこのファイルを読み込んでください' },
 };
 const playSite = () => PLAY_SITES[settings.playSite] || PLAY_SITES.worldguessr;
+// 参考写真の全地点が入った OpenGuessr のマップ（作成済み）
+const OPENGUESSR_ALL_MAP = "https://www.openguessr.com/maps/community/geohints'_spots";
+const allSpotsLink = () => `<a class="btn btn-sm og-all" href="${OPENGUESSR_ALL_MAP}" target="_blank" rel="noopener" title="GeoHints の参考写真の撮影地点がすべて入った OpenGuessr のマップ">🎮 全スポットのマップを OpenGuessr で遊ぶ ↗</a>`;
 function exportOpenGuessr(cards, name) {
   const locs = cards.filter((c) => c?.lat != null).map((c) => {
     const info = refInfo(c.topic, c.src.slice(REF_BASE.length)) || {};

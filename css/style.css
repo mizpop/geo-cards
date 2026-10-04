@@ -1584,3 +1584,5 @@ textarea { resize: vertical; line-height: 1.6; }
 .og-export .muted { flex-basis: 100%; }
 #q-og-site { width: auto; }
 .og-export .og-site { width: auto; margin-left: 6px; }
+
+.og-all { text-decoration: none; flex-basis: auto; }
