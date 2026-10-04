@@ -714,6 +714,13 @@ function answerHtml(card, size = 'lg', linkCountries = false) {
     <p class="answer-regions">${[...cardRegions(card)].map((r) => esc(REGION_BY_ID.get(r).name)).join(' · ')}</p>`;
 }
 
+// 暗記カードの裏面の画像（表面より小さく、国名の上に）
+function backImgHtml(card) {
+  const src = imgUrl(card);
+  if (!src) return '';
+  return `<div class="back-img"><div class="back-img-box"><img src="${esc(src)}" alt="カード画像"></div></div>`;
+}
+
 function notesHtml(card) {
   return card.notes ? `<div class="notes">${nl2br(card.notes)}</div>` : '';
 }
@@ -825,14 +832,22 @@ function stepCard(delta) {
 // カードのカテゴリーと地図のデータの対応（シェブロンのカードなら、その国のシェブロンの色見本を出す）
 const CAT_TOPIC = { シェブロン: 'chevron', ガードレール: 'guardrail', 電柱: 'pole', ボラード: 'bollard', ナンバープレート: 'plate', '道路標示・ライン': 'lines', 'Googleカー・カメラ': 'camera' };
 const cardTopic = (card) => CAT_TOPIC[catOf(card).name] || null;
-function cardFactsHtml(card) {
+// compact: 暗記カードの裏面用。端に小さくたたんで置き、押すと開く
+function cardFactsHtml(card, compact = false) {
   const t = cardTopic(card);
   if (!t) return '';
   const m = modeDef(t);
+  const body = `${card.countries.slice(0, 4).map((c) => `<div class="card-fact-row"><span class="cf-country">${flagImg(c)}${esc(countryName(c))}</span>${factPanelHtml(t, c).replace(/<div class="pfact-head">.*?<\/div>/, '')}</div>`).join('')}
+    <button type="button" class="btn btn-ghost btn-sm" data-map-topic="${t}" data-map-code="${card.countries[0]}">🗺 地図の「${esc(m.name)}」で見る</button>`;
+  if (compact) {
+    return `<details class="card-facts card-facts-mini" id="back-facts" ${state.study.factsOpen ? 'open' : ''}>
+      <summary title="地図のデータ（${esc(m.name)}）を開く">🗺 <span class="tab-long">地図のデータ</span></summary>
+      <div class="card-facts-pop"><div class="card-facts-head">${esc(m.icon)} ${esc(m.name)}</div>${body}</div>
+    </details>`;
+  }
   return `<div class="card-facts">
     <div class="card-facts-head">🗺 地図のデータ: ${esc(m.icon)} ${esc(m.name)}</div>
-    ${card.countries.slice(0, 4).map((c) => `<div class="card-fact-row"><span class="cf-country">${flagImg(c)}${esc(countryName(c))}</span>${factPanelHtml(t, c).replace(/<div class="pfact-head">.*?<\/div>/, '')}</div>`).join('')}
-    <button type="button" class="btn btn-ghost btn-sm" data-map-topic="${t}" data-map-code="${card.countries[0]}">🗺 地図の「${esc(m.name)}」で見る</button>
+    ${body}
   </div>`;
 }
 function bindCardFacts(root) {
@@ -884,7 +899,7 @@ function photoInfoHtml(topic, src, code) {
   if (!info.desc && !info.map && !note && !pnote) return '';
   return `<div class="photo-info">
     ${pnote ? `<p class="photo-desc photo-pnote">📝 <b>この写真の見どころ:</b> ${esc(pnote)}</p>` : ''}
-    ${info.desc ? `<p class="photo-desc">${esc(info.desc)}</p>` : ''}
+    ${(info.desc || '').split('\n').filter(Boolean).map((l) => `<p class="photo-desc${/^(撮影場所|種類):/.test(l) ? ' photo-meta' : ''}">${esc(l)}</p>`).join('')}
     ${note ? `<p class="photo-desc photo-note"><b>見分け方:</b> ${esc(note)}</p>` : ''}
     ${info.map ? `<a class="btn btn-sm photo-map" href="${esc(info.map)}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a>` : ''}
   </div>`;
@@ -1454,11 +1469,12 @@ function renderStudy() {
               ${state.user.isEditor ? '<button class="btn btn-sm" id="study-edit" type="button" title="編集">✏️<span class="tab-long"> 編集</span></button>' : ''}
             </div>
             <div class="back-inner">
+              ${split ? '' : backImgHtml(card)}
               <div class="back-answer">${answerHtml(card)}</div>
               <div class="srs-row">${levelHtml(card.id)}</div>
-              ${cardFactsHtml(card)}
               ${notesHtml(card)}
             </div>
+            ${cardFactsHtml(card, true)}
           </div>
         </div>
       </div>
@@ -1486,6 +1502,7 @@ function renderStudy() {
     toast(s.review ? `復習モード: ${s.deck.length} 枚` : 'すべてのカードに戻りました');
   });
   if (card) bindCardFacts($('#flashcard'));
+  $('#back-facts')?.addEventListener('toggle', (e) => { s.factsOpen = e.currentTarget.open; });
   $('#study-ok')?.addEventListener('click', () => markStudy('ok'));
   $('#study-ng')?.addEventListener('click', () => markStudy('ng'));
   $('#study-split').addEventListener('click', () => { settings.studySplit = !settings.studySplit; saveSettings(); renderStudy(); });
@@ -1500,7 +1517,7 @@ function renderStudy() {
   if (card) {
     $('#flashcard').addEventListener('click', (e) => {
       // 画像部分のタップは attachZoom 側で処理（ドラッグ・拡大中はめくらない）
-      if (e.target.closest('.front-img, button')) return;
+      if (e.target.closest('.front-img, button, .card-facts-mini, a')) return;
       flipStudy();
     });
     attachZoom($('#flashcard .front-img'), { onTap: flipStudy, onSwipe: moveStudy, dblclick: false });
