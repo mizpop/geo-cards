@@ -1535,3 +1535,15 @@ textarea { resize: vertical; line-height: 1.6; }
 .cfacts-photo { flex: none; width: 56px; height: 42px; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #0b0f12; cursor: pointer; }
 .cfacts-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cfacts-photo:hover { border-color: var(--accent); }
+
+/* 国の詳細: メモは国名の右 */
+.cinfo-hero > div:not(.cinfo-memo) { flex: none; }
+.cinfo-memo-side { flex: 1; min-width: 0; margin: 0 0 0 auto; padding: 0; border: 0; align-self: stretch; display: flex; flex-direction: column; max-width: 360px; }
+.cinfo-memo-side .memo-title { font-size: 13px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+.cinfo-memo-side .memo-input { flex: 1; min-height: 64px; font-size: 13px; resize: vertical; }
+.cinfo-memo-side .memo-view { flex: 1; font-size: 13px; }
+@media (max-width: 760px) {
+  .cinfo-hero { flex-wrap: wrap; }
+  .cinfo-hero > div:not(.cinfo-memo) { flex: 1 1 0; min-width: 0; }
+  .cinfo-memo-side { flex-basis: 100%; max-width: none; margin: 4px 0 0; }
+}

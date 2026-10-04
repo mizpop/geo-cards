@@ -2834,6 +2834,12 @@ function renderCountryModal(entry) {
           <button type="button" class="tag tag-link tag-btn" id="cinfo-compare" title="ほかの国とカードをカテゴリーごとに並べて比べる">⚖ 比較</button>
         </div>
       </div>
+    <section class="cinfo-memo cinfo-memo-side">
+        <h3 class="memo-title">📝 メモ <span class="memo-status muted small" id="memo-status"></span></h3>
+        ${state.user.isEditor
+          ? `<textarea id="memo-input" class="memo-input" rows="4" placeholder="この国の覚えておきたいこと（見分け方・注意点など）。入力が止まると自動で保存されます">${esc(state.countryNotes.get(code) || '')}</textarea>`
+          : `<div class="memo-view">${state.countryNotes.get(code) ? nl2br(state.countryNotes.get(code)) : '<span class="muted small">メモはまだありません</span>'}</div>`}
+      </section>
     </div>
     <dl class="info-list">
       <div class="info-row info-row-wide">
@@ -2853,12 +2859,7 @@ function renderCountryModal(entry) {
       ${row('隣接国', info.nb.map((n) => `<button type="button" class="chip chip-btn nb-btn" data-info="${n}">${flagImg(n)}${esc(countryName(n))}</button>`).join(' '))}
     </dl>
     ${countryFactsHtml(code)}
-    <section class="cinfo-memo">
-      <h3 class="cinfo-cards-title">📝 メモ <span class="memo-status muted small" id="memo-status"></span></h3>
-      ${state.user.isEditor
-        ? `<textarea id="memo-input" class="memo-input" rows="3" placeholder="この国の覚えておきたいこと（見分け方・注意点など）。入力が止まると自動で保存されます">${esc(state.countryNotes.get(code) || '')}</textarea>`
-        : `<div class="memo-view">${state.countryNotes.get(code) ? nl2br(state.countryNotes.get(code)) : '<span class="muted small">メモはまだありません</span>'}</div>`}
-    </section>
+
     <section class="cinfo-cards">
       <h3 class="cinfo-cards-title">この国のカード <span class="muted">${cards.length} 枚</span></h3>
       ${cards.length ? `
