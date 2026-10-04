@@ -3,7 +3,7 @@ import { initApi } from './api.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, refreshMap, plonkitUrl } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
@@ -2116,10 +2116,11 @@ function renderCountryModal(entry) {
     <div class="cinfo-hero">
       <img class="cinfo-flag" src="${flagUrl(code)}" alt="${esc(c.ja)}の国旗">
       <div>
-        <div class="cinfo-name">${esc(c.ja)}</div>
+        <div class="cinfo-name ${isPlayable(code) ? '' : 'is-no-play'}">${esc(c.ja)}</div>
         <div class="cinfo-sub">${esc(c.en)}${info.o && info.o !== c.ja ? ` ・ ${esc(info.o)}` : ''}</div>
         <div class="cinfo-tags">
           <span class="tag">${esc(region.name)}</span>
+          ${isPlayable(code) ? '' : '<span class="tag no-play-tag" title="GeoGuessr の公式マップには出題されない国・地域です（Plonkit にガイドがない）">出題なし</span>'}
           ${info.un ? '' : '<span class="tag">海外領土・地域</span>'}
           ${info.ll ? '<span class="tag">内陸国</span>' : ''}
           ${plonkit ? `<a class="tag tag-link" href="${plonkit}" target="_blank" rel="noopener">Plonkit ↗</a>` : ''}
@@ -2267,7 +2268,7 @@ function countrySummaryHtml(code) {
     <div class="sum-head">
       <img class="sum-flag" src="${flagUrl(code)}" alt="">
       <div class="sum-names">
-        <div class="sum-name">${esc(c.ja)}</div>
+        <div class="sum-name ${isPlayable(code) ? '' : 'is-no-play'}">${esc(c.ja)}${isPlayable(code) ? '' : '<span class="no-play-tag">出題なし</span>'}</div>
         <div class="sum-sub">${esc(c.en)} ・ ${esc(REGION_BY_ID.get(c.region).name)}</div>
       </div>
       ${plonkit ? `<a class="ext-link" href="${plonkit}" target="_blank" rel="noopener" title="Plonkit で開く">${EXT_ICON_SVG}</a>` : ''}

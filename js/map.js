@@ -13,6 +13,8 @@ const NAME_TO_CODE = { Kosovo: 'XK' }; // 数字コードを持たないポリ�
 const PLONKIT_SLUGS = new Set(('andorra united-arab-emirates albania argentina american-samoa austria australia bangladesh belgium bulgaria bermuda bolivia brazil bhutan botswana belarus canada cocos-islands switzerland chile china colombia costa-rica curacao christmas-island cyprus czechia germany denmark dominican-republic ecuador estonia egypt spain finland falkland-islands faroe-islands france united-kingdom ghana gibraltar greenland greece guatemala guam hong-kong croatia hungary indonesia ireland israel-west-bank isle-of-man india iraq iceland italy jersey jordan japan kenya kyrgyzstan cambodia south-korea kazakhstan laos lebanon liechtenstein sri-lanka lesotho lithuania luxembourg latvia monaco montenegro madagascar north-macedonia mali mongolia macau northern-mariana-islands martinique malta mexico malaysia namibia nigeria netherlands norway nepal new-zealand oman panama peru philippines pakistan poland saint-pierre-and-miquelon pitcairn-islands puerto-rico portugal qatar reunion romania serbia russia rwanda sweden singapore slovenia svalbard slovakia san-marino sao-tome-and-principe senegal eswatini thailand tunisia turkey taiwan tanzania ukraine uganda united-states uruguay us-virgin-islands vanuatu vietnam south-africa').split(' '));
 const PLONKIT_SPECIAL = { IL: 'israel-west-bank', PS: 'israel-west-bank' };
 
+// GeoGuessr で出題される国（公式のストリートビューがある国）。Plonkit にガイドがある国で判定する
+export const isPlayable = (code) => !!plonkitUrl(code);
 export function plonkitUrl(code) {
   const c = COUNTRY_BY_CODE.get(code);
   if (!c) return null;
@@ -271,8 +273,12 @@ export async function renderMap(view, ctx) {
 
   // ---- 国ポリゴン（カード数で色分け）
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1c7f55';
+  const NO_PLAY = dark ? '#5d646c' : '#9aa0a6'; // 出題されない国の灰色
   const baseStyle = (f) => {
     const n = byCountry.get(f.properties.code)?.length || 0;
+    if (f.properties.code && !isPlayable(f.properties.code)) {
+      return { stroke: false, color: NO_PLAY, weight: 2, fillColor: NO_PLAY, fillOpacity: dark ? 0.5 : 0.45 };
+    }
     // 輪郭線は描かない（国境データの海岸線が地図とずれて、海上の線のように見えるため）。塗りだけで表現
     return {
       stroke: false,
@@ -492,8 +498,8 @@ export async function renderMap(view, ctx) {
     clearTimeout(expandTimer);
     const n = byCountry.get(code)?.length || 0;
     bubble.dataset.code = code;
-    bubble.className = `hover-bubble is-compact show${animate ? ' anim-out' : ''}`;
-    bubble.innerHTML = `<div class="hb-body hb-compact">${ctx.flagImg(code)}<b>${ctx.esc(ctx.countryName(code))}</b>${n ? `<span class="hb-n">${n} 枚</span>` : ''}</div>`;
+    bubble.className = `hover-bubble is-compact show${animate ? ' anim-out' : ''}${isPlayable(code) ? '' : ' no-play'}`;
+    bubble.innerHTML = `<div class="hb-body hb-compact">${ctx.flagImg(code)}<b>${ctx.esc(ctx.countryName(code))}</b>${n ? `<span class="hb-n">${n} 枚</span>` : ''}${isPlayable(code) ? '' : '<span class="no-play-tag">出題なし</span>'}</div>`;
     placeBubble();
     scheduleExpand(code);
   }
@@ -501,7 +507,7 @@ export async function renderMap(view, ctx) {
     clearTimeout(expandTimer);
     const fan = fanHtml(code);
     bubble.dataset.code = code;
-    bubble.className = `hover-bubble is-full show${fan ? ' has-fan' : ''}${animate ? ' anim-in' : ''}`;
+    bubble.className = `hover-bubble is-full show${fan ? ' has-fan' : ''}${animate ? ' anim-in' : ''}${isPlayable(code) ? '' : ' no-play'}`;
     bubble.innerHTML = `${fan}<div class="hb-body">${ctx.countrySummaryHtml(code)}</div>`;
     placeBubble();
   }
@@ -768,7 +774,7 @@ export async function renderMap(view, ctx) {
             return `
               <div class="crow" data-hover="${code}">
                 <div class="crow-head">
-                  <button type="button" class="crow-name" data-go="${code}" title="この国を選ぶ">${ctx.flagImg(code)}<span>${ctx.esc(ctx.countryName(code))}</span></button>
+                  <button type="button" class="crow-name${isPlayable(code) ? '' : ' is-no-play'}" data-go="${code}" title="${isPlayable(code) ? 'この国を選ぶ' : 'この国を選ぶ（GeoGuessr では出題なし）'}">${ctx.flagImg(code)}<span>${ctx.esc(ctx.countryName(code))}</span></button>
                   <span class="crow-n">${list.length ? `${list.length} 枚` : '—'}</span>
                   ${url ? `<a class="ext-link" href="${url}" target="_blank" rel="noopener" title="Plonkit で開く">${EXT_ICON}</a>` : ''}
                 </div>

@@ -1199,3 +1199,17 @@ textarea { resize: vertical; line-height: 1.6; }
   .flashcard.split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; gap: 10px; }
   .flashcard.split .face-back { padding-top: 52px; }
 }
+
+/* ---------- GeoGuessr に出題されない国 ---------- */
+.no-play-tag {
+  display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; vertical-align: middle;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 18%, transparent); border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent);
+}
+.tag.no-play-tag { margin-left: 0; font-size: 12px; }
+.is-no-play { color: var(--muted); opacity: .75; }
+.hover-bubble.no-play .hb-body {
+  background: color-mix(in srgb, #8a9099 12%, var(--surface));
+  border-color: color-mix(in srgb, #8a9099 45%, var(--border)); border-left-color: color-mix(in srgb, #8a9099 80%, transparent);
+}
+.hover-bubble.no-play .hb-compact b { color: var(--muted); }
