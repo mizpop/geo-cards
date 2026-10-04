@@ -2098,6 +2098,12 @@ function exportOpenGuessr(cards, name) {
       extra: { tags: [modeDef(c.topic).name, countryName(c.countries[0])] },
     };
   });
+  // 同じ地点（座標が同じ写真）は 1 つにまとめる（重複があると読み込めないサイトがある）
+  const seen = new Set();
+  const uniq = locs.filter((l) => { const k = `${l.lat.toFixed(5)},${l.lng.toFixed(5)}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  const dup = locs.length - uniq.length;
+  locs.length = 0;
+  locs.push(...uniq);
   if (!locs.length) { toast('書き出せる地点がありません', 'error'); return; }
   const site = playSite();
   // OpenGuessr: { locations: [[緯度, 経度, { heading, pitch, panoramaId }]] }
@@ -2111,7 +2117,7 @@ function exportOpenGuessr(cards, name) {
   a.download = `${name.replace(/[\\/:*?"<>|\s]+/g, '_')}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  toast(`${locs.length} 地点を書き出しました。${site.how}`);
+  toast(`${locs.length} 地点を書き出しました${dup ? `（同じ地点 ${dup} 件はまとめました）` : ''}。${site.how}`);
   window.open(site.url, '_blank', 'noopener');
 }
 
