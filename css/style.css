@@ -746,6 +746,12 @@ textarea { resize: vertical; line-height: 1.6; }
 
 /* ---------- 設定 ---------- */
 .gear-btn { display: inline-grid; place-items: center; }
+.sound-btn { display: inline-grid; place-items: center; }
+.sound-btn svg { display: block; }
+.sound-btn .snd-off { display: none; }
+.sound-btn.is-muted { color: var(--muted); }
+.sound-btn.is-muted .snd-on { display: none; }
+.sound-btn.is-muted .snd-off { display: inline; }
 .gear-btn svg { display: block; transform-origin: 50% 50%; }
 /* ホバー中はゆっくり回り続け、押すと1回転（アニメーション設定オフのときは止まる） */
 .gear-btn:hover svg { animation: gear-spin 2.4s linear infinite; }
@@ -777,7 +783,7 @@ textarea { resize: vertical; line-height: 1.6; }
 .switch input:focus-visible + .switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 760px) {
   .set-group { padding: 2px 14px; }
-  .gear-btn { width: 34px; height: 34px; }
+  .gear-btn, .sound-btn { width: 34px; height: 34px; }
 }
 
 /* ---------- キー割り当て ---------- */

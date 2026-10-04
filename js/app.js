@@ -6,6 +6,7 @@ import { initChat, teardownChat, raiseChat } from './chat.js';
 import { renderMap, refreshMap, plonkitUrl } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
+import { play, setMuted, playedRecently } from './sound.js';
 
 /* ================= ユーティリティ ================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -97,6 +98,7 @@ const DEFAULT_SETTINGS = {
   showDesc: true, // 表面に説明文を表示（暗記・クイズ）
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
+  sound: true, // 効果音（右上のボタンでも切り替え）
   keys: {}, // キー割り当て（DEFAULT_KEYS からの変更分）
 };
 let settings = (() => {
@@ -107,6 +109,14 @@ function applySettings() {
   root.classList.toggle('no-anim', !settings.animations);
   if (settings.theme === 'auto') delete root.dataset.theme;
   else root.dataset.theme = settings.theme;
+  setMuted(!settings.sound);
+  const sb = document.getElementById('sound-btn');
+  if (sb) {
+    sb.classList.toggle('is-muted', !settings.sound);
+    sb.setAttribute('aria-pressed', String(!settings.sound));
+    sb.title = settings.sound ? '効果音: オン（クリックでミュート）' : '効果音: ミュート中（クリックでオン）';
+    sb.setAttribute('aria-label', settings.sound ? '効果音をミュート' : '効果音をオンにする');
+  }
 }
 function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* 保存できなくても動作は続ける */ }
@@ -128,6 +138,7 @@ function openSettings() {
     <h3 class="set-group-title">🎨 表示</h3>
     <section class="set-group">
       ${item('アニメーション', 'めくる・スライド・飛び出す動きや地図のズーム', sw('animations'))}
+      ${item('効果音', 'めくる・移動・ボタン・クイズの正解 / 不正解の音。右上の 🔊 ボタンでも切り替えられます', sw('sound'))}
       ${item('テーマ', '「自動」は端末のライト / ダークに合わせます', seg('theme', [['auto', '自動'], ['light', '☀ ライト'], ['dark', '☾ ダーク']]), true)}
     </section>
     <h3 class="set-group-title">🃏 暗記カード・クイズ</h3>
@@ -372,6 +383,17 @@ async function refreshUrlsIfStale() {
 function bindGlobal() {
   window.addEventListener('hashchange', route);
   $('#settings-btn').addEventListener('click', openSettings);
+  $('#sound-btn').addEventListener('click', () => {
+    settings.sound = !settings.sound;
+    saveSettings();
+    const cb = $('#modal .switch input[data-key="sound"]');
+    if (cb) cb.checked = settings.sound;
+  });
+  // ボタン全般を押したときの小さな音（めくる・正解などの専用の音が鳴ったときは重ねない）
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest?.('button, a[href], [role="button"], .chip-btn, .tile, .map-thumb, select, label.switch')) return;
+    if (!playedRecently()) play('tap');
+  });
   $('#search-btn').addEventListener('click', openSpotlight);
   const sp = $('#spotlight');
   sp.addEventListener('click', (e) => { if (e.target === sp) closeSpotlight(); });
@@ -680,6 +702,7 @@ function openModal(html, cls = '', nav = false) {
   const m = $('#modal');
   if (!nav) { modalStack = []; modalCurrent = null; }
   m.className = `modal ${cls}`;
+  if (!m.open) play('open'); // 詳細の中で移るとき（戻る・国へ）はタップ音だけ
   m.innerHTML = `<div class="modal-inner">${html}</div>`;
   modalPasteHandler = null;
   $$('[data-close]', m).forEach((b) => b.addEventListener('click', closeModal));
@@ -841,6 +864,7 @@ function flipStudy() {
   const fc = $('#flashcard');
   if (!fc) return;
   state.study.flipped = !state.study.flipped;
+  play('flip');
   fc.parentElement.classList.remove('enter-next', 'enter-prev'); // スライドのアニメーションと競合させない
   fc.classList.remove('anim-to-back', 'anim-to-front');
   void fc.offsetWidth; // アニメーションを最初から再生させる
@@ -852,6 +876,7 @@ function moveStudy(delta) {
   const s = state.study;
   const ni = s.index + delta;
   if (ni < 0 || ni >= s.deck.length) return;
+  play('slide');
   s.index = ni;
   s.flipped = settings.studyStart === 'back';
   s.enter = delta > 0 ? 'next' : 'prev';
@@ -1127,6 +1152,7 @@ function submitAnswer(card, given) {
   const result = q.mode === 'choice' ? (card.countries.includes(given[0]) ? 'ok' : 'ng') : grade(card, given);
   q.answered = { given: [...given], result };
   q.answers.push({ cardId: card.id, given: [...given], result, correct: result === 'ok' });
+  play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
   q.draft = [];
   renderQuestion();
   if (result === 'ok' && settings.autoNext) {
@@ -1143,6 +1169,7 @@ function nextQuestion() {
   q.draft = [];
   q.i++;
   if (q.i >= q.questions.length) q.phase = 'result';
+  play(q.phase === 'result' ? 'finish' : 'slide');
   renderQuiz();
   window.scrollTo({ top: 0 });
 }
@@ -1221,6 +1248,7 @@ function openSpotlight() {
   if (!state.user) return;
   const sp = $('#spotlight');
   const s = state.search;
+  if (!sp.open) play('open');
   sp.innerHTML = `
     <div class="spot-inner">
       <div class="spot-bar">

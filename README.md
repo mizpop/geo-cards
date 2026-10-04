@@ -112,6 +112,7 @@ js/languages.js         言語の見分け方・左側通行の国
 js/map.js               世界地図
 js/zoom.js              画像の拡大・移動
 js/chat.js              チャット形式のメモ
+js/sound.js             効果音（Web Audio で合成）
 js/image.js             画像の圧縮・クリップボード
 supabase/setup.sql      テーブル・RLS・ストレージの初期設定
 supabase/add-editor.sql 編集者の登録
