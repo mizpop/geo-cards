@@ -1519,3 +1519,19 @@ textarea { resize: vertical; line-height: 1.6; }
 
 .photo-credit { margin: 6px 2px 0; }
 .photo-credit a { color: inherit; }
+
+/* 国の詳細: 地図のデータ */
+.cinfo-facts { margin: 14px 0 6px; }
+.cinfo-facts > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+.cinfo-facts > summary::-webkit-details-marker { display: none; }
+.cinfo-facts > summary::before { content: '▸'; transition: transform .15s; color: var(--muted); }
+.cinfo-facts[open] > summary::before { transform: rotate(90deg); }
+.cfacts { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 8px; }
+.cfacts-row { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); min-width: 0; }
+.cfacts-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.cfacts-head .link-btn { margin-left: auto; font-size: 11px; }
+.cfacts-body .fact-chip { flex-wrap: wrap; }
+.cfacts-photos { display: flex; gap: 4px; margin-top: 6px; overflow-x: auto; }
+.cfacts-photo { flex: none; width: 56px; height: 42px; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #0b0f12; cursor: pointer; }
+.cfacts-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cfacts-photo:hover { border-color: var(--accent); }

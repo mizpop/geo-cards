@@ -9,7 +9,7 @@ import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
 import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity } from './progress.js';
 import { mountQuizMap, nearestKm } from './quizmap.js';
-import { REF_PAGES } from './refimages.js';
+import { REF_PAGES, REF_IMAGES, REF_BASE } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
 /* ================= ユーティリティ ================= */
@@ -794,6 +794,24 @@ function bindCardFacts(root) {
     closeModal();
     if (state.view === 'map') render(); else location.hash = '#map';
   }));
+}
+
+// 国の詳細に出す地図のデータ（シェブロン・ガードレールなど）と参考写真
+const COUNTRY_FACT_TOPICS = ['chevron', 'guardrail', 'pole', 'bollard', 'plate', 'lines', 'camera', 'snow', 'script'];
+function countryFactsHtml(code) {
+  const rows = COUNTRY_FACT_TOPICS.map((t) => {
+    const m = modeDef(t);
+    const photos = REF_IMAGES[t]?.[code] || [];
+    return `<div class="cfacts-row">
+      <div class="cfacts-head">${esc(m.icon)} ${esc(m.name)}<button type="button" class="link-btn cfacts-map" data-topic="${t}" title="地図の「${esc(m.name)}」で見る">地図で見る</button></div>
+      <div class="cfacts-body">${factPanelHtml(t, code).replace(/<div class="pfact-head">.*?<\/div>/, '')}</div>
+      ${photos.length ? `<div class="cfacts-photos">${photos.map((r, i) => `<button type="button" class="cfacts-photo" data-topic="${t}" data-i="${i}" title="参考写真（GeoHints）"><img src="${esc(REF_BASE + r)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
+    </div>`;
+  }).join('');
+  return `<details class="cinfo-facts" ${settings.countryFactsOpen === false ? '' : 'open'}>
+    <summary class="cinfo-cards-title">🗺 地図のデータ <span class="muted small">シェブロン・ガードレール・電柱など</span></summary>
+    <div class="cfacts">${rows}</div>
+  </details>`;
 }
 
 /* ---- 地図の参考写真（GeoHints）: カード詳細と同じ画面で開く ---- */
@@ -2834,6 +2852,7 @@ function renderCountryModal(entry) {
       ${row('通貨', info.cur.map(([k, n, sym]) => `${esc(k)}${sym ? ` <b>${esc(sym)}</b>` : ''} <span class="muted">(${esc(n)})</span>`).join('<br>'))}
       ${row('隣接国', info.nb.map((n) => `<button type="button" class="chip chip-btn nb-btn" data-info="${n}">${flagImg(n)}${esc(countryName(n))}</button>`).join(' '))}
     </dl>
+    ${countryFactsHtml(code)}
     <section class="cinfo-memo">
       <h3 class="cinfo-cards-title">📝 メモ <span class="memo-status muted small" id="memo-status"></span></h3>
       ${state.user.isEditor
@@ -2851,6 +2870,19 @@ function renderCountryModal(entry) {
     </section>`, 'modal-md', true);
 
   $('#cinfo-compare').addEventListener('click', () => openCompare(code));
+  // 地図のデータ: 写真を押すとカードと同じ画面で開く・開閉を覚える
+  $$('#modal .cfacts-photo').forEach((b) => b.addEventListener('click', () => {
+    const t = b.dataset.topic;
+    openPhotoModal(t, code, (REF_IMAGES[t]?.[code] || []).map((r) => REF_BASE + r), Number(b.dataset.i), b);
+  }));
+  $$('#modal .cfacts-map').forEach((b) => b.addEventListener('click', () => {
+    settings.mapMode = b.dataset.topic;
+    saveSettings();
+    focusOnNextRender(code);
+    closeModal();
+    if (state.view === 'map') render(); else location.hash = '#map';
+  }));
+  $('#modal .cinfo-facts')?.addEventListener('toggle', (e) => { settings.countryFactsOpen = e.currentTarget.open; saveSettings(); });
 
   // 言語の見分け方
   const guide = $('#lang-guide');
