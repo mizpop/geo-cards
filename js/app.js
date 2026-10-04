@@ -921,13 +921,6 @@ function renderPhotoModal(entry) {
         ${state.user.isEditor ? `<label class="field photo-note-edit"><span>📝 この写真の見どころ（メモ）<span class="muted small" id="pnote-status"></span></span>
           <textarea id="pnote-input" rows="3" placeholder="例: 反射板の形がポイント。左のボラードは赤い帯が一周している。入力が止まると自動で保存されます">${esc(photoNote(topic, srcs[i], code))}</textarea></label>` : ''}
         ${state.user.isEditor ? '<button type="button" class="btn btn-sm" id="photo-to-card" title="この写真を自分のカードにする（国・カテゴリー・見分け方を入れた状態で作成画面を開きます）">＋ この写真でカードを作る</button>' : ''}
-        <div class="og-export">
-          ${allSpotsLink()}
-          <span class="muted small">🎮 この場所から遊ぶ（マップとして書き出し）:
-            <select class="select select-sm og-site" aria-label="書き出し先">${Object.entries(PLAY_SITES).map(([k, v]) => `<option value="${k}" ${playSite() === v ? 'selected' : ''}>${v.name}</option>`).join('')}</select></span>
-          <button type="button" class="btn btn-ghost btn-sm" data-og="one">この写真の地点</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-og="country">この国の${esc(m.name)}の写真すべて（${srcs.length}）</button>
-        </div>
         <div class="pfact">${factPanelHtml(topic, code).replace(/<div class="pfact-note">[^<]*<\/div>/g, '')}</div>
       </div>
     </div>`, 'modal-wide', true);
@@ -962,13 +955,6 @@ function renderPhotoModal(entry) {
     pin.addEventListener('blur', save);
     $('#modal').addEventListener('close', save, { once: true });
   }
-  // OpenGuessr / WorldGuessr 用の書き出し（この写真 / この国のこの種類の写真すべて）
-  $('#modal .og-site')?.addEventListener('change', (e) => { settings.playSite = e.target.value; saveSettings(); });
-  const refOf = (src) => { const list = REF_IMAGES[topic]?.[code] || []; const k = list.indexOf(src.slice(REF_BASE.length)); return k >= 0 ? refCard(`ref|${topic}|${code}|${k}`) : null; };
-  $$('#modal [data-og]').forEach((b) => b.addEventListener('click', () => {
-    const cards = b.dataset.og === 'one' ? [refOf(srcs[i])] : srcs.map(refOf);
-    exportOpenGuessr(cards, `${countryName(code)}の${m.name}${b.dataset.og === 'one' ? `（${i + 1}）` : ''}`);
-  }));
   $('#photo-prev')?.addEventListener('click', () => stepPhoto(-1));
   $('#photo-next')?.addEventListener('click', () => stepPhoto(1));
   delete entry.enter;
