@@ -1675,3 +1675,33 @@ textarea { resize: vertical; line-height: 1.6; }
 /* 追加日時・最終編集日時 */
 .card-dates { margin: 12px 0 0; }
 .ed-dates { margin: 0 0 0 8px; }
+
+/* ---------- 言語タブ ---------- */
+.lang-view { max-width: 1100px; margin: 0 auto; }
+.lang-title { font-size: 18px; margin: 0 4px 0 0; white-space: nowrap; }
+.lang-toolbar .input { min-width: 0; }
+.lang-picked { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 10px; min-height: 30px; }
+.lang-palette { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.lang-group { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.lang-group > summary { cursor: pointer; padding: 7px 12px; font-size: 13px; font-weight: 700; }
+.lang-chars { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 10px 10px; }
+.lang-ch {
+  min-width: 34px; height: 34px; padding: 0 8px; font: inherit; font-size: 17px; line-height: 1; cursor: pointer;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 7px;
+}
+.lang-ch:hover:not(:disabled) { border-color: var(--accent); }
+.lang-ch.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.lang-ch:disabled { opacity: .25; cursor: default; }
+.lang-picked .lang-ch { height: 30px; font-size: 15px; }
+.lang-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.lang-item { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.lang-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.lang-name { font-size: 16px; }
+.lang-script { margin-left: auto; font-size: 11px; }
+.lang-row { display: flex; gap: 8px; margin: 4px 0; font-size: 13px; line-height: 1.6; }
+.lang-k { flex: none; font-size: 11px; font-weight: 700; color: var(--muted); width: 2.6em; padding-top: 2px; }
+.lang-chars-text { font-size: 15px; }
+.lang-row mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.lang-countries { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.lang-countries .chip { font-size: 12px; }
+@media (max-width: 640px) { .lang-list { grid-template-columns: 1fr; } .lang-title { display: none; } }

@@ -92,6 +92,7 @@ const state = {
   search: { q: '', cat: null },
   mapMatch: {}, // 地図の「条件で絞り込み」の条件 { topic: key }
   compare: { codes: [], closed: new Set() }, // 比較タブで並べる国・閉じている項目
+  lang: { q: '', chars: new Set(), open: new Set(['Latin']) }, // 言語タブ: 絞り込みの文字・開いている文字のまとまり
   mapFilter: { regionsOff: new Set(), catsOff: new Set(), openPick: null }, // 地図の絞り込み
   manage: { q: '', regionsOff: new Set(), catsOff: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
 };
@@ -502,7 +503,7 @@ async function route() {
     view = state.view || 'study';
     setTimeout(openSpotlight, 0);
   }
-  if (!['study', 'quiz', 'map', 'manage', 'compare'].includes(view)) view = 'study';
+  if (!['study', 'quiz', 'map', 'manage', 'compare', 'lang'].includes(view)) view = 'study';
   if (view === 'manage' && !state.user.isEditor) view = 'study';
   state.view = view;
   $$('#tabs a').forEach((a) => a.classList.toggle('active', a.dataset.view === view));
@@ -537,6 +538,7 @@ function renderView() {
   else if (v === 'map') { setFit(true); renderMap($('#view'), mapCtx); }
   else if (v === 'manage') renderManage();
   else if (v === 'compare') renderCompare();
+  else if (v === 'lang') renderLang();
 }
 
 // ---- キーボード操作（キーは設定で変更可能。e.code で判定するので日本語入力中でも動く）
@@ -556,9 +558,10 @@ const KEY_ACTIONS = [
   ['tab3', '地図へ'],
   ['tab4', '編集へ'],
   ['tab5', '比較へ'],
+  ['tab6', '言語へ'],
   ['search', '検索を開く'],
 ];
-const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', known: 'KeyR', unknown: 'KeyF', tab1: 'Ctrl+Digit1', tab2: 'Ctrl+Digit2', tab3: 'Ctrl+Digit3', tab4: 'Ctrl+Digit4', tab5: 'Ctrl+Digit5', search: 'Ctrl+KeyF' };
+const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', known: 'KeyR', unknown: 'KeyF', tab1: 'Ctrl+Digit1', tab2: 'Ctrl+Digit2', tab3: 'Ctrl+Digit3', tab4: 'Ctrl+Digit4', tab5: 'Ctrl+Digit5', tab6: 'Ctrl+Digit6', search: 'Ctrl+KeyF' };
 // キーは e.code（例: KeyA）。Ctrl / Alt / Shift と組み合わせるときは「Ctrl+KeyF」のように前に付ける
 const keyLabel = (code) => (code || '—').split('+').map((k) => k.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'テンキー').replace('Space', 'スペース')).join(' + ');
 const MOD_KEYS = ['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'];
@@ -580,7 +583,7 @@ function updateSearchKeyHint() {
 let capturingKey = false;
 
 function switchTab(delta) {
-  const tabs = ['study', 'quiz', 'map'].concat(state.user.isEditor ? ['manage'] : [], ['compare']);
+  const tabs = ['study', 'quiz', 'map'].concat(state.user.isEditor ? ['manage'] : [], ['compare', 'lang']);
   const i = Math.max(0, tabs.indexOf(state.view));
   goTab(tabs[(i + delta + tabs.length) % tabs.length]);
 }
@@ -604,7 +607,7 @@ function onKeydown(e) {
     return;
   }
   // タブへ直接移動（初期設定は Ctrl+1〜4）: 組み合わせキーなら入力中でも
-  const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare' }[act];
+  const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare', tab6: 'lang' }[act];
   if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !$('dialog[open]')) {
     e.preventDefault();
     goTab(tabTo);
@@ -1091,6 +1094,126 @@ function renderCardModal(card, entry = {}) {
   bindModalNav();
   const eb = $('#detail-edit');
   if (eb) eb.addEventListener('click', () => { closeModal(); openEditor(card); });
+}
+
+/* ================= 言語（一覧と、看板に出てくる文字での絞り込み） ================= */
+// 文字のまとまり（Unicode の文字体系）と表示名。ラテン文字は ASCII 以外（ダイアクリティカルマーク付きなど）だけ
+const LANG_SCRIPTS = [
+  ['Latin', 'ラテン文字（記号付き）'], ['Cyrillic', 'キリル文字'], ['Greek', 'ギリシャ文字'], ['Arabic', 'アラビア文字'], ['Hebrew', 'ヘブライ文字'],
+  ['Armenian', 'アルメニア文字'], ['Georgian', 'ジョージア文字'], ['Devanagari', 'デーヴァナーガリー'], ['Bengali', 'ベンガル文字'],
+  ['Gurmukhi', 'グルムキー文字'], ['Gujarati', 'グジャラート文字'], ['Tamil', 'タミル文字'], ['Telugu', 'テルグ文字'], ['Kannada', 'カンナダ文字'],
+  ['Malayalam', 'マラヤーラム文字'], ['Sinhala', 'シンハラ文字'], ['Thai', 'タイ文字'], ['Lao', 'ラーオ文字'], ['Khmer', 'クメール文字'],
+  ['Myanmar', 'ミャンマー文字'], ['Tibetan', 'チベット文字'], ['Ethiopic', 'エチオピア文字'], ['Hangul', 'ハングル'], ['Thaana', 'ターナ文字'],
+  ['Mongolian', 'モンゴル文字'], ['Tifinagh', 'ティフィナグ文字'], ['Hiragana', 'ひらがな'], ['Katakana', 'カタカナ'],
+];
+const SCRIPT_RES = LANG_SCRIPTS.map(([k]) => [k, new RegExp(`^\\p{Script=${k}}`, 'u')]);
+const graphemes = (str) => ('Segmenter' in Intl ? [...new Intl.Segmenter('und', { granularity: 'grapheme' }).segment(str)].map((x) => x.segment) : [...str]);
+function scriptOf(ch) {
+  for (const [k, re] of SCRIPT_RES) if (re.test(ch)) return k;
+  return null;
+}
+// 言語ごとの「見分けに使える文字」（特徴的な文字・よく見る単語から）。説明の日本語（漢字・かな）は除く
+let langCharIndex = null;
+function langChars() {
+  if (langCharIndex) return langCharIndex;
+  const byLang = new Map();
+  const byChar = new Map(); // 文字 → その文字を使う言語
+  const kanaOk = new Set(['jpn']); // ひらがな・カタカナは日本語の項目からだけ
+  for (const [l, v] of Object.entries(LANGS)) {
+    const set = new Set();
+    for (const [src, fromWords] of [[v.c, false], [v.w, true]]) {
+      // （）の中の日本語の説明は飛ばす
+      for (const g of graphemes(String(src || '').replace(/（[^）]*）/g, ' '))) {
+        const ch = g.toLocaleLowerCase();
+        const sc = scriptOf(ch);
+        if (!sc) continue;
+        if (sc === 'Latin' && /^[a-z]$/.test(ch)) continue; // ふつうのアルファベットは手がかりにならない
+        if (fromWords && sc !== 'Latin') continue; // ラテン文字以外は「特徴的な文字」に挙げた文字だけ（よくある文字で候補が埋まらないように）
+        if ((sc === 'Hiragana' || sc === 'Katakana') && !kanaOk.has(l)) continue;
+        set.add(ch);
+      }
+    }
+    byLang.set(l, set);
+    for (const ch of set) { if (!byChar.has(ch)) byChar.set(ch, new Set()); byChar.get(ch).add(l); }
+  }
+  langCharIndex = { byLang, byChar };
+  return langCharIndex;
+}
+const langText = (l) => { const v = LANGS[l]; return `${v.ja} ${LANG_EN[l] || ''} ${v.s} ${v.c} ${v.w} ${v.t}`.toLowerCase(); };
+
+function renderLang() {
+  setFit('scroll');
+  const st = state.lang;
+  const { byLang, byChar } = langChars();
+  const terms = st.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const all = Object.keys(LANGS);
+  const hits = all.filter((l) => [...st.chars].every((ch) => byLang.get(l).has(ch)) && terms.every((t) => langText(l).includes(t)))
+    .sort((a, b) => langCountries(b).length - langCountries(a).length || LANGS[a].ja.localeCompare(LANGS[b].ja, 'ja'));
+  // 候補の文字: 今の絞り込み結果の言語に出てくる文字（選ぶほど候補が減る）。文字体系ごとに
+  const avail = new Map();
+  for (const l of hits) for (const ch of byLang.get(l)) avail.set(ch, (avail.get(ch) || 0) + 1);
+  const groups = LANG_SCRIPTS.map(([k, name]) => ({ k, name, chars: [...byChar.keys()].filter((ch) => scriptOf(ch) === k).sort((a, b) => a.localeCompare(b)) })).filter((g) => g.chars.length);
+  const hl = (text) => {
+    let h = esc(text);
+    for (const ch of st.chars) h = h.split(esc(ch)).join(`<mark>${esc(ch)}</mark>`);
+    return h;
+  };
+  $('#view').innerHTML = `
+    <div class="lang-view">
+      <div class="toolbar lang-toolbar">
+        <h2 class="lang-title">🔤 言語</h2>
+        <input type="search" id="lang-q" class="input grow" placeholder="言語名・文字・単語で絞り込み（例: ñ / ulica / スワヒリ）" value="${esc(st.q)}" autocomplete="off">
+        <span class="counter">${hits.length} / ${all.length} 言語</span>
+      </div>
+      <div class="lang-picked">
+        ${st.chars.size ? `<span class="muted small">選んだ文字:</span> ${[...st.chars].map((ch) => `<button type="button" class="lang-ch on" data-ch="${esc(ch)}" title="外す">${esc(ch)} ✕</button>`).join('')}<button type="button" class="link-btn" id="lang-clear">すべて外す</button>` : '<span class="muted small">看板で見かけた文字を下から選ぶと、その文字を使う言語に絞り込めます（キリル文字など、キーボードで打てない文字も選べます）</span>'}
+      </div>
+      <div class="lang-palette">
+        ${groups.map((g) => {
+          const n = g.chars.filter((ch) => avail.has(ch)).length;
+          if (!n && !g.chars.some((ch) => st.chars.has(ch))) return ''; // 今の絞り込みで出てこない文字体系はたたむ
+          return `<details class="lang-group" data-group="${g.k}" ${st.open.has(g.k) || g.chars.some((ch) => st.chars.has(ch)) ? 'open' : ''}>
+            <summary>${esc(g.name)} <span class="muted">${n}</span></summary>
+            <div class="lang-chars">${g.chars.map((ch) => {
+              const on = st.chars.has(ch);
+              const ok = on || avail.has(ch);
+              return `<button type="button" class="lang-ch ${on ? 'on' : ''}" data-ch="${esc(ch)}" ${ok ? '' : 'disabled'} title="${ok ? `${[...byChar.get(ch)].map((l) => LANGS[l].ja).join('・')}` : '今の絞り込みでは出てきません'}">${esc(ch)}</button>`;
+            }).join('')}</div>
+          </details>`;
+        }).join('')}
+      </div>
+      <div class="lang-list">
+        ${hits.length ? hits.map((l) => {
+          const v = LANGS[l];
+          const cs = langCountries(l);
+          return `<article class="lang-item">
+            <div class="lang-head"><b class="lang-name">${esc(v.ja)}</b><span class="muted small">${esc(LANG_EN[l] || '')}</span><span class="chip lang-script">${esc(v.s)}</span></div>
+            ${v.c ? `<p class="lang-row"><span class="lang-k">文字</span><span class="lang-chars-text">${hl(v.c)}</span></p>` : ''}
+            ${v.w ? `<p class="lang-row"><span class="lang-k">単語</span><span>${hl(v.w)}</span></p>` : ''}
+            ${v.t ? `<p class="lang-row"><span class="lang-k">コツ</span><span>${esc(v.t)}</span></p>` : ''}
+            ${cs.length ? `<div class="lang-countries">${cs.slice(0, 24).map((c) => `<button type="button" class="chip chip-btn" data-lang-country="${c}" data-lang="${l}">${flagImg(c)}${esc(countryName(c))}</button>`).join('')}${cs.length > 24 ? `<span class="muted small">ほか ${cs.length - 24}</span>` : ''}</div>` : ''}
+          </article>`;
+        }).join('') : '<p class="empty">当てはまる言語がありません。文字を外すか、言葉を変えてみてください</p>'}
+      </div>
+    </div>`;
+  const q = $('#lang-q');
+  q.addEventListener('input', () => {
+    st.q = q.value;
+    const pos = q.selectionStart;
+    renderLang();
+    const nq = $('#lang-q');
+    nq.focus();
+    nq.setSelectionRange(pos, pos);
+  });
+  $$('#view .lang-ch[data-ch]').forEach((b) => b.addEventListener('click', () => {
+    const ch = b.dataset.ch;
+    if (st.chars.has(ch)) st.chars.delete(ch); else st.chars.add(ch);
+    play('tap');
+    renderLang();
+  }));
+  $('#lang-clear')?.addEventListener('click', () => { st.chars.clear(); renderLang(); });
+  $$('#view .lang-group').forEach((d) => d.addEventListener('toggle', () => { if (d.open) st.open.add(d.dataset.group); else st.open.delete(d.dataset.group); }));
+  $$('#view [data-lang-country]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.langCountry, b, b.dataset.lang)));
 }
 
 /* ================= 国の比較（カテゴリーごとに横並び） ================= */
