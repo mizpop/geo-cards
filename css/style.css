@@ -1213,3 +1213,9 @@ textarea { resize: vertical; line-height: 1.6; }
   border-color: color-mix(in srgb, #8a9099 45%, var(--border)); border-left-color: color-mix(in srgb, #8a9099 80%, transparent);
 }
 .hover-bubble.no-play .hb-compact b { color: var(--muted); }
+
+/* 絞り込みの欄を開いている段を、下の段（ボタン・選択の帯など）より手前に */
+.view > .toolbar:has(.mpick-pop:not([hidden])) { z-index: 40; }
+.mpick-btn.is-none { border-color: var(--ng); color: var(--ng); }
+.mpick-head .btn { min-height: 28px; padding: 0 10px; font-size: 12px; }
+.map-layout { position: relative; z-index: 1; } /* 地図の層（Leaflet の z-index）を絞り込みの欄より奥に */

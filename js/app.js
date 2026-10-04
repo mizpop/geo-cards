@@ -82,10 +82,11 @@ const state = {
   urls: new Map(),
   urlsAt: 0,
   view: 'study',
-  study: { regions: new Set(), cats: new Set(), openPick: null, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
+  study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
   quiz: { phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
-  manage: { q: '', regions: new Set(), cats: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
+  mapFilter: { regionsOff: new Set(), catsOff: new Set(), openPick: null }, // 地図の絞り込み
+  manage: { q: '', regionsOff: new Set(), catsOff: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
 };
 const cardById = (id) => state.cards.find((c) => c.id === id);
 
@@ -789,33 +790,41 @@ function emptyState(msg) {
   </div>`;
 }
 
-// 地域・カテゴリーの絞り込み（複数選択。何も選ばなければすべて）。暗記カードと編集画面で共通
-const pickMatch = (c, regions, cats) => (!regions.size || [...cardRegions(c)].some((r) => regions.has(r))) && (!cats.size || cats.has(catKey(c)));
-const regionPickHtml = (id, sel) => multiPickHtml(id, 'すべての地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: state.cards.filter((c) => cardRegions(c).has(r.id)).length })), sel);
-const catPickHtml = (id, sel) => multiPickHtml(id, 'すべてのカテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: state.cards.filter((c) => catKey(c) === k.id).length })), sel);
+// 地域・カテゴリーの絞り込み（複数選択）。チェックを外した項目を off に持つ（off が空 = すべて）
+// 暗記カード・編集画面・地図で共通
+const pickMatch = (c, regionsOff, catsOff) => [...cardRegions(c)].some((r) => !regionsOff.has(r)) && !catsOff.has(catKey(c));
+const regionPickHtml = (id, off) => multiPickHtml(id, 'すべての地域', '地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: state.cards.filter((c) => cardRegions(c).has(r.id)).length })), off);
+const catPickHtml = (id, off) => multiPickHtml(id, 'すべてのカテゴリー', 'カテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: state.cards.filter((c) => catKey(c) === k.id).length })), off);
 
-// 複数選択のドロップダウン（地域・カテゴリー）。selected が空 = すべて
-function multiPickHtml(id, allLabel, options, selected) {
-  const names = options.filter((o) => selected.has(o.id)).map((o) => o.name);
-  const label = !names.length ? allLabel : names.length === 1 ? names[0] : `${names[0]} ほか ${names.length - 1}`;
+// 複数選択のドロップダウン。チェックが入っている項目が対象
+function multiPickHtml(id, allLabel, unit, options, off) {
+  const on = options.filter((o) => !off.has(o.id));
+  const offs = options.filter((o) => off.has(o.id));
+  const label = !offs.length ? allLabel
+    : !on.length ? `${unit}: なし`
+      : on.length === 1 ? on[0].name
+        : offs.length === 1 ? `${offs[0].name} 以外`
+          : on.length === 2 ? `${on[0].name}・${on[1].name}`
+            : `${unit} ${on.length} / ${options.length}`;
   return `<div class="mpick" id="${id}">
-    <button type="button" class="select mpick-btn ${names.length ? 'is-set' : ''}" aria-haspopup="true" aria-expanded="false" title="${esc(names.join('、') || allLabel)}">
+    <button type="button" class="select mpick-btn ${offs.length ? 'is-set' : ''} ${on.length ? '' : 'is-none'}" aria-haspopup="true" aria-expanded="false" title="${esc(offs.length ? on.map((o) => o.name).join('、') || 'なし' : allLabel)}">
       <span class="mpick-label">${esc(label)}</span><span class="mpick-arrow" aria-hidden="true">▾</span>
     </button>
     <div class="mpick-pop" hidden>
       <div class="mpick-head">
-        <button type="button" class="chip chip-btn ${names.length ? '' : 'on'}" data-mp-all>${esc(allLabel)}</button>
-        <span class="muted small">複数選べます</span>
+        <button type="button" class="btn btn-ghost btn-sm" data-mp-all ${offs.length ? '' : 'disabled'}>☑ 全選択</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-mp-none ${on.length ? '' : 'disabled'}>☐ 全解除</button>
+        <span class="muted small">${on.length} / ${options.length}</span>
       </div>
       <div class="mpick-list">${options.map((o) => `
         <label class="mpick-item ${o.n ? '' : 'is-empty'}" ${o.dot ? `style="${o.dot}"` : ''}>
-          <input type="checkbox" value="${esc(o.id)}" ${selected.has(o.id) ? 'checked' : ''}>
+          <input type="checkbox" value="${esc(o.id)}" ${off.has(o.id) ? '' : 'checked'}>
           ${o.dot ? '<span class="cat-dot"></span>' : ''}<span class="mpick-name">${esc(o.name)}</span><span class="mpick-n">${o.n}</span>
         </label>`).join('')}</div>
     </div>
   </div>`;
 }
-function bindMultiPick(id, selected, onChange, reopen = false) {
+function bindMultiPick(id, off, onChange, reopen = false) {
   const root = $(`#${id}`);
   if (!root) return;
   const btn = $('.mpick-btn', root);
@@ -825,13 +834,21 @@ function bindMultiPick(id, selected, onChange, reopen = false) {
     if (on) $$('.mpick-pop').forEach((p) => { if (p !== pop) { p.hidden = true; p.previousElementSibling?.setAttribute('aria-expanded', 'false'); } });
     pop.hidden = !on;
     btn.setAttribute('aria-expanded', String(on));
+    // 画面の右端からはみ出すときは左へずらす
+    pop.style.left = '';
+    if (on) {
+      const over = pop.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+      if (over > 0) pop.style.left = `${-over}px`;
+    }
   };
   btn.addEventListener('click', () => setOpen(pop.hidden));
-  $$('input', pop).forEach((cb) => cb.addEventListener('change', () => {
-    if (cb.checked) selected.add(cb.value); else selected.delete(cb.value);
+  const boxes = $$('input', pop);
+  boxes.forEach((cb) => cb.addEventListener('change', () => {
+    if (cb.checked) off.delete(cb.value); else off.add(cb.value);
     onChange();
   }));
-  $('[data-mp-all]', pop).addEventListener('click', () => { selected.clear(); onChange(); });
+  $('[data-mp-all]', pop).addEventListener('click', () => { off.clear(); onChange(); });
+  $('[data-mp-none]', pop).addEventListener('click', () => { for (const cb of boxes) off.add(cb.value); onChange(); });
   pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); btn.focus(); } });
   if (reopen) { setOpen(true); }
 }
@@ -845,7 +862,7 @@ document.addEventListener('pointerdown', (e) => {
 function rebuildStudyDeck(keepPosition = false) {
   const s = state.study;
   const currentId = s.deck[s.index];
-  let list = state.cards.filter((c) => pickMatch(c, s.regions, s.cats));
+  let list = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff));
   if (s.shuffled) {
     // 既存の並びをなるべく保つ
     const prev = new Map(s.deck.map((id, i) => [id, i]));
@@ -867,8 +884,8 @@ function renderStudy() {
   const split = settings.studySplit;
   $('#view').innerHTML = `
     <div class="toolbar">
-      ${regionPickHtml('study-region', s.regions)}
-      ${catPickHtml('study-cat', s.cats)}
+      ${regionPickHtml('study-region', s.regionsOff)}
+      ${catPickHtml('study-cat', s.catsOff)}
       <button class="btn" id="study-shuffle" aria-label="シャッフル" title="押すたびに順番をランダムに並べ替え">🔀<span class="tab-long"> シャッフル</span></button>
       <button class="btn ${split ? 'btn-on' : ''}" id="study-split" aria-pressed="${split}" aria-label="表と裏を並べて表示" title="表面と裏面を左右に並べて表示">◫<span class="tab-long"> 並べて表示</span></button>
       <span class="counter">${total ? `${s.index + 1} / ${total}` : '0 / 0'}</span>
@@ -907,8 +924,8 @@ function renderStudy() {
   `;
   s.enter = '';
   const repick = (id) => { s.openPick = id; rebuildStudyDeck(); renderStudy(); };
-  bindMultiPick('study-region', s.regions, () => repick('study-region'), s.openPick === 'study-region');
-  bindMultiPick('study-cat', s.cats, () => repick('study-cat'), s.openPick === 'study-cat');
+  bindMultiPick('study-region', s.regionsOff, () => repick('study-region'), s.openPick === 'study-region');
+  bindMultiPick('study-cat', s.catsOff, () => repick('study-cat'), s.openPick === 'study-cat');
   s.openPick = null;
   // 押すたびに並べ替えて 1 枚目から（以降、絞り込みを変えてもランダムな順のまま）
   $('#study-split').addEventListener('click', () => { settings.studySplit = !settings.studySplit; saveSettings(); renderStudy(); });
@@ -1607,8 +1624,8 @@ function renderManage() {
     <div class="toolbar">
       <button class="btn btn-primary" id="m-new">＋ 新しいカード</button>
       <input type="search" id="m-filter" class="input grow" placeholder="絞り込み（国名・地域名・説明）" value="${esc(m.q)}">
-      ${regionPickHtml('m-region', m.regions)}
-      ${catPickHtml('m-cat', m.cats)}
+      ${regionPickHtml('m-region', m.regionsOff)}
+      ${catPickHtml('m-cat', m.catsOff)}
       <span class="counter" id="m-count"></span>
     </div>
     <div class="toolbar toolbar-sub">
@@ -1634,8 +1651,8 @@ function renderManage() {
   $('#m-new').addEventListener('click', () => openEditor(null));
   $('#m-filter').addEventListener('input', (e) => { m.q = e.target.value; renderManageList(); });
   const repick = (id) => { m.openPick = id; renderManage(); };
-  bindMultiPick('m-region', m.regions, () => repick('m-region'), m.openPick === 'm-region');
-  bindMultiPick('m-cat', m.cats, () => repick('m-cat'), m.openPick === 'm-cat');
+  bindMultiPick('m-region', m.regionsOff, () => repick('m-region'), m.openPick === 'm-region');
+  bindMultiPick('m-cat', m.catsOff, () => repick('m-cat'), m.openPick === 'm-cat');
   m.openPick = null;
   $('#m-export').addEventListener('click', exportBackup);
   $('#m-cats').addEventListener('click', openCategoryManager);
@@ -1738,12 +1755,12 @@ async function bulkRun(ids, fn, label) {
 // 編集画面の一覧: 文字の絞り込み＋地域・カテゴリー
 function manageFiltered() {
   const m = state.manage;
-  return matchCards(m.q.trim().toLowerCase()).filter((c) => pickMatch(c, m.regions, m.cats));
+  return matchCards(m.q.trim().toLowerCase()).filter((c) => pickMatch(c, m.regionsOff, m.catsOff));
 }
 function renderManageList() {
   const m = state.manage;
   const list = manageFiltered();
-  const filtered = m.q.trim() || m.regions.size || m.cats.size;
+  const filtered = m.q.trim() || m.regionsOff.size || m.catsOff.size;
   $('#m-count').textContent = filtered ? `${list.length} / ${state.cards.length} 枚` : `${state.cards.length} 枚`;
   $('#manage-list').innerHTML = list.length
     ? `<div class="tiles">${list.map((c) => tileHtml(c, `
@@ -2300,6 +2317,16 @@ const mapCtx = {
   animations: () => settings.animations,
   hoverAutoExpand: () => settings.hoverExpand,
   liveSearch: () => settings.liveSearch,
+  // 地図の地域・カテゴリーの絞り込み（暗記・編集画面と同じ部品）
+  filterPicksHtml: () => `${regionPickHtml('map-region', state.mapFilter.regionsOff)}${catPickHtml('map-cat', state.mapFilter.catsOff)}`,
+  bindFilterPicks: (onChange) => {
+    const f = state.mapFilter;
+    const repick = (id) => { f.openPick = id; onChange(); };
+    bindMultiPick('map-region', f.regionsOff, () => repick('map-region'), f.openPick === 'map-region');
+    bindMultiPick('map-cat', f.catsOff, () => repick('map-cat'), f.openPick === 'map-cat');
+    f.openPick = null;
+  },
+  filterMatch: (c) => pickMatch(c, state.mapFilter.regionsOff, state.mapFilter.catsOff),
   toast: (msg, kind) => toast(msg, kind),
   tileHtml: (card) => tileHtml(card),
   bindTiles: () => bindTiles(),

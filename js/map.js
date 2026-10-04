@@ -40,7 +40,6 @@ let libsPromise = null;
 const worldPromises = {};
 let map = null;
 let lastView = null; // 再描画時に表示位置を保つ
-let category = 'all';
 let renderSeq = 0;
 let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 let currentFocus = null; // 選んでいる国（データ更新で描き直すときに引き継ぐ）
@@ -176,10 +175,7 @@ export async function renderMap(view, ctx) {
   const cats = ctx.allCats();
   view.innerHTML = `
     <div class="toolbar">
-      <select id="map-cat" class="select">
-        <option value="all">すべてのカテゴリー</option>
-        ${cats.map((c) => `<option value="${c.id}" ${c.id === category ? 'selected' : ''}>${ctx.esc(c.name)}</option>`).join('')}
-      </select>
+      ${ctx.filterPicksHtml()}
       <button class="btn btn-ghost btn-sm" id="map-world">🌐 世界全体</button>
       <span class="muted small map-hint">クリック・拡大でカード表示 ／ Ctrl+クリック・Ctrl+Enter で Plonkit ／ Alt+クリック・Alt+Enter で国の詳細</span>
     </div>
@@ -247,7 +243,7 @@ export async function renderMap(view, ctx) {
   else map.setView([25, 10], 2);
 
   // ---- カテゴリーで絞り込んだ国ごとのカード
-  const cards = ctx.cards.filter((c) => category === 'all' || ctx.catKey(c) === category);
+  const cards = ctx.cards.filter(ctx.filterMatch);
   const byCountry = new Map();
   for (const card of cards) {
     for (const code of card.countries) {
@@ -823,7 +819,7 @@ export async function renderMap(view, ctx) {
   }
   update();
 
-  $id('map-cat').addEventListener('change', (e) => { category = e.target.value; renderMap(view, ctx); });
+  ctx.bindFilterPicks(() => refreshMap(view, ctx)); // 絞り込みを変えても表示位置・選んでいる国はそのまま
 
   // ---- 国の検索バー（補完付き）
   // Enter: その国へ移動 / Ctrl(⌘)+Enter: Plonkit / Alt+Enter: 国の詳細。補完・候補選択で国名が確定したら自動で移動
