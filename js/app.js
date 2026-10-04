@@ -2,13 +2,14 @@ import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry
 import { initApi } from './api.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
+import { annotateImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
 import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity } from './progress.js';
-import { mountQuizMap, nearestKm } from './quizmap.js';
+import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
+import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
@@ -54,7 +55,7 @@ function flagImg(code, cls = 'flag') {
 const countryName = (code) => COUNTRY_BY_CODE.get(code)?.ja ?? code;
 // カテゴリー
 const UNCAT = { id: 'none', name: '未分類', color: '#8a96a3' };
-const catOf = (card) => (card.category_id && state.categories.find((c) => c.id === card.category_id)) || UNCAT;
+const catOf = (card) => (card.photo ? { id: `ref-${card.topic}`, name: `参考写真: ${modeDef(card.topic).name}`, color: '#868e96' } : (card.category_id && state.categories.find((c) => c.id === card.category_id)) || UNCAT);
 const catKey = (card) => catOf(card).id;
 // 背景色に対して読みやすい文字色（白 / 黒）
 function textOn(hex) {
@@ -87,14 +88,36 @@ const state = {
   urlsAt: 0,
   view: 'study',
   study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, review: false, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
-  quiz: { kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
+  quiz: { photoTopics: new Set(['bollard', 'pole', 'chevron', 'plate']), timeLimit: 0, kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
   mapMatch: {}, // 地図の「条件で絞り込み」の条件 { topic: key }
   compare: { codes: [], closed: new Set() }, // 比較タブで並べる国・閉じている項目
   mapFilter: { regionsOff: new Set(), catsOff: new Set(), openPick: null }, // 地図の絞り込み
   manage: { q: '', regionsOff: new Set(), catsOff: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
 };
-const cardById = (id) => state.cards.find((c) => c.id === id);
+// 参考写真（GeoHints）もカードと同じように出題できるよう、id「ref|種類|国|番号」で疑似カードを作る
+const PHOTO_TOPICS = ['bollard', 'pole', 'chevron', 'plate'];
+const refCards = new Map();
+function refCard(id) {
+  if (refCards.has(id)) return refCards.get(id);
+  const [, topic, code, i] = id.split('|');
+  const rel = REF_IMAGES[topic]?.[code]?.[Number(i)];
+  if (!rel) return undefined;
+  const info = refInfo(topic, rel) || {};
+  const card = { id, countries: [code], description: '', area: '', notes: '', category_id: null, created_at: '', photo: true, topic, src: REF_BASE + rel, lat: info.lat, lng: info.lng };
+  refCards.set(id, card);
+  return card;
+}
+const cardById = (id) => state.cards.find((c) => c.id === id) || (String(id).startsWith('ref|') ? refCard(id) : undefined);
+// クイズに出せる参考写真（選んだ種類・地域。「撮影地点を当てる」では座標のあるものだけ）
+function photoPool(q) {
+  const out = [];
+  for (const t of q.photoTopics) for (const [code, list] of Object.entries(REF_IMAGES[t] || {})) {
+    if (!q.regions.has(COUNTRY_BY_CODE.get(code)?.region)) continue;
+    list.forEach((_, i) => { const c = refCard(`ref|${t}|${code}|${i}`); if (c && (q.mode !== 'pin' || c.lat != null)) out.push(c); });
+  }
+  return out;
+}
 
 /* ================= 設定（この端末のブラウザに保存） ================= */
 const SETTINGS_KEY = 'geo-cards-settings-v1';
@@ -260,7 +283,7 @@ function openSettings() {
     }
   }, { once: true });
 }
-const imgUrl = (card) => state.urls.get(card.id) || '';
+const imgUrl = (card) => card.src || state.urls.get(card.id) || '';
 
 /* ================= 起動・ログイン ================= */
 async function boot() {
@@ -652,7 +675,7 @@ function onKeydown(e) {
       if (e.key === 'Enter' || act === 'next') { e.preventDefault(); nextQuestion(); }
       else if (act === 'country' && card) { e.preventDefault(); openCountryInfo(card.countries[0], $('.quiz-card')); }
       else if (act === 'flip') { e.preventDefault(); $('#q-view')?.click(); } // 解答後はカード詳細を開く
-      else if (act === 'edit' && card && state.user.isEditor) { e.preventDefault(); openEditor(card); }
+      else if (act === 'edit' && card && !card.photo && state.user.isEditor) { e.preventDefault(); openEditor(card); }
     } else if ((q.mode === 'choice' || q.kind === 'fact') && digit && Number(digit) <= 4) {
       e.preventDefault();
       $$('.choice')[Number(digit) - 1]?.click();
@@ -832,6 +855,29 @@ function photoInfoHtml(topic, src, code) {
     ${info.map ? `<a class="btn btn-sm photo-map" href="${esc(info.map)}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a>` : ''}
   </div>`;
 }
+// 参考写真を自分のカードに: 画像はこのサイト経由（/api/refimg）で取得して、作成画面に入れる
+async function photoToCard(topic, code, src, btn) {
+  btn.disabled = true;
+  btn.textContent = '画像を読み込み中…';
+  try {
+    const rel = src.startsWith(REF_BASE) ? src.slice(REF_BASE.length) : src;
+    const res = await fetch(`/api/refimg?path=${encodeURIComponent(rel)}`);
+    if (!res.ok) throw new Error(`画像を取得できませんでした（${res.status}）`);
+    const blob = await res.blob();
+    const info = refInfo(topic, rel) || {};
+    const place = (info.desc || '').match(/撮影場所: (.+?)付近/)?.[1] || '';
+    const note = factOf(topic, code)?.note || '';
+    const catId = state.categories.find((k) => CAT_TOPIC[k.name] === topic)?.id || null;
+    openEditor(null, {
+      countries: [code], categoryId: catId, blob, area: place,
+      notes: [note, `出典: GeoHints（${REF_PAGES[topic] || 'https://geohints.com/'}）${info.map ? `\n撮影地点: ${info.map}` : ''}`].filter(Boolean).join('\n'),
+    });
+  } catch (ex) {
+    toast(ex.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '＋ この写真でカードを作る';
+  }
+}
 function stepPhoto(delta) {
   const e = modalCurrent;
   if (e?.kind !== 'photo') return;
@@ -865,10 +911,12 @@ function renderPhotoModal(entry) {
         ${answerHtml({ countries: [code], area: '' }, 'md', true)}
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
         ${photoInfoHtml(topic, srcs[i], code)}
+        ${state.user.isEditor ? '<button type="button" class="btn btn-sm" id="photo-to-card" title="この写真を自分のカードにする（国・カテゴリー・見分け方を入れた状態で作成画面を開きます）">＋ この写真でカードを作る</button>' : ''}
         <div class="pfact">${factPanelHtml(topic, code).replace(/<div class="pfact-note">[^<]*<\/div>/g, '')}</div>
       </div>
     </div>`, 'modal-wide', true);
   attachZoom($('.detail-front .front-img'), srcs.length > 1 ? { onSwipe: (d) => stepPhoto(d) } : {});
+  $('#photo-to-card')?.addEventListener('click', (e) => photoToCard(topic, code, srcs[i], e.currentTarget));
   $('#photo-prev')?.addEventListener('click', () => stepPhoto(-1));
   $('#photo-next')?.addEventListener('click', () => stepPhoto(1));
   delete entry.enter;
@@ -899,10 +947,10 @@ function renderCardModal(card, entry = {}) {
         ${answerHtml(card, 'md', true)}
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
         ${notesHtml(card)}
-        ${cardFactsHtml(card)}
+        ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : cardFactsHtml(card)}
       </div>
     </div>
-    ${state.user.isEditor ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
+    ${state.user.isEditor && !card.photo ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
   `, 'modal-wide', true);
   // カード詳細の背景もカテゴリーの色を薄く
   $('#modal').classList.add('modal-card');
@@ -1003,6 +1051,29 @@ function renderCompare() {
   bindTiles();
 }
 
+// 混同しやすい 2 か国だけのクイズ（自分のカード。少なければ参考写真も使う。答えは 2 択）
+function startPairQuiz(pair) {
+  const q = state.quiz;
+  let pool = state.cards.filter((c) => c.countries.some((x) => pair.includes(x)));
+  if (pool.length < 6) {
+    for (const t of PHOTO_TOPICS) for (const code of pair) (REF_IMAGES[t]?.[code] || []).forEach((_, i) => pool.push(refCard(`ref|${t}|${code}|${i}`)));
+  }
+  pool = pool.filter(Boolean);
+  if (!pool.length) { toast('この 2 か国のカードや写真がありません', 'error'); return; }
+  closeModal();
+  q.kind = 'cards';
+  q.mode = 'choice';
+  q.timeLimit = 0;
+  const cards = shuffle(pool).slice(0, 20);
+  q.questions = cards.map((c) => ({ cardId: c.id, options: shuffle([...new Set([...c.countries.filter((x) => pair.includes(x)).slice(0, 1), ...pair])]).slice(0, 2) }));
+  q.i = 0;
+  q.answers = [];
+  q.answered = null;
+  q.phase = 'question';
+  startQuizClock(q);
+  if (state.view === 'quiz') renderQuiz(); else location.hash = '#quiz';
+}
+
 /* ================= 学習記録（毎日の目標・連続日数・地域ごとの正答率） ================= */
 function openStats() {
   const act = activity();
@@ -1055,6 +1126,17 @@ function openStats() {
       const pct = Math.round((x.ok / x.n) * 100);
       return `<div class="st-region" title="${esc(r.name)}: ${x.ok} / ${x.n}"><span class="st-rname">${esc(r.name)}</span><span class="st-rbar"><i style="width:${pct}%"></i></span><span class="st-rpct">${pct}%</span><span class="st-rn muted">${x.n} 回</span></div>`;
     }).join('')}</div>` : '<p class="muted small">まだ記録がありません。暗記カードやクイズを解くとここに出ます</p>'}
+    <h3 class="st-title">よく間違える組み合わせ <span class="muted small">（クイズで正解の国と答えた国）</span></h3>
+    ${(() => {
+      const pairs = confusions().slice(0, 8);
+      return pairs.length ? `<div class="st-pairs">${pairs.map(({ pair: [a, b], n }) => `
+        <div class="st-pair">
+          <span class="st-pair-names">${flagImg(a)}${esc(countryName(a))} <span class="muted">⇄</span> ${flagImg(b)}${esc(countryName(b))}</span>
+          <span class="muted small">${n} 回</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-pair-cmp="${a}|${b}">⚖ 比較</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-pair-quiz="${a}|${b}">🎯 この 2 か国のクイズ</button>
+        </div>`).join('')}</div>` : '<p class="muted small">まだ記録がありません。クイズで間違えると、ここに出ます</p>';
+    })()}
     <div class="modal-foot">
       <label class="st-goal-input">1 日の目標 <input type="number" id="st-goal" min="1" max="999" value="${goal}"> 回</label>
       <span class="grow"></span>
@@ -1066,6 +1148,12 @@ function openStats() {
     g.addEventListener('pointerenter', () => { tip.textContent = g.dataset.tip; tip.hidden = false; const r = g.getBoundingClientRect(); const c = g.closest('.st-chart').getBoundingClientRect(); tip.style.left = `${r.left - c.left + r.width / 2}px`; });
     g.addEventListener('pointerleave', () => { tip.hidden = true; });
   });
+  $$('#modal [data-pair-cmp]').forEach((b) => b.addEventListener('click', () => {
+    state.compare.codes = b.dataset.pairCmp.split('|');
+    closeModal();
+    if (state.view === 'compare') render(); else location.hash = '#compare';
+  }));
+  $$('#modal [data-pair-quiz]').forEach((b) => b.addEventListener('click', () => startPairQuiz(b.dataset.pairQuiz.split('|'))));
   $('#st-goal').addEventListener('change', (e) => { settings.dailyGoal = Math.max(1, Number(e.target.value) || 30); saveSettings(); openStats(); });
   $('#st-reset').addEventListener('click', () => { if (confirm('学習記録（毎日の回数・地域ごとの正答率）をリセットしますか？カードの覚え具合はそのままです')) { resetActivity(); openStats(); } });
 }
@@ -1454,17 +1542,29 @@ function renderQuiz() {
   const eligible = quizEligible(q.regions).length;
 
   const isFact = q.kind === 'fact';
+  const isPhoto = q.kind === 'photo';
+  if (!isPhoto && q.mode === 'pin') q.mode = 'choice';
   const factEligible = isFact ? factQuizPool(q.factTopic, q.regions).length : 0;
+  const photoEligible = isPhoto ? photoPool(q).length : 0;
   $('#view').innerHTML = `
-    <section class="panel quiz-setup ${isFact ? 'is-fact' : ''}">
+    <section class="panel quiz-setup ${isFact ? 'is-fact' : ''} ${isPhoto ? 'is-photo' : ''}">
       <h2>クイズ設定</h2>
       <div class="setup-block">
         <div class="setup-label"><span>出題内容</span></div>
         <div class="seg" id="q-kind">
-          <button class="${isFact ? '' : 'on'}" data-kind="cards">🃏 カード（画像から国を当てる）</button>
-          <button class="${isFact ? 'on' : ''}" data-kind="fact">🗺 国の特徴（国から特徴を当てる）</button>
+          <button class="${q.kind === 'cards' ? 'on' : ''}" data-kind="cards">🃏 カード（画像から国を当てる）</button>
+          <button class="${isPhoto ? 'on' : ''}" data-kind="photo">📷 参考写真（GeoHints の写真から国を当てる）</button>
+          <button class="${isFact ? 'on' : ''}" data-kind="fact">🗺 国の特徴・基本データ</button>
         </div>
       </div>
+      ${isPhoto ? `
+      <div class="setup-block">
+        <div class="setup-label"><span>写真の種類</span></div>
+        <div class="seg seg-wrap" id="q-ptopic">
+          ${PHOTO_TOPICS.map((t) => `<button class="${q.photoTopics.has(t) ? 'on' : ''}" data-ptopic="${t}">${modeDef(t).icon} ${modeDef(t).name}</button>`).join('')}
+        </div>
+        <p class="muted small">地図の参考写真（約 1,000 枚）から出題します。答えたあとに撮影場所と Google マップのリンクが出ます</p>
+      </div>` : ''}
       ${isFact ? `
       <div class="setup-block">
         <div class="setup-label"><span>答える特徴</span></div>
@@ -1521,12 +1621,19 @@ function renderQuiz() {
             ${[10, 20, 50, 0].map((n) => `<button class="${q.count === n ? 'on' : ''}" data-n="${n}">${n || '全部'}</button>`).join('')}
           </div>
         </div>
-        <div class="setup-block cards-only">
+        <div class="setup-block not-fact">
           <div class="setup-label"><span>回答方式</span></div>
           <div class="seg" id="q-mode">
             <button class="${q.mode === 'choice' ? 'on' : ''}" data-mode="choice">4択</button>
             <button class="${q.mode === 'input' ? 'on' : ''}" data-mode="input">国名を入力</button>
             <button class="${q.mode === 'map' ? 'on' : ''}" data-mode="map">🗺 地図で答える</button>
+            ${isPhoto ? `<button class="${q.mode === 'pin' ? 'on' : ''}" data-mode="pin" title="写真の撮影地点を地図でクリック。近いほど高得点">📍 撮影地点を当てる</button>` : ''}
+          </div>
+        </div>
+        <div class="setup-block">
+          <div class="setup-label"><span>制限時間（タイムアタック）</span></div>
+          <div class="seg" id="q-time">
+            ${[0, 60, 120].map((n) => `<button class="${q.timeLimit === n ? 'on' : ''}" data-t="${n}">${n ? `${n} 秒` : 'なし'}</button>`).join('')}
           </div>
         </div>
         <div class="setup-block cards-only">
@@ -1538,8 +1645,8 @@ function renderQuiz() {
         </div>
       </div>
       <div class="setup-foot">
-        <span class="muted">${isFact ? `対象の国: <strong>${factEligible}</strong> か国` : `対象カード: <strong>${eligible}</strong> 枚`}</span>
-        <button class="btn btn-primary btn-lg" id="q-start" ${(isFact ? factEligible : eligible) ? '' : 'disabled'}>スタート</button>
+        <span class="muted">${isFact ? `対象の国: <strong>${factEligible}</strong> か国` : isPhoto ? `対象の写真: <strong>${photoEligible}</strong> 枚` : `対象カード: <strong>${eligible}</strong> 枚`}${q.timeLimit ? `・⏱ ${q.timeLimit} 秒で何問解けるか（問題数は無制限）` : ''}</span>
+        <button class="btn btn-primary btn-lg" id="q-start" ${(isFact ? factEligible : isPhoto ? photoEligible : eligible) ? '' : 'disabled'}>スタート</button>
       </div>
     </section>`;
 
@@ -1561,17 +1668,62 @@ function renderQuiz() {
   $$('#q-kind button').forEach((b) => b.addEventListener('click', () => { q.kind = b.dataset.kind; renderQuiz(); }));
   $$('#q-topic button').forEach((b) => b.addEventListener('click', () => { q.factTopic = b.dataset.topic; renderQuiz(); }));
   $$('#q-dir button').forEach((b) => b.addEventListener('click', () => { q.factDir = b.dataset.dir; renderQuiz(); }));
-  $('#q-start').addEventListener('click', () => (isFact ? startFactQuiz(factQuizPool(q.factTopic, q.regions)) : startQuiz(quizEligible(q.regions))));
+  $$('#q-ptopic button').forEach((b) => b.addEventListener('click', () => {
+    if (q.photoTopics.has(b.dataset.ptopic)) { if (q.photoTopics.size > 1) q.photoTopics.delete(b.dataset.ptopic); } else q.photoTopics.add(b.dataset.ptopic);
+    renderQuiz();
+  }));
+  $$('#q-time button').forEach((b) => b.addEventListener('click', () => { q.timeLimit = Number(b.dataset.t); renderQuiz(); }));
+  $('#q-start').addEventListener('click', () => (isFact ? startFactQuiz(factQuizPool(q.factTopic, q.regions)) : startQuiz(isPhoto ? photoPool(q) : quizEligible(q.regions))));
+}
+
+/* ---- タイムアタック（制限時間つき） ---- */
+let quizTimer = null;
+function startQuizClock(q) {
+  clearInterval(quizTimer);
+  q.deadline = q.timeLimit ? Date.now() + q.timeLimit * 1000 : 0;
+  q.bestSaved = false;
+  if (!q.deadline) return;
+  quizTimer = setInterval(() => {
+    const left = Math.max(0, q.deadline - Date.now());
+    const el = $('#qt-timer');
+    if (el) { el.textContent = (left / 1000).toFixed(1); el.closest('.counter')?.classList.toggle('is-hurry', left < 10000); }
+    if (!left && q.phase === 'question') { endQuizByTime(); }
+  }, 100);
+}
+function endQuizByTime() {
+  const q = state.quiz;
+  clearInterval(quizTimer);
+  q.phase = 'result';
+  play('finish');
+  if (state.view === 'quiz') renderQuiz();
+}
+// 時間制限のときは問題を足りなくならないだけ並べる
+function stretchPool(list) {
+  if (!state.quiz.timeLimit || !list.length) return list;
+  const out = [];
+  while (out.length < 300) out.push(...shuffle(list));
+  return out;
+}
+const quizCounterHtml = (q) => (q.deadline
+  ? `<span class="counter qt-counter">⏱ <b id="qt-timer">${(Math.max(0, q.deadline - Date.now()) / 1000).toFixed(1)}</b> 秒・${q.i + 1} 問目</span>`
+  : `<span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>`);
+// 答えたあと: タイムアタックはすぐ次へ、そうでなければ設定の「正解したら自動で次へ」
+function afterAnswer(result) {
+  const q = state.quiz;
+  const at = q.i;
+  const go = () => { if (state.view === 'quiz' && q.phase === 'question' && q.i === at && q.answered) nextQuestion(); };
+  if (q.deadline) setTimeout(go, result === 'ok' ? 600 : 1200);
+  else if (result === 'ok' && settings.autoNext) setTimeout(go, 1200);
 }
 
 /* ---- 国の特徴クイズ（地図のインフォグラフィックのデータで出題） ---- */
 const factChipHtmlSafe = (topic, code) => factPanelHtml(topic, code).replace(/<div class="pfact-head">.*?<\/div>/, '');
-const FACT_TOPICS = ['chevron', 'guardrail', 'pole', 'bollard', 'plate', 'lines', 'drive', 'script', 'camera', 'snow'];
+const FACT_TOPICS = ['chevron', 'guardrail', 'pole', 'bollard', 'plate', 'lines', 'drive', 'script', 'camera', 'snow', 'tld', 'phone', 'currency', 'capital'];
 const allCodes = () => COUNTRIES.map((c) => c.code);
 function factQuizPool(topic, regions) {
   if (legendGroups(topic, allCodes()).length < 2) return [];
   // 通行・文字は全ての国にデータがあるので、GeoGuessr に出題される国だけに
-  const playOnly = topic === 'drive' || topic === 'script';
+  const playOnly = ['drive', 'script', 'tld', 'phone', 'currency', 'capital'].includes(topic);
   return COUNTRIES.filter((c) => regions.has(c.region) && classify(topic, c.code) && (!playOnly || isPlayable(c.code))).map((c) => c.code);
 }
 // 不正解の選択肢にしてはいけないもの（その国でも見られる種類）
@@ -1595,7 +1747,7 @@ function renderReverseQuestion() {
   const g = a?.given;
   $('#view').innerHTML = `
     <div class="toolbar">
-      <span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>
+      ${quizCounterHtml(q)}
       <span class="muted">○ ${okN}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
@@ -1620,7 +1772,7 @@ function renderReverseQuestion() {
           </div>` : ''}
       </div>
     </div>`;
-  $('#q-quit').addEventListener('click', () => { q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
   $$('.rev-answers [data-info]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.info, b)));
   const at = q.i;
   mountQuizMap($('#quiz-map'), {
@@ -1635,6 +1787,7 @@ function renderReverseQuestion() {
       play(result === 'ok' ? 'correct' : 'wrong');
       logActivity(result === 'ok', COUNTRY_BY_CODE.get(item.code)?.region);
       renderReverseQuestion();
+      afterAnswer(result);
     },
   }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
     const el = $('#quiz-map .map-loading');
@@ -1650,7 +1803,8 @@ function startFactQuiz(pool) {
   const q = state.quiz;
   const groups = legendGroups(q.factTopic, allCodes());
   let codes = shuffle(pool);
-  if (q.count) codes = codes.slice(0, q.count);
+  if (q.count && !q.timeLimit) codes = codes.slice(0, q.count);
+  codes = stretchPool(codes);
   q.questions = codes.map((code) => {
     const right = classify(q.factTopic, code);
     const wrong = shuffle(groups.filter((g) => g.key !== right.key && !alsoTrue(q.factTopic, code, g))).slice(0, 3);
@@ -1665,6 +1819,7 @@ function startFactQuiz(pool) {
   q.answers = [];
   q.answered = null;
   q.phase = 'question';
+  startQuizClock(q);
   renderQuiz();
 }
 function renderFactQuestion() {
@@ -1676,7 +1831,7 @@ function renderFactQuestion() {
   const okN = q.answers.filter((x) => x.result === 'ok').length;
   $('#view').innerHTML = `
     <div class="toolbar">
-      <span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>
+      ${quizCounterHtml(q)}
       <span class="muted">○ ${okN}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
@@ -1703,7 +1858,7 @@ function renderFactQuestion() {
           <div class="pfact">${factPanelHtml(q.factTopic, item.code)}</div>
         </div>` : ''}
     </div>`;
-  $('#q-quit').addEventListener('click', () => { q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
   if (a) {
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-info').addEventListener('click', (e) => openCountryInfo(item.code, e.currentTarget));
@@ -1717,10 +1872,7 @@ function renderFactQuestion() {
     play(result === 'ok' ? 'correct' : 'wrong');
     logActivity(result === 'ok', COUNTRY_BY_CODE.get(item.code)?.region);
     renderFactQuestion();
-    if (result === 'ok' && settings.autoNext) {
-      const at = q.i;
-      setTimeout(() => { if (state.view === 'quiz' && q.phase === 'question' && q.i === at && q.answered) nextQuestion(); }, 1200);
-    }
+    afterAnswer(result);
   }));
 }
 
@@ -1731,12 +1883,14 @@ function startQuiz(pool) {
   if (q.order === 'weak') {
     cards = cards.map((c) => ({ c, w: weakness(c.id) + Math.random() * 0.15 })).sort((a, b) => b.w - a.w).map((x) => x.c);
     if (q.count) cards = shuffle(cards.slice(0, q.count));
-  } else if (q.count) cards = cards.slice(0, q.count);
+  } else if (q.count && !q.timeLimit) cards = cards.slice(0, q.count);
+  cards = stretchPool(cards);
   q.questions = cards.map((c) => ({ cardId: c.id, options: q.mode === 'choice' ? makeOptions(c, q.regions) : null }));
   q.i = 0;
   q.answers = [];
   q.answered = null;
   q.phase = 'question';
+  startQuizClock(q);
   renderQuiz();
 }
 
@@ -1778,6 +1932,7 @@ function renderQuestion() {
   const multi = q.mode === 'input' && card.countries.length > 1;
   q.draft = q.draft || [];
   if (q.mode === 'map') { renderMapQuestion(card); return; }
+  if (q.mode === 'pin' && card.lat != null) { renderPinQuestion(card); return; }
 
   let answerUi;
   if (q.mode === 'choice') {
@@ -1814,7 +1969,7 @@ function renderQuestion() {
   const partN = q.answers.filter((x) => x.result === 'partial').length;
   $('#view').innerHTML = `
     <div class="toolbar">
-      <span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>
+      ${quizCounterHtml(q)}
       <span class="muted">○ ${okN}${partN ? ` △ ${partN}` : ''}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
@@ -1832,12 +1987,14 @@ function renderQuestion() {
           </div>
           ${q.mode === 'choice' || a.result !== 'ok' ? answerHtml(card, 'sm') : ''}
           ${notesHtml(card)}
+          ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : ''}
         </div>` : ''}
     </div>
   `;
 
   attachZoom($('.quiz-card .front-img'));
   $('#q-quit').addEventListener('click', () => {
+    clearInterval(quizTimer);
     q.phase = q.answers.length ? 'result' : 'setup';
     renderQuiz();
   });
@@ -1900,6 +2057,63 @@ function renderQuestion() {
   input.focus({ preventScroll: true });
 }
 
+// 撮影地点を当てる（参考写真）: 地図のどこでもクリック。距離で採点（GeoGuessr のように最大 5000 点）
+function renderPinQuestion(card) {
+  const q = state.quiz;
+  const a = q.answered;
+  const total = q.answers.reduce((n, x) => n + (x.points || 0), 0);
+  $('#view').innerHTML = `
+    <div class="toolbar">
+      ${quizCounterHtml(q)}
+      <span class="muted">合計 ${total.toLocaleString()} 点</span>
+      <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
+    </div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="qm-layout">
+      <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card)}</div>
+      <div class="qm-side">
+        <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
+        ${a ? `
+          <div class="feedback fb-${a.result}">
+            <div class="feedback-head">
+              <div class="feedback-title">📍 約 ${Math.round(a.km).toLocaleString()} km ・ <b>${a.points.toLocaleString()}</b> 点</div>
+              <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+            </div>
+            ${answerHtml(card, 'sm')}
+            ${photoInfoHtml(card.topic, card.src, card.countries[0])}
+          </div>` : '<p class="quiz-prompt">この写真の撮影地点を、地図でクリック（近いほど高得点）</p>'}
+      </div>
+    </div>`;
+  attachZoom($('.quiz-card .front-img'));
+  $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  const at = q.i;
+  mountPinMap($('#quiz-map'), {
+    answer: [card.lat, card.lng],
+    guess: a?.guess,
+    animate: settings.animations,
+    onPick: (guess) => {
+      if (q.answered || q.i !== at || state.view !== 'quiz') return;
+      const km = distanceBetween(guess, [card.lat, card.lng]);
+      const points = Math.round(5000 * Math.exp(-km / 1500));
+      const result = km <= 150 ? 'ok' : km <= 750 ? 'partial' : 'ng';
+      q.answered = { given: [], guess, km, points, result };
+      q.answers.push({ cardId: card.id, given: [], result, km, points });
+      record(card.id, result);
+      logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
+      play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
+      renderPinQuestion(card);
+      afterAnswer(result);
+    },
+  }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
+    const el = $('#quiz-map .map-loading');
+    if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`;
+  });
+  if (a) {
+    $('#q-next').addEventListener('click', nextQuestion);
+    $('#q-next').focus({ preventScroll: true });
+  }
+}
+
 // 地図で答えるクイズ: 左に問題の画像、右に地図（スマホでは上下）
 function renderMapQuestion(card) {
   const q = state.quiz;
@@ -1910,7 +2124,7 @@ function renderMapQuestion(card) {
   const label = a ? { ok: '○ 正解！', partial: '△ 惜しい（隣の国）', ng: '✗ 不正解' }[a.result] : '';
   $('#view').innerHTML = `
     <div class="toolbar">
-      <span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>
+      ${quizCounterHtml(q)}
       <span class="muted">○ ${okN}${partN ? ` △ ${partN}` : ''}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
@@ -1929,11 +2143,12 @@ function renderMapQuestion(card) {
             ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
             ${answerHtml(card, 'sm')}
             ${notesHtml(card)}
+            ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : ''}
           </div>` : '<p class="quiz-prompt">この特徴が見られる国を、地図でクリック</p>'}
       </div>
     </div>`;
   attachZoom($('.quiz-card .front-img'));
-  $('#q-quit').addEventListener('click', () => { q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
   const at = q.i;
   mountQuizMap($('#quiz-map'), {
     answers: card.countries,
@@ -1963,16 +2178,15 @@ function submitAnswer(card, given) {
     if (result !== 'ok') km = nearestKm(g, card.countries);
   } else result = q.mode === 'choice' ? (card.countries.includes(given[0]) ? 'ok' : 'ng') : grade(card, given);
   record(card.id, result); // 覚え具合（暗記カードの復習にも反映）
+  // よく間違える組み合わせ（正解の国と答えた国）
+  if (result !== 'ok') for (const g of given) if (!card.countries.includes(g)) logConfusion(card.countries[0], g);
   logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
   q.answered = { given: [...given], result, km };
   q.answers.push({ cardId: card.id, given: [...given], result, correct: result === 'ok' });
   play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
   q.draft = [];
   renderQuestion();
-  if (result === 'ok' && settings.autoNext) {
-    const at = q.i;
-    setTimeout(() => { if (state.view === 'quiz' && q.phase === 'question' && q.i === at && q.answered) nextQuestion(); }, 1200);
-  }
+  afterAnswer(result);
   const fb = $('.feedback');
   if (fb && q.mode !== 'map') fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -1982,7 +2196,7 @@ function nextQuestion() {
   q.answered = null;
   q.draft = [];
   q.i++;
-  if (q.i >= q.questions.length) q.phase = 'result';
+  if (q.i >= q.questions.length || (q.deadline && Date.now() >= q.deadline)) { q.phase = 'result'; clearInterval(quizTimer); }
   play(q.phase === 'result' ? 'finish' : 'slide');
   renderQuiz();
   window.scrollTo({ top: 0 });
@@ -1995,10 +2209,25 @@ function renderQuizResult() {
   const part = q.answers.filter((a) => a.result === 'partial').length;
   const wrong = q.answers.filter((a) => a.result !== 'ok');
   const pct = total ? Math.round(((ok + part * 0.5) / total) * 100) : 0;
+  const points = q.answers.reduce((n, a) => n + (a.points || 0), 0);
+  const isPin = q.answers.some((a) => a.points != null);
+  // タイムアタックの自己ベスト（表示名ごと・設定ごと）
+  let bestHtml = '';
+  if (q.timeLimit && q.deadline) {
+    const who = (() => { try { return localStorage.getItem('geo-cards-chat-name') || 'あなた'; } catch { return 'あなた'; } })();
+    const what = q.kind === 'fact' ? `${q.factTopic}-${q.factDir}` : q.kind === 'photo' ? `${[...q.photoTopics].sort().join('+')}-${q.mode}` : q.mode;
+    const score = isPin ? points : ok;
+    const key = `${q.kind}:${what}:${q.timeLimit}:${who}`;
+    if (!q.bestSaved) { q.prevBest = saveBest(key, score); q.bestSaved = true; }
+    const prev = q.prevBest;
+    bestHtml = `<div class="ta-best">${prev === null || score > prev ? `🏆 自己ベスト更新！（${esc(who)}）` : `自己ベスト: ${prev.toLocaleString()}${isPin ? ' 点' : ' 問'}（${esc(who)}）`}</div>`;
+  }
   $('#view').innerHTML = `
     <section class="panel result">
-      <div class="score">${ok}<span> / ${total}</span></div>
-      <div class="score-pct">${part ? `△ 部分正解 ${part} ・ ` : ''}正答率 ${pct}%${part ? '（△は0.5問として計算）' : ''}</div>
+      ${q.timeLimit && q.deadline ? `<div class="score-pct">⏱ ${q.timeLimit} 秒のタイムアタック</div>` : ''}
+      <div class="score">${isPin ? `${points.toLocaleString()}<span> 点</span>` : `${ok}<span> / ${total}</span>`}</div>
+      <div class="score-pct">${isPin ? `${total} 問・平均 約 ${Math.round(q.answers.reduce((n, a) => n + (a.km || 0), 0) / Math.max(1, total)).toLocaleString()} km` : `${part ? `△ 部分正解 ${part} ・ ` : ''}正答率 ${pct}%${part ? '（△は0.5問として計算）' : ''}`}</div>
+      ${bestHtml}
       <div class="result-actions">
         ${wrong.length ? '<button class="btn btn-primary" id="q-retry">間違えた問題だけ再挑戦</button>' : ''}
         <button class="btn" id="q-again">同じ設定でもう一度</button>
@@ -2022,7 +2251,7 @@ function renderQuizResult() {
       <h3 class="section-title">間違えた・部分正解のカード（${wrong.length}）</h3>
       <div class="tiles">${wrong.map((w) => {
         const c = cardById(w.cardId);
-        return c ? tileHtml(c, `<p class="tile-given">${w.result === 'partial' ? '△' : '✗'} あなたの回答: ${esc(w.given.map(countryName).join('・'))}</p>`) : '';
+        return c ? tileHtml(c, `<p class="tile-given">${w.result === 'partial' ? '△' : '✗'} ${w.km != null ? `撮影地点から約 ${Math.round(w.km).toLocaleString()} km` : `あなたの回答: ${esc(w.given.map(countryName).join('・'))}`}</p>`) : '';
       }).join('')}</div>` : ''}
   `;
   bindTiles();
@@ -2033,7 +2262,7 @@ function renderQuizResult() {
     $('#q-again').addEventListener('click', () => startFactQuiz(factQuizPool(q.factTopic, q.regions)));
   } else {
     if (retry) retry.addEventListener('click', () => startQuiz(wrong.map((w) => cardById(w.cardId)).filter(Boolean)));
-    $('#q-again').addEventListener('click', () => startQuiz(quizEligible(q.regions)));
+    $('#q-again').addEventListener('click', () => startQuiz(q.kind === 'photo' ? photoPool(q) : quizEligible(q.regions)));
   }
   $('#q-setup').addEventListener('click', () => { q.phase = 'setup'; renderQuiz(); setTimeout(flushLive, 0); });
 }
@@ -2330,6 +2559,7 @@ function renderManage() {
     </div>
     <div class="toolbar toolbar-sub">
       <button class="btn btn-ghost btn-sm" id="m-cats">🏷 カテゴリー管理</button>
+      <button class="btn btn-ghost btn-sm" id="m-bulk" title="複数の画像からまとめてカードを作る">📥 まとめて追加</button>
       <button class="btn btn-ghost btn-sm" id="m-export">バックアップを書き出し</button>
       <label class="btn btn-ghost btn-sm">バックアップから読み込み<input type="file" id="m-import" accept="application/json,.json" hidden></label>
       <span class="grow"></span>
@@ -2356,6 +2586,7 @@ function renderManage() {
   bindMultiPick('m-cat', m.catsOff, () => repick('m-cat'), m.openPick === 'm-cat');
   m.openPick = null;
   $('#m-export').addEventListener('click', exportBackup);
+  $('#m-bulk').addEventListener('click', openBulkAdd);
   $('#m-cats').addEventListener('click', openCategoryManager);
   $('#m-import').addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
   $('#m-sel-all').addEventListener('click', () => { for (const c of manageFiltered()) m.sel.add(c.id); updateSelUI(); });
@@ -2526,6 +2757,7 @@ function openEditor(card, preset = {}) {
         </div>
         <div class="row">
           <button class="btn" id="ed-paste" type="button">📋 クリップボードから貼り付け</button>
+          <button class="btn btn-ghost" id="ed-annot" type="button" title="画像に丸・矢印などを書き込む" ${ed.preview ? '' : 'disabled'}>✏️ 書き込み</button>
           <label class="btn btn-ghost">ファイルを選択<input type="file" id="ed-file" accept="image/*" hidden></label>
         </div>
         <div class="field">
@@ -2596,7 +2828,19 @@ function openEditor(card, preset = {}) {
     img.src = ed.preview;
     img.hidden = false;
     $('#ed-hint').hidden = true;
+    $('#ed-annot').disabled = false;
   };
+  // 画像に丸・矢印を書き込む（書き込んだ画像に差し替え）
+  $('#ed-annot').addEventListener('click', async () => {
+    if (!ed.preview) return;
+    const out = await annotateImage(ed.preview, $('#modal'));
+    if (out) { await setImage(out); toast('書き込みを反映しました'); }
+  });
+  // 参考写真などから作るときの初期値
+  if (preset.blob) setImage(preset.blob);
+  if (preset.description) $('#ed-desc').value = preset.description;
+  if (preset.notes) $('#ed-notes').value = preset.notes;
+  if (preset.area) $('#ed-area').value = preset.area;
 
   // 画像の入力: ファイル選択・ドロップ・貼り付け
   const fileInput = $('#ed-file');
@@ -3083,6 +3327,82 @@ async function exportBackup() {
   } catch (ex) {
     toast(`書き出しに失敗しました: ${ex.message}`, 'error');
   }
+}
+
+/* ---- カードのまとめて追加: 複数の画像をドロップし、国・カテゴリーを選んで一度に作る ---- */
+function openBulkAdd() {
+  const items = []; // { blob, url, country, desc }
+  openModal(`
+    <div class="modal-head"><h2>📥 カードをまとめて追加</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    <div class="bulk-common">
+      <label class="field"><span>カテゴリー（全部に共通）</span>
+        <select id="bulk-cat" class="select">${allCats().map((k) => `<option value="${k.id}">${esc(k.name)}</option>`).join('')}</select></label>
+      <label class="field"><span>国（全部に共通・あとで 1 枚ずつ変更可）</span><input type="text" id="bulk-country" class="input" list="country-list" placeholder="例: ポーランド" autocomplete="off"></label>
+    </div>
+    <div class="dropzone bulk-drop" id="bulk-drop" tabindex="0">
+      <strong>画像をまとめてドロップ</strong><br>またはクリックして選択（複数可）・Ctrl+V で 1 枚ずつ貼り付け
+      <input type="file" id="bulk-file" accept="image/*" multiple hidden>
+    </div>
+    <div class="bulk-list" id="bulk-list"></div>
+    <div class="modal-foot">
+      <span class="muted small" id="bulk-count">0 枚</span>
+      <span class="grow"></span>
+      <button class="btn btn-ghost" data-close type="button">キャンセル</button>
+      <button class="btn btn-primary" id="bulk-save" type="button" disabled>まとめて作成</button>
+    </div>`, 'modal-wide');
+  const list = $('#bulk-list');
+  const draw = () => {
+    list.innerHTML = items.map((it, i) => `
+      <div class="bulk-row">
+        <img src="${it.url}" alt="">
+        <input type="text" class="input bulk-c" data-i="${i}" list="country-list" placeholder="国（空なら共通の国）" value="${esc(it.country ? countryName(it.country) : '')}" autocomplete="off">
+        <input type="text" class="input bulk-d" data-i="${i}" placeholder="説明（任意）" value="${esc(it.desc)}">
+        <button type="button" class="icon-btn" data-rm="${i}" aria-label="外す">✕</button>
+      </div>`).join('');
+    $('#bulk-count').textContent = `${items.length} 枚`;
+    $('#bulk-save').disabled = !items.length;
+    $$('.bulk-c', list).forEach((x) => x.addEventListener('change', () => { items[x.dataset.i].country = resolveCountryCode(x.value) || ''; if (x.value && !items[x.dataset.i].country) toast('候補にある国名を入力してください', 'error'); }));
+    $$('.bulk-d', list).forEach((x) => x.addEventListener('input', () => { items[x.dataset.i].desc = x.value; }));
+    $$('[data-rm]', list).forEach((b) => b.addEventListener('click', () => { URL.revokeObjectURL(items[b.dataset.rm].url); items.splice(Number(b.dataset.rm), 1); draw(); }));
+  };
+  const add = (files) => {
+    for (const f of files) if (f && f.type.startsWith('image/')) items.push({ blob: f, url: URL.createObjectURL(f), country: '', desc: '' });
+    draw();
+  };
+  const drop = $('#bulk-drop');
+  const file = $('#bulk-file');
+  drop.addEventListener('click', () => file.click());
+  file.addEventListener('change', () => { add([...file.files]); file.value = ''; });
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); add([...e.dataTransfer.files]); });
+  modalPasteHandler = (e) => {
+    const its = [...(e.clipboardData?.items || [])].filter((i) => i.type.startsWith('image/'));
+    if (!its.length) return;
+    e.preventDefault();
+    add(its.map((i) => i.getAsFile()));
+  };
+  $('#bulk-save').addEventListener('click', async (e) => {
+    const common = resolveCountryCode($('#bulk-country').value);
+    const missing = items.filter((it) => !it.country && !common).length;
+    if (missing) { toast(`国が決まっていない画像が ${missing} 枚あります（共通の国か、1 枚ずつ国を入力してください）`, 'error'); return; }
+    const cat = $('#bulk-cat').value;
+    e.target.disabled = true;
+    let ok = 0;
+    for (const it of items) {
+      try {
+        await api.createCard({ description: it.desc, countries: [it.country || common], area: '', notes: '', category_id: cat === 'none' ? null : cat }, it.blob);
+        ok++;
+        toast(`作成中… ${ok} / ${items.length}`);
+      } catch (ex) { toast(`作成できなかった画像があります: ${ex.message}`, 'error'); }
+    }
+    items.forEach((it) => URL.revokeObjectURL(it.url));
+    closeModal();
+    await reloadCards();
+    render();
+    toast(`${ok} 枚のカードを作成しました`);
+  });
+  attachInlineComplete($('#bulk-country'), { regions: false, ja: true });
 }
 
 async function importBackup(file) {

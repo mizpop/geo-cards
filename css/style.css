@@ -1551,3 +1551,31 @@ textarea { resize: vertical; line-height: 1.6; }
 .photo-info { margin: 4px 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
 .photo-desc { margin: 0 0 8px; line-height: 1.7; white-space: pre-wrap; }
 .photo-map { text-decoration: none; }
+
+/* 画像への書き込み */
+.annot { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: rgba(8, 12, 16, .92); padding: 12px; gap: 8px; }
+.annot-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.annot-colors { display: flex; gap: 6px; }
+.annot-color { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); background: var(--c); cursor: pointer; }
+.annot-color.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.annot-stage { flex: 1; min-height: 0; display: grid; place-items: center; }
+.annot-stage canvas { max-width: 100%; max-height: 100%; touch-action: none; cursor: crosshair; border-radius: 6px; }
+.annot-hint { margin: 0; text-align: center; color: #ccc; font-size: 12px; }
+/* まとめて追加 */
+.bulk-common { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+.bulk-drop { min-height: 90px; display: grid; place-items: center; text-align: center; padding: 14px; margin-bottom: 10px; }
+.bulk-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; }
+.bulk-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1.4fr) 36px; gap: 8px; align-items: center; }
+.bulk-row img { width: 72px; height: 54px; object-fit: cover; border-radius: 6px; background: #0b0f12; }
+@media (max-width: 760px) { .bulk-common { grid-template-columns: 1fr; } .bulk-row { grid-template-columns: 60px minmax(0, 1fr) 36px; } .bulk-row .bulk-d { grid-column: 2; } }
+#photo-to-card { margin: 0 0 12px; }
+
+/* クイズ: 参考写真・タイムアタック */
+.quiz-setup.is-fact .not-fact, .quiz-setup.is-photo .cards-only { display: none; }
+.qt-counter b { font-variant-numeric: tabular-nums; }
+.qt-counter.is-hurry { color: var(--ng); }
+.ta-best { margin: 6px 0 12px; font-weight: 800; color: var(--accent); }
+/* 学習記録: よく間違える組み合わせ */
+.st-pairs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.st-pair { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); }
+.st-pair-names { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; flex: 1; min-width: 200px; }

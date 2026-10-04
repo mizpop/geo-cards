@@ -193,7 +193,7 @@ export async function renderMap(view, ctx) {
       <label class="map-mode-pick" title="${modeDef(mode).desc}">
         <span class="sr-only">地図の表示</span>
         <select id="map-mode" class="select">
-          ${MAP_MODES.map((m) => `<option value="${m.id}" ${m.id === mode ? 'selected' : ''}>${m.icon} ${m.name}</option>`).join('')}
+          ${MAP_MODES.filter((m) => !m.quizOnly).map((m) => `<option value="${m.id}" ${m.id === mode ? 'selected' : ''}>${m.icon} ${m.name}</option>`).join('')}
         </select>
       </label>
       ${mode === 'cards' ? ctx.filterPicksHtml() : ''}

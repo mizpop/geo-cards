@@ -20,6 +20,11 @@ export const MAP_MODES = [
   { id: 'camera', icon: '📷', name: 'カメラ世代', desc: 'Google カーのカメラの世代（Gen 1〜4）と Low / Small / Bad Cam' },
   { id: 'snow', icon: '❄', name: '雪', desc: '雪景色のカバレッジがある国' },
   { id: 'match', icon: '🔎', name: '条件で絞り込み', desc: 'シェブロン・道路の線・通行などの条件を組み合わせて、当てはまる国を探す' },
+  // クイズ専用（地図の表示モードには出さない）: 国の基本データ
+  { id: 'tld', icon: '🌐', name: 'ドメイン', desc: '国別のドメイン（.jp など）', quizOnly: true },
+  { id: 'phone', icon: '☎', name: '国際電話番号', desc: '国番号（+81 など）', quizOnly: true },
+  { id: 'currency', icon: '💴', name: '通貨', desc: '通貨', quizOnly: true },
+  { id: 'capital', icon: '🏛', name: '首都', desc: '首都', quizOnly: true },
   { id: 'weak', icon: '🧠', name: '苦手', desc: 'この端末での覚え具合（暗記の「覚えた / まだ」とクイズの結果）' },
 ];
 export const modeDef = (id) => MAP_MODES.find((m) => m.id === id) || MAP_MODES[0];
@@ -150,6 +155,13 @@ function bollardSvg(t) {
 }
 
 export function classify(mode, code) {
+  if (mode === 'tld' || mode === 'phone' || mode === 'currency' || mode === 'capital') {
+    const info = COUNTRY_INFO[code];
+    if (!info) return null;
+    const v = mode === 'tld' ? info.tld?.[0] : mode === 'phone' ? info.tel : mode === 'currency' ? (info.cur?.[0] ? `${info.cur[0][0]}（${info.cur[0][1]}）` : '') : info.cap?.[0];
+    if (!v) return null;
+    return { key: v, label: v, color: '#868e96', swatch: '' };
+  }
   if (mode === 'camera') {
     const f = CAM_DATA[code];
     if (!f) return null;

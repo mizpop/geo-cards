@@ -113,3 +113,26 @@ export function resetActivity() {
   act = { days: {}, regions: {} };
   try { localStorage.removeItem(ACT_KEY); } catch { /* 無視 */ }
 }
+
+/* ---------------- よく間違える組み合わせ（正解の国と答えた国のペア） ---------------- */
+export function logConfusion(right, given) {
+  if (!right || !given || right === given) return;
+  const k = [right, given].sort().join('|');
+  act.conf = act.conf || {};
+  act.conf[k] = (act.conf[k] || 0) + 1;
+  try { localStorage.setItem(ACT_KEY, JSON.stringify(act)); } catch { /* 無視 */ }
+}
+export const confusions = () => Object.entries(act.conf || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ pair: k.split('|'), n }));
+
+/* ---------------- タイムアタックの自己ベスト（表示名ごと） ---------------- */
+const BEST_KEY = 'geo-cards-best-v1';
+export function saveBest(key, score) {
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch { /* 空 */ }
+  const prev = all[key] ?? null;
+  if (prev === null || score > prev) {
+    all[key] = score;
+    try { localStorage.setItem(BEST_KEY, JSON.stringify(all)); } catch { /* 無視 */ }
+  }
+  return prev;
+}

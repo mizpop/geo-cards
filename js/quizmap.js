@@ -86,3 +86,40 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
   setTimeout(() => map.invalidateSize(), 50);
   return map;
 }
+
+// 撮影地点を当てる: 地図のどこでもクリックして回答。answered なら答えた地点と正解の地点を線で結ぶ
+export async function mountPinMap(el, { answer, guess, onPick, animate = true }) {
+  await loadLibs();
+  if (!el.isConnected) return null;
+  const L = window.L;
+  const map = L.map(el, { worldCopyJump: true, minZoom: 1, maxZoom: 17, zoomSnap: 0.5, zoomAnimation: animate, fadeAnimation: animate, attributionControl: false });
+  window.__quizMap = map;
+  el.classList.toggle('map-dark', isDark());
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, keepBuffer: 4 }).addTo(map);
+  L.control.attribution({ prefix: false }).addAttribution('&copy; OpenStreetMap').addTo(map);
+  if (lastView) map.setView(lastView.center, lastView.zoom, { animate: false });
+  else map.setView([25, 10], 1.5, { animate: false });
+  map.on('moveend', () => { lastView = { center: map.getCenter(), zoom: map.getZoom() }; });
+  const dot = (latlng, color) => L.circleMarker(latlng, { radius: 8, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(map);
+  if (guess) {
+    const a = L.latLng(answer);
+    // 経度の差が 180° を超えるときは、近い側の複製に合わせる
+    const g = L.latLng(guess[0], guess[1] + (guess[1] - a.lng > 180 ? -360 : guess[1] - a.lng < -180 ? 360 : 0));
+    L.polyline([g, a], { color: '#ffd43b', weight: 3, dashArray: '6 6' }).addTo(map);
+    dot(g, '#e03131');
+    dot(a, '#2f9e44');
+    const b = L.latLngBounds([g, a]);
+    if (animate) map.flyToBounds(b, { padding: [40, 40], maxZoom: 9, duration: 0.7 }); else map.fitBounds(b, { padding: [40, 40], maxZoom: 9, animate: false });
+  } else {
+    map.getContainer().style.cursor = 'crosshair';
+    map.on('click', (e) => {
+      const w = e.latlng.wrap();
+      onPick?.([w.lat, w.lng]);
+    });
+  }
+  setTimeout(() => map.invalidateSize(), 50);
+  return map;
+}
+export function distanceBetween(a, b) {
+  return distanceKm({ lat: a[0], lng: a[1] }, { lat: b[0], lng: b[1] });
+}
