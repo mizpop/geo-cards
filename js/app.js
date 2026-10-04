@@ -2099,13 +2099,18 @@ function exportOpenGuessr(cards, name) {
     };
   });
   if (!locs.length) { toast('書き出せる地点がありません', 'error'); return; }
-  const blob = new Blob([JSON.stringify({ name, customCoordinates: locs }, null, 1)], { type: 'application/json' });
+  const site = playSite();
+  // OpenGuessr: { locations: [[緯度, 経度, { heading, pitch, panoramaId }]] }
+  // WorldGuessr など: GeoGuessr 形式 { name, customCoordinates: [{ lat, lng, heading, pitch, panoId, ... }] }
+  const data = site === PLAY_SITES.openguessr
+    ? { locations: locs.map((l) => [l.lat, l.lng, { heading: l.heading, pitch: l.pitch, ...(l.panoId ? { panoramaId: l.panoId } : {}) }]) }
+    : { name, customCoordinates: locs };
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${name.replace(/[\\/:*?"<>|\s]+/g, '_')}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  const site = playSite();
   toast(`${locs.length} 地点を書き出しました。${site.how}`);
   window.open(site.url, '_blank', 'noopener');
 }
