@@ -67,6 +67,7 @@ const SOUNDS = {
   tap: () => tone({ f0: 1500, f1: 1100, dur: 0.035, vol: 0.07 }), // ボタン全般
   flip: () => swish({ f0: 700, f1: 2600, dur: 0.16, vol: 0.32 }), // カードをめくる
   slide: () => { swish({ f0: 2200, f1: 800, dur: 0.13, vol: 0.18, q: 0.8 }); tone({ f0: 900, dur: 0.03, vol: 0.04, at: 0.02 }); }, // 次 / 前のカード
+  tab: () => { swish({ f0: 1200, f1: 3200, dur: 0.1, vol: 0.14, q: 1.5 }); tone({ f0: 660, f1: 990, dur: 0.07, vol: 0.08, at: 0.03 }); }, // タブの切り替え
   open: () => tone({ f0: 420, f1: 820, dur: 0.07, vol: 0.12 }), // 詳細を開く（ポン）
   correct: () => { tone({ f0: 880, dur: 0.12, vol: 0.16, type: 'triangle' }); tone({ f0: 1318.5, dur: 0.22, vol: 0.16, type: 'triangle', at: 0.09 }); },
   partial: () => { tone({ f0: 660, dur: 0.12, vol: 0.14, type: 'triangle' }); tone({ f0: 740, dur: 0.18, vol: 0.12, type: 'triangle', at: 0.1 }); },

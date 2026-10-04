@@ -1219,3 +1219,19 @@ textarea { resize: vertical; line-height: 1.6; }
 .mpick-btn.is-none { border-color: var(--ng); color: var(--ng); }
 .mpick-head .btn { min-height: 28px; padding: 0 10px; font-size: 12px; }
 .map-layout { position: relative; z-index: 1; } /* 地図の層（Leaflet の z-index）を絞り込みの欄より奥に */
+
+/* ---------- 画面に収める（編集以外のタブ） ---------- */
+.view-fit.view-scroll { display: block; overflow-y: auto; overscroll-behavior: contain; }
+.view-fit .map-layout { flex: 1; min-height: 0; height: auto; }
+@media (max-width: 760px) {
+  .view-fit .map-layout { grid-template-rows: minmax(0, 1.5fr) minmax(0, 1fr); }
+  .view-fit .map-panel { overflow-y: auto !important; }
+}
+/* ---------- 編集画面: 検索・絞り込み・ボタンを画面上部に追従 ---------- */
+.manage-head {
+  position: sticky; top: var(--topbar-h, 57px); z-index: 15;
+  margin: 0 -24px 6px; padding: 12px 24px 2px; background: var(--bg);
+  box-shadow: 0 6px 10px -8px rgba(0, 0, 0, .35);
+}
+.manage-head .sel-bar { position: static; margin-bottom: 10px; }
+@media (max-width: 760px) { .manage-head { margin: 0 -16px 6px; padding: 10px 16px 2px; } }

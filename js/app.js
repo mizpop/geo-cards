@@ -403,6 +403,9 @@ function bindGlobal() {
   });
   $('#search-btn').addEventListener('click', openSpotlight);
   updateSearchKeyHint();
+  // ヘッダーの高さ（編集画面で上部の操作欄をその下に追従させる位置）
+  const topbar = $('.topbar');
+  if (topbar && window.ResizeObserver) new ResizeObserver(() => document.documentElement.style.setProperty('--topbar-h', `${topbar.offsetHeight}px`)).observe(topbar);
   const sp = $('#spotlight');
   sp.addEventListener('click', (e) => { if (e.target === sp) closeSpotlight(); });
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
@@ -462,10 +465,12 @@ async function route() {
   render();
 }
 
-// 暗記カード・クイズの出題中は画面の高さに収める（スクロールさせない）
+// 編集以外のタブは画面の高さに収めて、ページ全体はスクロールさせない
+// on === 'scroll': 内容が多い画面（クイズの設定・結果）は、ヘッダーの下の枠の中だけでスクロール
 function setFit(on) {
-  $('#app').classList.toggle('app-fit', on);
-  $('#view').classList.toggle('view-fit', on);
+  $('#app').classList.toggle('app-fit', !!on);
+  $('#view').classList.toggle('view-fit', !!on);
+  $('#view').classList.toggle('view-scroll', on === 'scroll');
 }
 
 function render() {
@@ -484,7 +489,7 @@ function renderView() {
   if ($('#spotlight').open) renderSearchResults();
   if (v === 'study') renderStudy();
   else if (v === 'quiz') renderQuiz();
-  else if (v === 'map') { setFit(false); renderMap($('#view'), mapCtx); }
+  else if (v === 'map') { setFit(true); renderMap($('#view'), mapCtx); }
   else if (v === 'manage') renderManage();
 }
 
@@ -498,9 +503,13 @@ const KEY_ACTIONS = [
   ['edit', 'カードを編集'],
   ['tabPrev', '前のタブへ'],
   ['tabNext', '次のタブへ'],
+  ['tab1', '暗記カードへ'],
+  ['tab2', 'クイズへ'],
+  ['tab3', '地図へ'],
+  ['tab4', '編集へ'],
   ['search', '検索を開く'],
 ];
-const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', search: 'Ctrl+KeyF' };
+const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', tab1: 'Ctrl+Digit1', tab2: 'Ctrl+Digit2', tab3: 'Ctrl+Digit3', tab4: 'Ctrl+Digit4', search: 'Ctrl+KeyF' };
 // キーは e.code（例: KeyA）。Ctrl / Alt / Shift と組み合わせるときは「Ctrl+KeyF」のように前に付ける
 const keyLabel = (code) => (code || '—').split('+').map((k) => k.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'テンキー').replace('Space', 'スペース')).join(' + ');
 const MOD_KEYS = ['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'];
@@ -524,7 +533,14 @@ let capturingKey = false;
 function switchTab(delta) {
   const tabs = ['study', 'quiz', 'map'].concat(state.user.isEditor ? ['manage'] : []);
   const i = Math.max(0, tabs.indexOf(state.view));
-  location.hash = `#${tabs[(i + delta + tabs.length) % tabs.length]}`;
+  goTab(tabs[(i + delta + tabs.length) % tabs.length]);
+}
+// キー操作でタブを移るとき（効果音つき）
+function goTab(view) {
+  if (view === 'manage' && !state.user.isEditor) return;
+  if (view === state.view) return;
+  play('tab');
+  location.hash = `#${view}`;
 }
 
 function onKeydown(e) {
@@ -536,6 +552,13 @@ function onKeydown(e) {
     e.preventDefault();
     if ($('#spotlight').open) closeSpotlight();
     else if (!$('#modal').open) openSpotlight();
+    return;
+  }
+  // タブへ直接移動（初期設定は Ctrl+1〜4）: 組み合わせキーなら入力中でも
+  const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage' }[act];
+  if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !$('dialog[open]')) {
+    e.preventDefault();
+    goTab(tabTo);
     return;
   }
   if (mod && !act) return; // 割り当てのない Ctrl / Alt の組み合わせはブラウザの標準動作のまま（入力欄の Ctrl+A なども）
@@ -1025,7 +1048,7 @@ function quizEligible(regions) {
 
 function renderQuiz() {
   const q = state.quiz;
-  setFit(q.phase === 'question');
+  setFit(q.phase === 'question' ? true : 'scroll');
   if (q.phase === 'question') return renderQuestion();
   if (q.phase === 'result') return renderQuizResult();
 
@@ -1621,6 +1644,7 @@ function renderManage() {
   setFit(false);
   const m = state.manage;
   $('#view').innerHTML = `
+    <div class="manage-head">
     <div class="toolbar">
       <button class="btn btn-primary" id="m-new">＋ 新しいカード</button>
       <input type="search" id="m-filter" class="input grow" placeholder="絞り込み（国名・地域名・説明）" value="${esc(m.q)}">
@@ -1646,6 +1670,7 @@ function renderManage() {
       </select>
       <button class="btn btn-sm btn-danger" id="sel-del">🗑 削除</button>
       <button class="icon-btn" id="sel-clear" aria-label="選択を解除" title="選択を解除（Esc）">✕</button>
+    </div>
     </div>
     <div id="manage-list"></div>`;
   $('#m-new').addEventListener('click', () => openEditor(null));
