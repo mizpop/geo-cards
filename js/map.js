@@ -409,7 +409,7 @@ export async function renderMap(view, ctx) {
       const id = e.originalEvent?.target?.closest?.('[data-card]')?.dataset.card;
       if (id) {
         const card = list.find((c) => c.id === id);
-        if (card) ctx.openCard(card, e.originalEvent.target.closest('[data-card]'));
+        if (card) ctx.openCard(card, e.originalEvent.target.closest('[data-card]'), list.map((c) => c.id)); // ← → でこの国のカードを順に
       } else {
         toggleFocus(code);
       }
@@ -779,7 +779,8 @@ export async function renderMap(view, ctx) {
       fitList(el);
       el.querySelectorAll('[data-card]').forEach((b) => b.addEventListener('click', () => {
         const card = ctx.cards.find((c) => c.id === b.dataset.card);
-        if (card) ctx.openCard(card, b);
+        const code = b.closest('[data-hover]')?.dataset.hover;
+        if (card) ctx.openCard(card, b, (byCountry.get(code) || [card]).map((c) => c.id));
       }));
     }
     el.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => focusCountry(b.dataset.go)));

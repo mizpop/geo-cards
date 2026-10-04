@@ -1155,3 +1155,14 @@ textarea { resize: vertical; line-height: 1.6; }
 .mpick-n { font-size: 12px; color: var(--muted); }
 .mpick-item.is-empty { opacity: .5; }
 @media (max-width: 520px) { .mpick-list { grid-template-columns: 1fr; } .mpick-btn { max-width: 150px; } }
+
+/* ---------- カード詳細: 並びの前 / 次へ ---------- */
+.card-pager { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; margin-right: 6px; }
+.pager-btn { font-size: 24px; line-height: 1; padding-bottom: 3px; }
+.pager-btn:disabled { opacity: .3; cursor: default; background: none; }
+.pager-pos { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 52px; text-align: center; }
+.detail.enter-next { animation: detail-in-next .22s ease-out; }
+.detail.enter-prev { animation: detail-in-prev .22s ease-out; }
+@keyframes detail-in-next { from { opacity: 0; transform: translateX(28px); } }
+@keyframes detail-in-prev { from { opacity: 0; transform: translateX(-28px); } }
+.no-anim .detail.enter-next, .no-anim .detail.enter-prev { animation: none; }

@@ -554,6 +554,8 @@ function onKeydown(e) {
     if (!modalCurrent) return; // 編集・設定などの画面では無効
     const card = modalCurrent.kind === 'card' ? cardById(modalCurrent.id) : null;
     if (act === 'back') { e.preventDefault(); if (modalStack.length) modalBack(); else closeModal(); }
+    else if (card && (e.key === 'ArrowLeft' || act === 'prev')) { e.preventDefault(); stepCard(-1); }
+    else if (card && (e.key === 'ArrowRight' || act === 'next')) { e.preventDefault(); stepCard(1); }
     else if (act === 'country' && card) { e.preventDefault(); openCountryInfo(card.countries[0]); }
     else if (act === 'edit' && card) { e.preventDefault(); $('#detail-edit')?.click(); }
     return;
@@ -660,7 +662,7 @@ function showNav(entry) {
   if (entry.kind === 'card') {
     const card = cardById(entry.id);
     if (!card) { closeModal(); return; }
-    renderCardModal(card);
+    renderCardModal(card, entry);
   } else {
     renderCountryModal(entry);
   }
@@ -683,9 +685,10 @@ function bindModalNav() {
 }
 
 // src: クリックされたタイル等。そこから飛び出すように開く
-function openCardModal(card, src = null) {
+// list: 開いた場所に並んでいたカードの id。あれば ← → / 矢印ボタンで前後のカードへ移れる
+function openCardModal(card, src = null, list = null) {
   const fresh = !$('#modal').open;
-  navModal({ kind: 'card', id: card.id });
+  navModal({ kind: 'card', id: card.id, list: list && list.length > 1 && list.includes(card.id) ? list : null });
   if (src && fresh) popFrom($('#modal'), src);
 }
 
@@ -706,14 +709,35 @@ function popFrom(el, src) {
   ], { duration: 360, easing: 'cubic-bezier(.2, .8, .25, 1)' });
 }
 
-function renderCardModal(card) {
+// 並びの中で前 / 次のカードへ（履歴には積まず、今の表示を差し替える）
+function stepCard(delta) {
+  const entry = modalCurrent;
+  if (entry?.kind !== 'card' || !entry.list) return false;
+  const ids = entry.list.filter((id) => cardById(id)); // 削除されたカードは飛ばす
+  const i = ids.indexOf(entry.id) + delta;
+  if (i < 0 || i >= ids.length) return false;
+  play('slide');
+  showNav({ ...entry, id: ids[i], enter: delta > 0 ? 'next' : 'prev' });
+  return true;
+}
+
+function renderCardModal(card, entry = {}) {
+  const ids = entry.list ? entry.list.filter((id) => cardById(id)) : [];
+  const pos = ids.indexOf(card.id);
+  const pager = ids.length > 1 && pos >= 0 ? `
+    <div class="card-pager">
+      <button class="icon-btn pager-btn" id="card-prev" type="button" aria-label="前のカード" title="前のカード（←）" ${pos === 0 ? 'disabled' : ''}>‹</button>
+      <span class="pager-pos">${pos + 1} / ${ids.length}</span>
+      <button class="icon-btn pager-btn" id="card-next" type="button" aria-label="次のカード" title="次のカード（→）" ${pos === ids.length - 1 ? 'disabled' : ''}>›</button>
+    </div>` : '';
   openModal(`
     <div class="modal-head">
       ${backBtnHtml()}
       <h2>カード詳細</h2>
+      ${pager}
       <button class="icon-btn" data-close aria-label="閉じる">✕</button>
     </div>
-    <div class="detail">
+    <div class="detail ${entry.enter ? `enter-${entry.enter}` : ''}">
       <div class="detail-front">
         ${frontHtml(card, true)}
       </div>
@@ -725,7 +749,10 @@ function renderCardModal(card) {
     </div>
     ${state.user.isEditor ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
   `, 'modal-wide', true);
-  attachZoom($('.detail-front .front-img'));
+  attachZoom($('.detail-front .front-img'), pager ? { onSwipe: (d) => stepCard(d) } : {});
+  $('#card-prev')?.addEventListener('click', () => stepCard(-1));
+  $('#card-next')?.addEventListener('click', () => stepCard(1));
+  delete entry.enter;
   bindModalNav();
   const eb = $('#detail-edit');
   if (eb) eb.addEventListener('click', () => { closeModal(); openEditor(card); });
@@ -1546,7 +1573,8 @@ function bindTiles() {
   $$('.tile[data-id]').forEach((t) => {
     if (t.dataset.bound) return;
     t.dataset.bound = '1';
-    const open = () => { const c = cardById(t.dataset.id); if (c) openCardModal(c, t); };
+    // 同じ並び（検索結果・一覧など）のカードを ← → で順に見られるように
+    const open = () => { const c = cardById(t.dataset.id); if (c) openCardModal(c, t, $$('.tile[data-id]', t.parentElement).map((x) => x.dataset.id)); };
     t.addEventListener('click', (e) => { if (!e.target.closest('button')) open(); });
     t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target === t) open(); });
   });
@@ -2129,7 +2157,7 @@ const mapCtx = {
   resolveCountry: (text) => resolveCountryCode(text),
   get cards() { return state.cards; },
   allCats, catKey, catOf, catVars, imgUrl, countryName, esc, flagImg,
-  openCard: (card, src) => openCardModal(card, src),
+  openCard: (card, src, list) => openCardModal(card, src, list),
   animations: () => settings.animations,
   hoverAutoExpand: () => settings.hoverExpand,
   toast: (msg, kind) => toast(msg, kind),
