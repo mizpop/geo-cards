@@ -85,7 +85,7 @@ const state = {
   study: { regions: new Set(), cats: new Set(), openPick: null, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
   quiz: { phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
-  manage: { q: '' },
+  manage: { q: '', sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
 };
 const cardById = (id) => state.cards.find((c) => c.id === id);
 
@@ -568,6 +568,7 @@ function onKeydown(e) {
   }
   if ($('dialog[open]')) return;
   if (act === 'search') { e.preventDefault(); openSpotlight(); return; }
+  if (state.view === 'manage' && e.key === 'Escape' && state.manage.sel.size) { e.preventDefault(); clearSel(); return; }
 
   // 地図: 文字を打ち始めたら、そのまま国の検索バーに入力（Enter を押さなくてよい）。日本語入力の最初のキーも
   const ms = state.view === 'map' && $('#map-search');
@@ -1595,6 +1596,20 @@ function renderManage() {
       <button class="btn btn-ghost btn-sm" id="m-flags" title="Plonkit にガイドがある国の国旗を、カテゴリー「国旗」のカードとして追加します">🏳 国旗カードを作成</button>
       <button class="btn btn-ghost btn-sm" id="m-export">バックアップを書き出し</button>
       <label class="btn btn-ghost btn-sm">バックアップから読み込み<input type="file" id="m-import" accept="application/json,.json" hidden></label>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="m-sel-all" title="表示中のカードをすべて選択">☑ 全選択</button>
+      <button class="btn btn-ghost btn-sm" id="m-sel-none" title="選択を解除（Esc）">☐ 選択解除</button>
+    </div>
+    <div class="sel-bar" id="sel-bar" hidden>
+      <b id="sel-count"></b>
+      <span class="muted small sel-tip tab-long">Shift+クリックで範囲選択・Ctrl+クリックで1枚ずつ</span>
+      <span class="grow"></span>
+      <select class="select select-sm" id="sel-cat" aria-label="選択したカードのカテゴリーを変更">
+        <option value="">🏷 カテゴリーを変更…</option>
+        ${allCats().map((k) => `<option value="${k.id}">${esc(k.name)}</option>`).join('')}
+      </select>
+      <button class="btn btn-sm btn-danger" id="sel-del">🗑 削除</button>
+      <button class="icon-btn" id="sel-clear" aria-label="選択を解除" title="選択を解除（Esc）">✕</button>
     </div>
     <div id="manage-list"></div>`;
   $('#m-new').addEventListener('click', () => openEditor(null));
@@ -1603,7 +1618,99 @@ function renderManage() {
   $('#m-cats').addEventListener('click', openCategoryManager);
   $('#m-flags').addEventListener('click', (e) => createFlagCards(e.currentTarget));
   $('#m-import').addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
+  $('#m-sel-all').addEventListener('click', () => { for (const c of matchCards(m.q.trim().toLowerCase())) m.sel.add(c.id); updateSelUI(); });
+  $('#m-sel-none').addEventListener('click', clearSel);
+  $('#sel-clear').addEventListener('click', clearSel);
+  $('#sel-del').addEventListener('click', confirmBulkDelete);
+  $('#sel-cat').addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) bulkSetCategory(v); });
+  // 選択: Shift+クリックで範囲・Ctrl(⌘)+クリックで1枚ずつ。選択中は普通のクリック / チェックでも切り替え
+  const listEl = $('#manage-list');
+  listEl.addEventListener('mousedown', (e) => { if (e.shiftKey && e.target.closest('.tile')) e.preventDefault(); }); // 文字が選択されないように
+  listEl.addEventListener('click', (e) => {
+    const tile = e.target.closest('.tile[data-id]');
+    if (!tile) return;
+    const check = e.target.closest('.tile-check');
+    const selecting = check || e.shiftKey || e.ctrlKey || e.metaKey || m.sel.size > 0;
+    if (!selecting || (!check && e.target.closest('button'))) return;
+    e.preventDefault();
+    e.stopPropagation(); // カード詳細は開かない
+    const id = tile.dataset.id;
+    if (e.shiftKey && m.anchor && m.anchor !== id) {
+      const ids = $$('.tile[data-id]', listEl).map((t) => t.dataset.id);
+      const [a, b] = [ids.indexOf(m.anchor), ids.indexOf(id)].sort((x, y) => x - y);
+      if (a >= 0) { for (const x of ids.slice(a, b + 1)) m.sel.add(x); updateSelUI(); m.anchor = id; return; }
+    }
+    if (m.sel.has(id)) m.sel.delete(id); else m.sel.add(id);
+    m.anchor = id;
+    updateSelUI();
+  }, true);
   renderManageList();
+}
+
+function clearSel() {
+  state.manage.sel.clear();
+  state.manage.anchor = null;
+  updateSelUI();
+}
+// 選択の見た目（タイルの枠・チェック、上の操作バー）を描き直さずに更新
+function updateSelUI() {
+  const m = state.manage;
+  for (const id of [...m.sel]) if (!cardById(id)) m.sel.delete(id); // 削除済みは外す
+  $$('#manage-list .tile[data-id]').forEach((t) => {
+    const on = m.sel.has(t.dataset.id);
+    t.classList.toggle('is-selected', on);
+    const cb = $('.tile-check input', t);
+    if (cb) cb.checked = on;
+  });
+  const bar = $('#sel-bar');
+  if (!bar) return;
+  bar.hidden = !m.sel.size;
+  $('#manage-list').classList.toggle('is-selecting', m.sel.size > 0);
+  $('#sel-count').textContent = `${m.sel.size} 枚を選択中`;
+  $('#m-sel-none').disabled = !m.sel.size;
+}
+
+function confirmBulkDelete() {
+  const ids = [...state.manage.sel].filter((id) => cardById(id));
+  if (!ids.length) return;
+  openModal(`
+    <div class="modal-head"><h2>カードをまとめて削除</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    <p>選択した <b>${ids.length} 枚</b>のカードを削除します。元に戻せません。</p>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close>キャンセル</button>
+      <button class="btn btn-danger" id="del-ok">${ids.length} 枚を削除する</button>
+    </div>`, 'modal-sm');
+  $('#del-ok').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    closeModal();
+    await bulkRun(ids, (card) => api.deleteCard(card), '削除');
+  });
+}
+
+async function bulkSetCategory(catId) {
+  const ids = [...state.manage.sel].filter((id) => cardById(id));
+  const cat = allCats().find((k) => k.id === catId);
+  if (!ids.length || !cat || !confirm(`選択した ${ids.length} 枚のカテゴリーを「${cat.name}」にします。よろしいですか？`)) return;
+  const value = cat === UNCAT ? null : cat.id;
+  await bulkRun(ids, (card) => api.updateCard(card, { ...card, category_id: value }), 'カテゴリーを変更');
+}
+
+// 選択したカードに同じ操作を順に行い、進み具合を表示
+async function bulkRun(ids, fn, label) {
+  let ok = 0;
+  let fail = 0;
+  for (const id of ids) {
+    const card = cardById(id);
+    if (!card) continue;
+    try { await fn(card); ok++; } catch (ex) { fail++; console.warn(`${label}できませんでした`, id, ex); }
+    toast(`${label}中… ${ok + fail} / ${ids.length}`);
+  }
+  state.manage.sel.clear();
+  state.manage.anchor = null;
+  await reloadCards();
+  render();
+  if (fail) toast(`${ok} 枚を${label}しました（${fail} 枚は失敗）`, 'error');
+  else toast(`${ok} 枚を${label}しました`);
 }
 
 function renderManageList() {
@@ -1611,6 +1718,7 @@ function renderManageList() {
   const list = matchCards(q);
   $('#manage-list').innerHTML = list.length
     ? `<div class="tiles">${list.map((c) => tileHtml(c, `
+        <label class="tile-check" title="選択（Shift / Ctrl+クリックでも）"><input type="checkbox" aria-label="このカードを選択"></label>
         <div class="tile-actions">
           <button class="btn btn-sm" data-edit="${c.id}">編集</button>
           <button class="btn btn-sm btn-danger-ghost" data-del="${c.id}">削除</button>
@@ -1619,6 +1727,7 @@ function renderManageList() {
   bindTiles();
   $$('[data-edit]').forEach((b) => b.addEventListener('click', () => openEditor(cardById(b.dataset.edit))));
   $$('[data-del]').forEach((b) => b.addEventListener('click', () => confirmDelete(cardById(b.dataset.del))));
+  updateSelUI();
 }
 
 function confirmDelete(card) {
