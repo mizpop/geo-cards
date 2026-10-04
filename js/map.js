@@ -187,7 +187,7 @@ export async function renderMap(view, ctx) {
         <div class="map-search">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           <input type="search" id="map-search" list="country-list" placeholder="国を検索（そのまま入力 ／ ww で世界全体）" autocomplete="off" enterkeyhint="go" aria-label="国を検索">
-          <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動 ／ Enter: 確定 ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
+          <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動 ／ Enter: 確定して入力を終える ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
         </div>
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
       </div>
@@ -894,6 +894,7 @@ export async function renderMap(view, ctx) {
   ms.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
+    if (!ms.value.trim()) { ms.blur(); return; } // 空のまま Enter: 入力をやめる
     const code = ctx.resolveCountry(ms.value);
     if (!code) { ctx.toast('国が見つかりません', 'error'); return; }
     clearTimeout(timer);
@@ -906,8 +907,10 @@ export async function renderMap(view, ctx) {
     if (e.altKey) { ctx.openCountry(code, ms); return; }
     if (!moved) goTo(code);
     else flash(code); // 入力中にすでに移動済みでも、確定したことが分かるようにもう一度光らせる
-    origin = { center: map.getCenter(), zoom: map.getZoom() }; // 確定: 以降の Esc ではここに戻らない
-    if (anim) map.once('moveend', () => { if (document.activeElement === ms) origin = { center: map.getCenter(), zoom: map.getZoom() }; });
+    // 確定したら検索バーを空にして入力を終える（国の選択はそのまま。続けて文字を打てば次の検索）
+    ms.blur();
+    ms.value = '';
+    ms.dispatchEvent(new Event('input'));
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
   currentFocus = null;

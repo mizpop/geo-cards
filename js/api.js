@@ -26,7 +26,7 @@ function cleanFields(f) {
 export const DEFAULT_CATEGORIES = [
   ['ボラード', '#e03131'], ['シェブロン', '#f59f00'], ['道路標識', '#1c7ed6'], ['道路標示・ライン', '#74b816'],
   ['ナンバープレート', '#7048e8'], ['電柱', '#795548'], ['言語・文字', '#d6336c'], ['建物・街並み', '#1098ad'],
-  ['自然・植生', '#2f9e44'], ['Googleカー・カメラ', '#868e96'], ['その他', '#4263eb'],
+  ['自然・植生', '#2f9e44'], ['Googleカー・カメラ', '#868e96'], ['国旗', '#ae3ec9'], ['その他', '#4263eb'],
 ];
 
 function translateAuthError(error) {
@@ -240,10 +240,11 @@ function createDemoApi() {
     },
     async imageUrls(cards) { return new Map(cards.map((c) => [c.id, c.image_path])); },
     async createCard(fields, imageBlob) {
-      const blob = await compressImage(imageBlob, 1000, 0.75);
+      const image = await blobToDataUrl(await compressImage(imageBlob, 1000, 0.75));
+      // 読み込み〜保存の間に await を挟まない（並行して追加したときに上書きし合わないように）
       const cards = load();
       const now = new Date().toISOString();
-      cards.push({ id: uuid(), image_path: await blobToDataUrl(blob), ...cleanFields(fields), created_at: now, updated_at: now });
+      cards.push({ id: uuid(), image_path: image, ...cleanFields(fields), created_at: now, updated_at: now });
       save(cards);
     },
     async updateCard(card, fields, imageBlob) {

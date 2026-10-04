@@ -82,7 +82,7 @@ const state = {
   urls: new Map(),
   urlsAt: 0,
   view: 'study',
-  study: { region: 'all', category: 'all', shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
+  study: { regions: new Set(), cats: new Set(), openPick: null, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
   quiz: { phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
   manage: { q: '' },
@@ -757,26 +757,60 @@ function emptyState(msg) {
   </div>`;
 }
 
-function regionSelectHtml(id, value, withAll = true) {
-  return `<select id="${id}" class="select">
-    ${withAll ? `<option value="all">すべての地域</option>` : ''}
-    ${REGIONS.map((r) => `<option value="${r.id}" ${r.id === value ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
-  </select>`;
+// 複数選択のドロップダウン（暗記カードの地域・カテゴリー）。selected が空 = すべて
+function multiPickHtml(id, allLabel, options, selected) {
+  const names = options.filter((o) => selected.has(o.id)).map((o) => o.name);
+  const label = !names.length ? allLabel : names.length === 1 ? names[0] : `${names[0]} ほか ${names.length - 1}`;
+  return `<div class="mpick" id="${id}">
+    <button type="button" class="select mpick-btn ${names.length ? 'is-set' : ''}" aria-haspopup="true" aria-expanded="false" title="${esc(names.join('、') || allLabel)}">
+      <span class="mpick-label">${esc(label)}</span><span class="mpick-arrow" aria-hidden="true">▾</span>
+    </button>
+    <div class="mpick-pop" hidden>
+      <div class="mpick-head">
+        <button type="button" class="chip chip-btn ${names.length ? '' : 'on'}" data-mp-all>${esc(allLabel)}</button>
+        <span class="muted small">複数選べます</span>
+      </div>
+      <div class="mpick-list">${options.map((o) => `
+        <label class="mpick-item ${o.n ? '' : 'is-empty'}" ${o.dot ? `style="${o.dot}"` : ''}>
+          <input type="checkbox" value="${esc(o.id)}" ${selected.has(o.id) ? 'checked' : ''}>
+          ${o.dot ? '<span class="cat-dot"></span>' : ''}<span class="mpick-name">${esc(o.name)}</span><span class="mpick-n">${o.n}</span>
+        </label>`).join('')}</div>
+    </div>
+  </div>`;
 }
-
-function catSelectHtml(id, value) {
-  return `<select id="${id}" class="select">
-    <option value="all">すべてのカテゴリー</option>
-    ${allCats().map((c) => `<option value="${c.id}" ${c.id === value ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
-  </select>`;
+function bindMultiPick(id, selected, onChange, reopen = false) {
+  const root = $(`#${id}`);
+  if (!root) return;
+  const btn = $('.mpick-btn', root);
+  const pop = $('.mpick-pop', root);
+  const setOpen = (on) => {
+    // ほかに開いている欄は閉じる
+    if (on) $$('.mpick-pop').forEach((p) => { if (p !== pop) { p.hidden = true; p.previousElementSibling?.setAttribute('aria-expanded', 'false'); } });
+    pop.hidden = !on;
+    btn.setAttribute('aria-expanded', String(on));
+  };
+  btn.addEventListener('click', () => setOpen(pop.hidden));
+  $$('input', pop).forEach((cb) => cb.addEventListener('change', () => {
+    if (cb.checked) selected.add(cb.value); else selected.delete(cb.value);
+    onChange();
+  }));
+  $('[data-mp-all]', pop).addEventListener('click', () => { selected.clear(); onChange(); });
+  pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); btn.focus(); } });
+  if (reopen) { setOpen(true); }
 }
+// 欄の外をクリックしたら閉じる
+document.addEventListener('pointerdown', (e) => {
+  if (e.target.closest?.('.mpick')) return;
+  $$('.mpick-pop').forEach((p) => { if (!p.hidden) { p.hidden = true; p.previousElementSibling?.setAttribute('aria-expanded', 'false'); } });
+});
 
 /* ================= 暗記カード ================= */
 function rebuildStudyDeck(keepPosition = false) {
   const s = state.study;
   const currentId = s.deck[s.index];
-  let list = state.cards.filter((c) => (s.region === 'all' || cardRegions(c).has(s.region))
-    && (s.category === 'all' || catKey(c) === s.category));
+  // 地域・カテゴリーは複数選択（何も選ばなければすべて）
+  let list = state.cards.filter((c) => (!s.regions.size || [...cardRegions(c)].some((r) => s.regions.has(r)))
+    && (!s.cats.size || s.cats.has(catKey(c))));
   if (s.shuffled) {
     // 既存の並びをなるべく保つ
     const prev = new Map(s.deck.map((id, i) => [id, i]));
@@ -797,8 +831,8 @@ function renderStudy() {
   const card = cardById(s.deck[s.index]);
   $('#view').innerHTML = `
     <div class="toolbar">
-      ${regionSelectHtml('study-region', s.region)}
-      ${catSelectHtml('study-cat', s.category)}
+      ${multiPickHtml('study-region', 'すべての地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: state.cards.filter((c) => cardRegions(c).has(r.id)).length })), s.regions)}
+      ${multiPickHtml('study-cat', 'すべてのカテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: state.cards.filter((c) => catKey(c) === k.id).length })), s.cats)}
       <button class="btn ${s.shuffled ? 'btn-on' : ''}" id="study-shuffle" aria-pressed="${s.shuffled}" aria-label="シャッフル">🔀<span class="tab-long"> シャッフル</span></button>
       <span class="counter">${total ? `${s.index + 1} / ${total}` : '0 / 0'}</span>
     </div>
@@ -835,8 +869,10 @@ function renderStudy() {
     ` : emptyState(state.cards.length ? 'この地域のカードはまだありません' : 'カードがまだありません')}
   `;
   s.enter = '';
-  $('#study-region').addEventListener('change', (e) => { s.region = e.target.value; rebuildStudyDeck(); renderStudy(); });
-  $('#study-cat').addEventListener('change', (e) => { s.category = e.target.value; rebuildStudyDeck(); renderStudy(); });
+  const repick = (id) => { s.openPick = id; rebuildStudyDeck(); renderStudy(); };
+  bindMultiPick('study-region', s.regions, () => repick('study-region'), s.openPick === 'study-region');
+  bindMultiPick('study-cat', s.cats, () => repick('study-cat'), s.openPick === 'study-cat');
+  s.openPick = null;
   $('#study-shuffle').addEventListener('click', () => { s.shuffled = !s.shuffled; rebuildStudyDeck(); renderStudy(); });
   if (card) {
     $('#flashcard').addEventListener('click', (e) => {
@@ -1528,6 +1564,7 @@ function renderManage() {
     </div>
     <div class="toolbar toolbar-sub">
       <button class="btn btn-ghost btn-sm" id="m-cats">🏷 カテゴリー管理</button>
+      <button class="btn btn-ghost btn-sm" id="m-flags" title="Plonkit にガイドがある国の国旗を、カテゴリー「国旗」のカードとして追加します">🏳 国旗カードを作成</button>
       <button class="btn btn-ghost btn-sm" id="m-export">バックアップを書き出し</button>
       <label class="btn btn-ghost btn-sm">バックアップから読み込み<input type="file" id="m-import" accept="application/json,.json" hidden></label>
     </div>
@@ -1536,6 +1573,7 @@ function renderManage() {
   $('#m-filter').addEventListener('input', (e) => { m.q = e.target.value; renderManageList(); });
   $('#m-export').addEventListener('click', exportBackup);
   $('#m-cats').addEventListener('click', openCategoryManager);
+  $('#m-flags').addEventListener('click', (e) => createFlagCards(e.currentTarget));
   $('#m-import').addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
   renderManageList();
 }
@@ -2119,6 +2157,54 @@ async function exportBackup() {
     toast(`${out.length} 枚を書き出しました`);
   } catch (ex) {
     toast(`書き出しに失敗しました: ${ex.message}`, 'error');
+  }
+}
+
+// Plonkit にガイドがある国の国旗を、カテゴリー「国旗」のカードとしてまとめて作る（作成済みの国は飛ばす）
+const FLAG_CAT = { name: '国旗', color: '#ae3ec9' };
+async function createFlagCards(btn) {
+  let cat = state.categories.find((c) => c.name === FLAG_CAT.name);
+  const done = new Set(cat ? state.cards.filter((c) => c.category_id === cat.id).flatMap((c) => c.countries) : []);
+  const codes = COUNTRIES.map((c) => c.code).filter((code) => plonkitUrl(code) && !done.has(code));
+  if (!codes.length) { toast('Plonkit 掲載国の国旗カードはすべて作成済みです'); return; }
+  if (!confirm(`Plonkit にガイドがある国の国旗カードを ${codes.length} 枚作成します（カテゴリー「国旗」）。${done.size ? `\n作成済みの ${done.size} か国は飛ばします。` : ''}\nよろしいですか？`)) return;
+  btn.disabled = true;
+  try {
+    if (!cat) {
+      const sort = Math.max(0, ...state.categories.map((c) => c.sort || 0)) + 10;
+      await api.saveCategory({ ...FLAG_CAT, sort });
+      state.categories = await api.listCategories();
+      cat = state.categories.find((c) => c.name === FLAG_CAT.name);
+      if (!cat) throw new Error('カテゴリー「国旗」を作成できませんでした');
+    }
+    let ok = 0;
+    const failed = [];
+    const queue = [...codes];
+    // 国旗の画像（flagcdn.com・パブリックドメイン）を取得して、通常のカードと同じように保存。3 枚ずつ並行
+    const worker = async () => {
+      while (queue.length) {
+        const code = queue.shift();
+        try {
+          const res = await fetch(`https://flagcdn.com/w640/${code.toLowerCase()}.png`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          await api.createCard({ description: '', countries: [code], area: '', notes: '', category_id: cat.id }, await res.blob());
+          ok++;
+          toast(`国旗カードを作成中… ${ok} / ${codes.length}`);
+        } catch (ex) {
+          failed.push(countryName(code));
+          console.warn('国旗カードを作成できませんでした', code, ex);
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    await reloadCards();
+    render();
+    if (failed.length) toast(`${ok} 枚を作成しました。作成できなかった国: ${failed.join('、')}`, 'error');
+    else toast(`国旗カードを ${ok} 枚作成しました`);
+  } catch (ex) {
+    toast(`国旗カードを作成できませんでした: ${ex.message}`, 'error');
+  } finally {
+    btn.disabled = false;
   }
 }
 
