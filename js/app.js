@@ -496,7 +496,7 @@ const KEY_ACTIONS = [
   ['tabNext', '次のタブへ'],
   ['search', '検索を開く'],
 ];
-const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'KeyC', tabNext: 'KeyV', search: 'Ctrl+KeyF' };
+const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', search: 'Ctrl+KeyF' };
 // キーは e.code（例: KeyA）。Ctrl / Alt / Shift と組み合わせるときは「Ctrl+KeyF」のように前に付ける
 const keyLabel = (code) => (code || '—').split('+').map((k) => k.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'テンキー').replace('Space', 'スペース')).join(' + ');
 const MOD_KEYS = ['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'];
@@ -534,7 +534,7 @@ function onKeydown(e) {
     else if (!$('#modal').open) openSpotlight();
     return;
   }
-  if (mod) return;
+  if (mod && !act) return; // 割り当てのない Ctrl / Alt の組み合わせはブラウザの標準動作のまま（入力欄の Ctrl+A なども）
   const tag = (e.target.tagName || '').toLowerCase();
   if (['input', 'textarea', 'select'].includes(tag)) {
     if (e.key === 'Escape' && tag !== 'select' && !$('dialog[open]')) e.target.blur(); // Esc で入力欄から抜けてキー操作へ
@@ -569,7 +569,7 @@ function onKeydown(e) {
 
   // 地図: 文字を打ち始めたら、そのまま国の検索バーに入力（Enter を押さなくてよい）。日本語入力の最初のキーも
   const ms = state.view === 'map' && $('#map-search');
-  if (ms && ((e.key.length === 1 && e.key.trim()) || e.key === 'Process')) {
+  if (ms && !mod && ((e.key.length === 1 && e.key.trim()) || e.key === 'Process')) {
     ms.focus();
     ms.select(); // 前回の検索語は打ち始めた文字で置き換える
     return; // preventDefault しないので、押した文字は検索バーに入る
