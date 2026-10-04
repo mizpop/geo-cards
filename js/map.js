@@ -420,6 +420,9 @@ export async function renderMap(view, ctx) {
     m.on('contextmenu', (e) => previewNow(code, e));
   }
 
+  // サムネイルに切り替わる縮尺（すべての国で共通）
+  const THUMB_ZOOM = 5;
+  // 国の大きさの目安: 国全体が画面に収まる縮尺（大きい国ほど小さい値）。サムネイルの大きさに使う
   function revealZoom(code) {
     const b = bounds.get(code);
     if (!b) return 6;
@@ -658,14 +661,14 @@ export async function renderMap(view, ctx) {
     const view = map.getBounds().pad(0.1);
     for (const [code, m] of markers) {
       const rz = revealZoom(code);
-      const rev = z >= rz;
+      const rev = z >= THUMB_ZOOM;
       if (rev !== m.revealed) {
         m.revealed = rev;
         if (!rev) m.expanded = false;
         for (const mk of m.markers) mk.setIcon(rev ? thumbsIcon(L, ctx, code, m.list, m.expanded) : countIcon(L, code, m.list.length));
         if (rev) prepareThumbs(m);
       }
-      // 地図の縮尺に合わせてサムネイルの大きさを変える（現れた直後は小さめ、拡大するほど大きく）
+      // 国の大きさと地図の縮尺に合わせてサムネイルの大きさを変える（大きい国ほど・拡大するほど大きく）
       if (rev) m.scale = Math.min(1.44, Math.max(0.58, 0.58 * 2 ** ((z - rz) * 0.5)));
     }
     refreshThumbs();
