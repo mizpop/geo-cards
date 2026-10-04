@@ -1018,13 +1018,12 @@ textarea { resize: vertical; line-height: 1.6; }
 @keyframes hb-collapse { from { transform: scale(1.9); opacity: .25; } }
 @keyframes hb-expand { from { transform: scale(.35); opacity: .2; } }
 .hover-bubble.is-full .hb-body { padding: 12px 14px; }
-.hover-bubble.has-fan { padding-top: 52px; }
 @keyframes hb-grow { from { opacity: .4; } }
 .hover-bubble .sum-more, .hover-bubble .ext-link { display: none; }
 .hover-bubble .sum-row .chip-btn { pointer-events: none; }
 .hover-bubble.has-fan .sum-head { padding-right: 120px; }
 /* 扇状のカード: 下端より下を軸に回転させて広げ、下半分は本体に隠れる */
-.hb-fan { position: absolute; top: 0; right: 40px; width: 110px; height: 60px; z-index: 0; }
+.hb-fan { position: absolute; top: -52px; right: 40px; width: 110px; height: 60px; z-index: 0; }
 .hb-card {
   position: absolute; left: 50%; top: 0; width: 56px; height: 62px; margin-left: -28px;
   border-radius: 6px; overflow: hidden; background: #0b0f12;

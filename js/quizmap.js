@@ -1,8 +1,9 @@
 // 地図で答えるクイズ用の小さな世界地図（国をクリックして回答）
-import { loadLibs, loadWorld, isDark } from './map.js';
+import { loadLibs, loadWorld, isDark, addBaseTiles } from './map.js';
 import { GEO } from './geo.js';
 
-let lastView = null; // 問題が変わっても表示位置を引き継ぐ
+let lastView = null; // 同じ問題の中（答えた後の再描画など）では表示位置を引き継ぐ
+let lastQ = null; // 問題が変わったら世界全体の表示に戻す
 
 // 2 点間の距離（km）
 function distanceKm(a, b) {
@@ -29,7 +30,7 @@ export function nearestKm(given, answers) {
 
 // el に地図を作る。answered があれば正解（緑）と答えた国（赤）を塗って両方が見えるように移動
 // onPick(code): 国がクリックされたとき（回答前だけ）
-export async function mountQuizMap(el, { answers, answered, onPick, animate = true }) {
+export async function mountQuizMap(el, { answers, answered, onPick, animate = true, qid = null }) {
   await loadLibs();
   const world = await loadWorld('50m');
   if (!el.isConnected) return null;
@@ -40,8 +41,9 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
   });
   window.__quizMap = map; // 動作確認用
   el.classList.toggle('map-dark', isDark());
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, keepBuffer: 4 }).addTo(map);
-  L.control.attribution({ prefix: false }).addAttribution('&copy; OpenStreetMap').addTo(map);
+  L.control.attribution({ prefix: false }).addTo(map);
+  addBaseTiles(map, { keepBuffer: 4 });
+  if (qid !== lastQ) { lastView = null; lastQ = qid; }
   if (lastView) map.setView(lastView.center, lastView.zoom, { animate: false });
   else map.setView([25, 10], 1.5, { animate: false });
   map.on('moveend', () => { lastView = { center: map.getCenter(), zoom: map.getZoom() }; });
@@ -88,15 +90,16 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
 }
 
 // 撮影地点を当てる: 地図のどこでもクリックして回答。answered なら答えた地点と正解の地点を線で結ぶ
-export async function mountPinMap(el, { answer, guess, onPick, animate = true }) {
+export async function mountPinMap(el, { answer, guess, onPick, animate = true, qid = null }) {
   await loadLibs();
   if (!el.isConnected) return null;
   const L = window.L;
   const map = L.map(el, { worldCopyJump: true, minZoom: 1, maxZoom: 17, zoomSnap: 0.5, zoomAnimation: animate, fadeAnimation: animate, attributionControl: false });
   window.__quizMap = map;
   el.classList.toggle('map-dark', isDark());
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, keepBuffer: 4 }).addTo(map);
-  L.control.attribution({ prefix: false }).addAttribution('&copy; OpenStreetMap').addTo(map);
+  L.control.attribution({ prefix: false }).addTo(map);
+  addBaseTiles(map, { keepBuffer: 4 });
+  if (qid !== lastQ) { lastView = null; lastQ = qid; }
   if (lastView) map.setView(lastView.center, lastView.zoom, { animate: false });
   else map.setView([25, 10], 1.5, { animate: false });
   map.on('moveend', () => { lastView = { center: map.getCenter(), zoom: map.getZoom() }; });

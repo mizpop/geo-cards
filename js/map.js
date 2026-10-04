@@ -78,6 +78,20 @@ function getBubble() {
   return bubbleEl;
 }
 // カーソルの右下に置き、画面からはみ出す場合は左・上に回り込ませる
+// 背景の地図タイル。'en': 国名・地名が英語表記（Esri World Street Map、Google マップに近い見た目）
+// 'osm': OpenStreetMap（地名は現地の言語）。どちらも API キー不要
+let tileStyle = 'en';
+export function setTileStyle(v) { tileStyle = v === 'osm' ? 'osm' : 'en'; }
+export function addBaseTiles(map, opts = {}) {
+  const L = window.L;
+  // attribution は地図の帰属表示（右下）に自動で出る
+  const layer = tileStyle === 'osm'
+    ? L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', ...opts })
+    : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 18, attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', ...opts });
+  layer.addTo(map);
+  return layer;
+}
+
 function placeBubble() {
   const b = bubbleEl;
   if (!b) return;
@@ -88,7 +102,9 @@ function placeBubble() {
   let ox = 'left';
   let oy = 'top';
   if (x + w > window.innerWidth - 8) { x = mouse.x - w - 12; ox = 'right'; }
-  if (y + h > window.innerHeight - 8) { y = Math.max(8, mouse.y - h - 12); oy = 'bottom'; }
+  const top = b.classList.contains('has-fan') ? 60 : 8; // 扇のカードは本体の上にはみ出して描く
+  if (y < top) y = top;
+  if (y + h > window.innerHeight - 8) { y = Math.max(top, mouse.y - h - 12); oy = 'bottom'; }
   b.style.setProperty('--origin', `${oy} ${ox}`); // 広がるアニメーションの起点をカーソル側に
   b.style.transform = `translate(${Math.max(8, x)}px, ${y}px)`;
 }
@@ -257,14 +273,12 @@ export async function renderMap(view, ctx) {
     map.setView(map.getCenter(), map.getZoom(), { animate: false, reset: true }); // 塗り・判定を今の位置で計算し直す
   }, { capture: true });
   const dark = isDark();
-  // OpenStreetMap 公式タイル（APIキー不要）。ダークモードは CSS で色を反転
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
+  // 背景の地図（設定で英語表記 / OpenStreetMap を切り替え）。ダークモードは CSS で色を反転
+  addBaseTiles(map, {
     keepBuffer: 6, // 画面外のタイルを多めに保持して、移動時に端が白くなるのを防ぐ
     updateWhenIdle: false, // 移動中も読み込む（スマホの既定は停止後のみ）
     updateWhenZooming: false,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(map);
+  });
   $id('map').classList.toggle('map-dark', dark);
   if (lastView) map.setView(lastView.center, lastView.zoom);
   else map.setView([25, 10], 2);

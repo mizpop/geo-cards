@@ -4,7 +4,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { annotateImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
@@ -128,6 +128,7 @@ const DEFAULT_SETTINGS = {
   showDesc: true, // 表面に説明文を表示（暗記・クイズ）
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
+  mapTiles: 'en', // 地図の背景: en（国名・地名が英語表記）/ osm（OpenStreetMap・現地の言語）
   studySplit: false,
   mapMode: 'cards', // 地図の表示: カード / シェブロン / ガードレール / 通行 / 文字 / 苦手 // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
   liveSearch: true, // 地図: 検索バーに入力するたびに候補の国へ移動（オフなら Enter で移動）
@@ -144,6 +145,7 @@ function applySettings() {
   if (settings.theme === 'auto') delete root.dataset.theme;
   else root.dataset.theme = settings.theme;
   setMuted(!settings.sound);
+  setTileStyle(settings.mapTiles);
   const sb = document.getElementById('sound-btn');
   if (sb) {
     sb.classList.toggle('is-muted', !settings.sound);
@@ -186,6 +188,7 @@ function openSettings() {
     <section class="set-group">
       ${item('入力中に国へ移動', '地図の検索バーに入力するたびに、候補の国へ移動します。オフにすると Enter を押したときだけ移動します', sw('liveSearch'))}
       ${item('止まると詳しく表示', '国にマウスを乗せて 0.5 秒止まると、吹き出しに詳しい情報を出します。オフでも右クリックで表示できます', sw('hoverExpand'))}
+      ${item('背景の地図', '英語表記: 国名・地名を英語で表示（Google マップに近い見た目）／ OpenStreetMap: 地名を現地の言語で表示', seg('mapTiles', [['en', '英語表記'], ['osm', 'OpenStreetMap']]), true)}
     </section>
     <h3 class="set-group-title">⌨ キーボード操作</h3>
     <section class="set-group set-keys">
@@ -214,6 +217,7 @@ function openSettings() {
     settings[g.dataset.key] = b.dataset.v;
     $$('button', g).forEach((x) => x.classList.toggle('on', x === b));
     changed();
+    if (g.dataset.key === 'mapTiles' && state.view === 'map') render(); // 背景の地図を作り直す
   }));
   // キーの割り当て変更: 次に押されたキーを記録。重複は赤枠で知らせる
   const drawKeycaps = () => {
@@ -1828,6 +1832,7 @@ function renderReverseQuestion() {
     answers: item.answers,
     answered: a ? { given: [g] } : null,
     animate: settings.animations,
+    qid: q.questions[q.i], // 次の問題では地図の位置を世界全体に戻す
     onPick: (code) => {
       if (q.answered || q.i !== at || state.view !== 'quiz') return;
       const result = item.answers.includes(code) ? 'ok' : 'ng';
@@ -2184,6 +2189,7 @@ function renderPinQuestion(card) {
     answer: [card.lat, card.lng],
     guess: a?.guess,
     animate: settings.animations,
+    qid: q.questions[q.i],
     onPick: (guess) => {
       if (q.answered || q.i !== at || state.view !== 'quiz') return;
       const km = distanceBetween(guess, [card.lat, card.lng]);
@@ -2247,6 +2253,7 @@ function renderMapQuestion(card) {
     answers: card.countries,
     answered: a,
     animate: settings.animations,
+    qid: q.questions[q.i],
     onPick: (code) => { if (!q.answered && q.i === at && state.view === 'quiz') submitAnswer(card, [code]); },
   }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
     const el = $('#quiz-map .map-loading');
