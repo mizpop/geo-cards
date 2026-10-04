@@ -121,6 +121,7 @@ function applySettings() {
 function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* 保存できなくても動作は続ける */ }
   applySettings();
+  updateSearchKeyHint();
 }
 applySettings();
 
@@ -161,7 +162,7 @@ function openSettings() {
         </div>`).join('')}
       <div class="key-reset-all-row"><button type="button" class="btn btn-ghost btn-sm" id="key-reset-all">⌨ キー設定をすべてリセット</button></div>
       <p class="key-dup-warn" id="key-dup-warn" hidden>⚠ 同じキーが複数の操作に割り当てられています（赤枠）。上にある操作が優先されます</p>
-      <p class="set-desc set-key-note">ボタンを押してから割り当てたいキーを押します（Esc で取り消し）。<br>そのほか: スペース / Enter でめくる・← → で移動・4択は 1〜4・入力欄では Esc でキー操作に戻る</p>
+      <p class="set-desc set-key-note">ボタンを押してから割り当てたいキーを押します（Esc で取り消し）。<br>Ctrl・Alt との組み合わせも使えます（Ctrl / Alt を押したまま割り当てたいキー）。<br>そのほか: スペース / Enter でめくる・← → で移動・4択は 1〜4・Ctrl+K でも検索・地図ではそのまま文字を打つと国の検索・入力欄では Esc でキー操作に戻る</p>
     </section>
     <p class="muted small set-note">設定はこの端末のブラウザに保存されます</p>
     <div class="modal-foot set-foot">
@@ -221,12 +222,14 @@ function openSettings() {
     const onKey = (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (MOD_KEYS.includes(e.key)) { b.textContent = `${comboOf(e).replace(/\+?(Control|Shift|Alt|Meta)(Left|Right)$/, '').split('+').join(' + ')} + …`; return; } // Ctrl などだけ押した段階では待つ
       window.removeEventListener('keydown', onKey, true);
       capturingKey = false;
       b.classList.remove('is-capturing');
       const keys = { ...DEFAULT_KEYS, ...settings.keys };
-      if (e.key !== 'Escape' && e.code && !['Tab', 'Enter', 'Space'].includes(e.code)) {
-        keys[b.dataset.act] = e.code;
+      const mod = e.ctrlKey || e.metaKey || e.altKey;
+      if (e.key !== 'Escape' && e.code && (mod || !['Tab', 'Enter', 'Space'].includes(e.code))) {
+        keys[b.dataset.act] = mod ? comboOf(e) : e.code;
         settings.keys = keys;
         saveSettings();
       } else if (e.key !== 'Escape') {
@@ -395,6 +398,7 @@ function bindGlobal() {
     if (!playedRecently()) play('tap');
   });
   $('#search-btn').addEventListener('click', openSpotlight);
+  updateSearchKeyHint();
   const sp = $('#spotlight');
   sp.addEventListener('click', (e) => { if (e.target === sp) closeSpotlight(); });
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
@@ -492,8 +496,25 @@ const KEY_ACTIONS = [
   ['tabNext', '次のタブへ'],
   ['search', '検索を開く'],
 ];
-const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'KeyC', tabNext: 'KeyV', search: 'KeyF' };
-const keyLabel = (code) => (code || '—').replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'テンキー').replace('Space', 'スペース');
+const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'KeyC', tabNext: 'KeyV', search: 'Ctrl+KeyF' };
+// キーは e.code（例: KeyA）。Ctrl / Alt / Shift と組み合わせるときは「Ctrl+KeyF」のように前に付ける
+const keyLabel = (code) => (code || '—').split('+').map((k) => k.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'テンキー').replace('Space', 'スペース')).join(' + ');
+const MOD_KEYS = ['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'];
+const comboOf = (e) => [(e.ctrlKey || e.metaKey) && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.code].filter(Boolean).join('+');
+// 押されたキーに割り当てられた操作。単独のキーは Shift の有無を問わず、組み合わせは完全一致
+function actionFor(e) {
+  const keys = { ...DEFAULT_KEYS, ...settings.keys };
+  const combo = comboOf(e);
+  const plain = !(e.ctrlKey || e.metaKey || e.altKey);
+  return Object.keys(keys).find((k) => (keys[k].includes('+') ? keys[k] === combo : plain && keys[k] === e.code));
+}
+// ヘッダーの検索ボタンに今のキーを表示
+function updateSearchKeyHint() {
+  const label = keyLabel({ ...DEFAULT_KEYS, ...settings.keys }.search);
+  const kbd = $('#search-btn kbd');
+  if (kbd) kbd.textContent = label.replace(' + ', '+');
+  $('#search-btn')?.setAttribute('title', `検索（${label} / Ctrl + K）`);
+}
 let capturingKey = false;
 
 function switchTab(delta) {
@@ -504,15 +525,21 @@ function switchTab(delta) {
 
 function onKeydown(e) {
   if (capturingKey || e.isComposing) return;
-  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK' && state.user) { e.preventDefault(); $('#spotlight').open ? closeSpotlight() : openSpotlight(); return; }
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const act = actionFor(e);
+  const mod = e.ctrlKey || e.metaKey || e.altKey;
+  // 検索（初期設定は Ctrl+F。Ctrl+K でも）: 組み合わせキーなら入力中でもどこからでも開閉
+  if (state.user && ((mod && act === 'search') || ((e.ctrlKey || e.metaKey) && e.code === 'KeyK')) && !$('dialog.viewer[open]')) {
+    e.preventDefault();
+    if ($('#spotlight').open) closeSpotlight();
+    else if (!$('#modal').open) openSpotlight();
+    return;
+  }
+  if (mod) return;
   const tag = (e.target.tagName || '').toLowerCase();
   if (['input', 'textarea', 'select'].includes(tag)) {
     if (e.key === 'Escape' && tag !== 'select' && !$('dialog[open]')) e.target.blur(); // Esc で入力欄から抜けてキー操作へ
     return;
   }
-  const keys = { ...DEFAULT_KEYS, ...settings.keys };
-  const act = Object.keys(keys).find((k) => keys[k] === e.code);
   const digit = /^(Digit|Numpad)([1-9])$/.exec(e.code)?.[2];
 
   // 全画面の画像ビューア
@@ -539,6 +566,14 @@ function onKeydown(e) {
   }
   if ($('dialog[open]')) return;
   if (act === 'search') { e.preventDefault(); openSpotlight(); return; }
+
+  // 地図: 文字を打ち始めたら、そのまま国の検索バーに入力（Enter を押さなくてよい）。日本語入力の最初のキーも
+  const ms = state.view === 'map' && $('#map-search');
+  if (ms && ((e.key.length === 1 && e.key.trim()) || e.key === 'Process')) {
+    ms.focus();
+    ms.select(); // 前回の検索語は打ち始めた文字で置き換える
+    return; // preventDefault しないので、押した文字は検索バーに入る
+  }
 
   if (act === 'tabPrev' || act === 'tabNext') { e.preventDefault(); switchTab(act === 'tabNext' ? 1 : -1); return; }
 
