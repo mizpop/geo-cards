@@ -170,14 +170,15 @@ AR:mercosur BO:mercosur BR:mercosur CL:w CO:y EC:w PY:mercosur PE:w UY:mercosur
 `;
 export const PLATE_DATA = Object.fromEntries(PLATE_RAW.trim().split(/\s+/).map((x) => { const [c, t] = x.split(':'); return [c, { types: [t] }]; }));
 
-// ---- ボラード（GeoHints https://geohints.com/meta/bollards の写真から、本体と帯の色でおおまかに分類）
+// ---- ボラード（GeoHints https://geohints.com/meta/bollards の写真から、本体と帯の色でおおまかに分類し、
+//      Plonkit の各国ガイドの記述と照らし合わせて修正。2026-10 時点）
 // 反射板の形や色など細かい違いは国ごとに異なるので、写真で確認してください
-export const BOLLARD_SRC = { name: 'GeoHints（写真）', url: 'https://geohints.com/meta/bollards' };
+export const BOLLARD_SRC = { name: 'GeoHints・Plonkit', url: 'https://geohints.com/meta/bollards' };
 // bg: 地図でイラストを敷き詰めるときの地の色（種類ごとに違う色）
 export const BOLLARD_TYPES = [
   { id: 'wk', name: '白・黒い帯（反射板つき・ヨーロッパ型）', color: '#868e96', body: '#f8f9fa', band: '#212529', bg: '#868e96' },
   { id: 'wr', name: '白・赤い帯や反射板', color: '#e03131', body: '#f8f9fa', band: '#e03131', bg: '#a61e1e' },
-  { id: 'wy', name: '白・黄色い帯', color: '#fcc419', body: '#f8f9fa', band: '#fcc419', bg: '#d9480f' },
+  { id: 'wy', name: '白・黄 / オレンジの帯や反射板', color: '#fcc419', body: '#f8f9fa', band: '#fcc419', bg: '#d9480f' },
   { id: 'wg', name: '白・緑の帯', color: '#2f9e44', body: '#f8f9fa', band: '#2f9e44', bg: '#2b8a3e' },
   { id: 'wb', name: '白・青い印', color: '#1c7ed6', body: '#f8f9fa', band: '#1c7ed6', bg: '#1864ab' },
   { id: 'w', name: '白（帯なし・小さな反射板）', color: '#f1f3f5', body: '#f8f9fa', band: '#dee2e6', bg: '#5c636a' },
@@ -192,11 +193,89 @@ export const BOLLARD_TYPES = [
   { id: 'c', name: 'コンクリートの塊', color: '#c2a878', body: '#e9ecef', band: '#868e96', bg: '#8d6e4f' },
 ];
 const BOLLARD_RAW = `
-GH:wr KE:c LS:srw NA:wy NG:wk RW:wr RE:wk SN:wr TN:wb UG:w BD:wr BT:c KH:wr CX:wr CC:b IN:skw ID:skw IL:wk JP:srw
-KZ:wk KG:wk LA:wk LB:wr MY:wr MN:wr NP:skw OM:wr PH:syk QA:srw RU:wk KR:sy LK:c TW:syk TH:skw AE:srw VN:c
-AL:wk AD:wg AT:wk BY:k BE:wr BA:wk BG:wr HR:wk CY:wr CZ:wk DK:w EE:w FO:k FI:wk FR:wk GE:wk DE:wk GR:wk HU:wk IS:y
-IE:wg IM:wk IT:wk JE:k XK:wk LV:wk LI:wk LT:wk LU:wk MT:wk MC:wr ME:wr NL:k MK:wk NO:wk PL:wk PT:wk RO:wr SM:wk RS:wr
-SK:wk SI:wk ES:w SE:wk CH:wk TR:wr UA:wk GB:wk CA:k CR:y GT:skw MX:wk PA:w AU:r NZ:wr AR:wg BO:wr BR:wr CL:wk CO:wy
-EC:wr PE:wy UY:y
+GH:wr KE:c LS:w NA:wy NG:wk RW:wr RE:wr SN:wr TN:wb UG:w BD:srw BT:c KH:srw CX:wr CC:b IN:skw ID:skw IL:wk
+JP:w KZ:wk KG:wk LA:skw LB:wr MY:wr MN:wr NP:skw OM:wr PH:syk QA:srw RU:wk KR:sy LK:c TW:wk TH:skw AE:srw VN:wr
+AL:wk AD:wy AT:wk BY:k BE:wy BA:wk BG:wk HR:wk CY:wr CZ:wk DK:wy EE:w FO:y FI:wk FR:wr GE:wk DE:wk GR:wk
+HU:wk IS:y IE:wg IM:wk IT:wk JE:k XK:wk LV:wk LI:wk LT:wk LU:wk MT:wk MC:wr ME:wk NL:wr MK:wk NO:wk PL:wr
+PT:wk RO:wr SM:wk RS:wr SK:wk SI:wk ES:wy SE:wk CH:wk TR:wr UA:wk GB:wk CA:skw CR:r GT:skw MX:wk PA:w AU:wr
+NZ:wr AR:wg BO:wr BR:wr CL:wy CO:wy EC:wr PE:r UY:wy HK:y SG:syk
 `;
-export const BOLLARD_DATA = Object.fromEntries(BOLLARD_RAW.trim().split(/\s+/).map((x) => { const [c, t] = x.split(':'); return [c, { types: [t] }]; }));
+// 国ごとの見分け方（Plonkit の各国ガイドより）
+const BOLLARD_NOTE = {
+  AL: '上部が黒、反射板は赤と灰色（イタリアと同じ）',
+  AD: 'オレンジの反射板（スペインでも見られる）',
+  AU: '白、前が赤・後ろが灰色の反射板（赤は途中まで。ニュージーランドは一周する）',
+  AT: '白で上部が黒。上に黒い小さな突起があることも。反射板は暗い赤・灰色',
+  BD: '赤白のコンクリート製',
+  BE: '白に黄色の長方形の反射板（後ろは白）。濃い茶色に赤い線 2 本の型も',
+  BG: 'あまり見かけない。クロアチア・ハンガリーに似た型',
+  KH: '赤白の縞の石製、または上が赤・下が白の石製',
+  CA: 'アルバータ州の黒白の型（交差点に多い）。州によって違う',
+  CL: 'スペイン型（前が白・後ろが黄オレンジの反射板）。あまり見かけない',
+  CX: 'オーストラリアと同じ（白に赤い反射板）',
+  CR: '黒い丸が 3 つのオレンジの板。国道 32 号は黄色のボラード',
+  HR: '白に黒い長方形、反射板は赤か白。角がとがっている（ハンガリー・リトアニアは丸い）',
+  CY: '前が赤・後ろが白の反射板。三角形で上が斜め',
+  CZ: '前にオレンジの反射板が 2 つ、後ろは白が 1 つ',
+  DK: '白に黄色の反射板と濃いオレンジの線（デンマーク特有）',
+  EC: '赤い線 2 本の丸い型と、黒地に赤い反射板 2 つの平らな型',
+  EE: '丸い棒のような形（バルト 3 国で違う）',
+  FO: '黄色に塗った木の棒。上が赤いことも',
+  FI: '長い黒白。前は白い長方形、後ろは点 2 つの反射板',
+  FR: '白に赤い帯、上がとがった丸い型（とてもよく見る）',
+  DE: '黒白。反射板は白・薄い灰色（交差点の近くはオレンジ）',
+  GR: 'くさび形で、ほぼ正方形の反射板（前が赤・後ろが白）',
+  GT: '白に黒い線 2 本（ケツァルテナンゴの北東）',
+  HK: '青い丸に白い矢印の黄色いボラード（横断歩道など）',
+  HU: '黒白のくさび形、前が赤・後ろが白の反射板（クロアチアに似る）',
+  IS: '黄色に白い反射板（ほぼすべての郊外の道路）',
+  ID: '黒白の四角・丸い型と、黄黒の型',
+  IE: '緑と白',
+  IM: '街なかは青いボラード',
+  IT: '三角形で白、上部が黒（アルバニアと同じ）',
+  JP: '白に丸い反射板。黒や別の形のことも',
+  KZ: '旧ソ連型とトルコ型の両方',
+  KG: '白に斜めの黒い線',
+  LA: '黒白の帯の四角いコンクリート',
+  LV: '細くて少し曲がった形。反射板の下に番号',
+  LS: '白く塗った棒',
+  LI: '黒白の丸い型、反射板は白か灰色（スイスとほぼ同じ）',
+  LT: 'くさび形、オレンジの反射板',
+  LU: '黒白（ドイツとほぼ同じ。反射板のボルトが 3 本）',
+  MY: '黒・白・灰色・赤の組み合わせ',
+  MX: '白で根元が黒の丸い型（メキシコ特有）',
+  MN: 'ボウリングのピン形で、上に赤い線 2 本（モンゴル特有）',
+  ME: '白で上部が黒、前が赤・後ろが白の反射板（スロベニアと同じ）',
+  NA: '白に黄色の反射板 2 つ（後ろは赤）。小さな石のボラードも',
+  NP: '黒白の縞のコンクリート。上に赤い印',
+  NL: '白に赤い反射板',
+  NZ: '上に赤い帯が一周（ニュージーランド特有）',
+  MK: 'クロアチアと同じくさび形',
+  NO: '細く曲がった長方形、反射板は黒い平行四辺形の中',
+  PE: '赤か黄に塗った三角形のコンクリート',
+  PL: '赤い帯が一周する（細く曲がった型も）',
+  PT: '上の白い部分が細いくさび形、または幅の広い反射板の平らな型',
+  RO: '細い白、上の方に赤い縦の線（あまり見かけない。トルコに似る）',
+  RU: '上部が黒で赤い縦の反射板の型、細い棒の型、ドイツ型の 3 種類。交差点にとても多い',
+  RW: '赤白の丸い型が何種類か',
+  RS: '反射板が中央からずれた平らな型が多い',
+  SG: 'バス停に黒黄の帯のコンクリート',
+  SK: '前にオレンジの反射板 2 つ（新しい型は前が赤）',
+  SI: '白で上部が黒、前が赤（オーストリアは暗い赤）',
+  KR: '黒白のくさび形も',
+  ES: '前が黄オレンジ、後ろは白い点 2 つ',
+  LK: '背の低い幅広の石のボラード（スリランカ特有）',
+  SE: '黒白で反射板は灰色。南部はくさび形、北部は黒い横帯の丸い型',
+  CH: '黒白、反射板は白か灰色',
+  TW: '黒い長方形に丸い反射板が 2〜3 つ',
+  TH: '上がとがった四角い黒白の縞',
+  TR: '白い長方形に赤い反射板',
+  UA: 'ザカルパッチャ州はポーランド型（赤い帯が一周）',
+  GB: 'スコットランドは赤白の丸い型（上が丸い）',
+  UY: '片側が黄色く塗られた白いボラード',
+  VN: '白で上が赤の四角いコンクリート',
+  SM: 'イタリアと同じ',
+  SN: 'フランスと同じ',
+  RE: 'フランスと同じ（サン・ポールは黒、サン・ドニは緑）',
+};
+export const BOLLARD_DATA = Object.fromEntries(BOLLARD_RAW.trim().split(/\s+/).map((x) => { const [c, t] = x.split(':'); return [c, { types: [t], ...(BOLLARD_NOTE[c] ? { note: BOLLARD_NOTE[c] } : {}) }]; }));
