@@ -1154,7 +1154,7 @@ textarea { resize: vertical; line-height: 1.6; }
 .mpick-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mpick-n { font-size: 12px; color: var(--muted); }
 .mpick-item.is-empty { opacity: .5; }
-@media (max-width: 520px) { .mpick-list { grid-template-columns: 1fr; } .mpick-btn { max-width: 150px; } }
+@media (max-width: 520px) { .mpick-list { grid-template-columns: 1fr; } .mpick-btn { max-width: 118px; } }
 
 /* ---------- カード詳細: 並びの前 / 次へ ---------- */
 .card-pager { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; margin-right: 6px; }
@@ -1187,3 +1187,15 @@ textarea { resize: vertical; line-height: 1.6; }
 }
 .sel-bar[hidden] { display: none; }
 .select-sm { min-height: 32px; padding-top: 4px; padding-bottom: 4px; font-size: 13px; }
+
+/* ---------- 暗記カード: 表と裏を並べて表示 ---------- */
+.flashcard.split {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  transform: none; transform-style: flat; cursor: default;
+}
+.flashcard.split .face { position: relative; inset: auto; transform: none; min-height: 0; backface-visibility: visible; -webkit-backface-visibility: visible; }
+.flashcard.split .face-back { padding-top: 64px; }
+@media (max-width: 760px) {
+  .flashcard.split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; gap: 10px; }
+  .flashcard.split .face-back { padding-top: 52px; }
+}

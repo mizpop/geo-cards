@@ -98,6 +98,7 @@ const DEFAULT_SETTINGS = {
   showDesc: true, // 表面に説明文を表示（暗記・クイズ）
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
+  studySplit: false, // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
   liveSearch: true, // 地図: 検索バーに入力するたびに候補の国へ移動（オフなら Enter で移動）
   sound: true, // 効果音（右上のボタンでも切り替え）
   keys: {}, // キー割り当て（DEFAULT_KEYS からの変更分）
@@ -596,8 +597,9 @@ function onKeydown(e) {
     if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || act === 'flip') { e.preventDefault(); flipStudy(); }
     else if (e.key === 'ArrowRight' || act === 'next') { e.preventDefault(); moveStudy(1); }
     else if (e.key === 'ArrowLeft' || act === 'prev') { e.preventDefault(); moveStudy(-1); }
-    else if (act === 'country') { e.preventDefault(); $('#study-country')?.click(); }
-    else if (act === 'edit') { e.preventDefault(); $('#study-edit')?.click(); }
+    // 国の詳細・編集は答えが見えているとき（裏面 / 並べて表示）だけ
+    else if (act === 'country' && (state.study.flipped || settings.studySplit)) { e.preventDefault(); $('#study-country')?.click(); }
+    else if (act === 'edit' && (state.study.flipped || settings.studySplit)) { e.preventDefault(); $('#study-edit')?.click(); }
     else if (act === 'back' && menu && !menu.hidden) { e.preventDefault(); menu.hidden = true; }
   } else if (state.view === 'quiz' && state.quiz.phase === 'question') {
     const q = state.quiz;
@@ -862,17 +864,19 @@ function renderStudy() {
   const s = state.study;
   const total = s.deck.length;
   const card = cardById(s.deck[s.index]);
+  const split = settings.studySplit;
   $('#view').innerHTML = `
     <div class="toolbar">
       ${regionPickHtml('study-region', s.regions)}
       ${catPickHtml('study-cat', s.cats)}
       <button class="btn" id="study-shuffle" aria-label="シャッフル" title="押すたびに順番をランダムに並べ替え">🔀<span class="tab-long"> シャッフル</span></button>
+      <button class="btn ${split ? 'btn-on' : ''}" id="study-split" aria-pressed="${split}" aria-label="表と裏を並べて表示" title="表面と裏面を左右に並べて表示">◫<span class="tab-long"> 並べて表示</span></button>
       <span class="counter">${total ? `${s.index + 1} / ${total}` : '0 / 0'}</span>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${total ? ((s.index + 1) / total) * 100 : 0}%"></div></div>
     ${card ? `
       <div class="flash-wrap ${s.enter ? `enter-${s.enter}` : ''}">
-        <div class="flashcard ${s.flipped ? 'is-flipped' : ''}" id="flashcard" role="button" tabindex="0" aria-label="カードをめくる" style="${catStyle(card)}">
+        <div class="flashcard ${split ? 'split' : s.flipped ? 'is-flipped' : ''}" id="flashcard" ${split ? '' : 'role="button" aria-label="カードをめくる"'} tabindex="0" style="${catStyle(card)}">
           <div class="face face-front">${frontHtml(card)}</div>
           <div class="face face-back">
             ${catBadge(card, 'cat-on-back')}
@@ -895,10 +899,10 @@ function renderStudy() {
       </div>
       <div class="study-nav">
         <button class="btn btn-round" id="study-prev" aria-label="前へ" ${s.index === 0 ? 'disabled' : ''}>←</button>
-        <button class="btn btn-primary" id="study-flip">めくる</button>
+        ${split ? '' : '<button class="btn btn-primary" id="study-flip">めくる</button>'}
         <button class="btn btn-round" id="study-next" aria-label="次へ" ${s.index >= total - 1 ? 'disabled' : ''}>→</button>
       </div>
-      <p class="hint"><span class="tab-long">クリック / スペースキーでめくる・← → で移動・画像はホイールで拡大、ドラッグで移動</span><span class="tab-short">タップでめくる・左右スワイプで移動・ピンチで拡大</span></p>
+      <p class="hint">${split ? '<span class="tab-long">← → で移動・画像はホイールで拡大、ドラッグで移動</span><span class="tab-short">左右スワイプで移動・ピンチで拡大</span>' : '<span class="tab-long">クリック / スペースキーでめくる・← → で移動・画像はホイールで拡大、ドラッグで移動</span><span class="tab-short">タップでめくる・左右スワイプで移動・ピンチで拡大</span>'}</p>
     ` : emptyState(state.cards.length ? 'この地域のカードはまだありません' : 'カードがまだありません')}
   `;
   s.enter = '';
@@ -907,6 +911,7 @@ function renderStudy() {
   bindMultiPick('study-cat', s.cats, () => repick('study-cat'), s.openPick === 'study-cat');
   s.openPick = null;
   // 押すたびに並べ替えて 1 枚目から（以降、絞り込みを変えてもランダムな順のまま）
+  $('#study-split').addEventListener('click', () => { settings.studySplit = !settings.studySplit; saveSettings(); renderStudy(); });
   $('#study-shuffle').addEventListener('click', () => {
     s.shuffled = true;
     rebuildStudyDeck();
@@ -946,7 +951,7 @@ function renderStudy() {
         if (!e.target.closest('.back-country-wrap') && !menu.hidden) { menu.hidden = true; e.stopPropagation(); }
       }, true);
     }
-    $('#study-flip').addEventListener('click', flipStudy);
+    $('#study-flip')?.addEventListener('click', flipStudy);
     $('#study-prev').addEventListener('click', () => moveStudy(-1));
     $('#study-next').addEventListener('click', () => moveStudy(1));
   }
@@ -974,7 +979,7 @@ function bindSwipe(el, fn) {
 
 function flipStudy() {
   const fc = $('#flashcard');
-  if (!fc) return;
+  if (!fc || settings.studySplit) return; // 並べて表示中はめくらない
   state.study.flipped = !state.study.flipped;
   play('flip');
   fc.parentElement.classList.remove('enter-next', 'enter-prev'); // スライドのアニメーションと競合させない
