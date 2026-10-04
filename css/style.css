@@ -1547,3 +1547,7 @@ textarea { resize: vertical; line-height: 1.6; }
   .cinfo-hero > div:not(.cinfo-memo) { flex: 1 1 0; min-width: 0; }
   .cinfo-memo-side { flex-basis: 100%; max-width: none; margin: 4px 0 0; }
 }
+
+.photo-info { margin: 4px 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.photo-desc { margin: 0 0 8px; line-height: 1.7; white-space: pre-wrap; }
+.photo-map { text-decoration: none; }

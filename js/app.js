@@ -9,7 +9,7 @@ import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
 import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity } from './progress.js';
 import { mountQuizMap, nearestKm } from './quizmap.js';
-import { REF_PAGES, REF_IMAGES, REF_BASE } from './refimages.js';
+import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
 /* ================= ユーティリティ ================= */
@@ -821,6 +821,17 @@ function openPhotoModal(topic, code, srcs, i, src = null) {
   navModal({ kind: 'photo', topic, code, srcs, i });
   if (src && fresh) popFrom($('#modal'), src);
 }
+// 写真ごとの説明（撮影場所・種類）と Google マップへのリンク
+function photoInfoHtml(topic, src, code) {
+  const info = refInfo(topic, src.startsWith(REF_BASE) ? src.slice(REF_BASE.length) : src) || {};
+  const note = factOf(topic, code)?.note || '';
+  if (!info.desc && !info.map && !note) return '';
+  return `<div class="photo-info">
+    ${info.desc ? `<p class="photo-desc">${esc(info.desc)}</p>` : ''}
+    ${note ? `<p class="photo-desc photo-note"><b>見分け方:</b> ${esc(note)}</p>` : ''}
+    ${info.map ? `<a class="btn btn-sm photo-map" href="${esc(info.map)}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a>` : ''}
+  </div>`;
+}
 function stepPhoto(delta) {
   const e = modalCurrent;
   if (e?.kind !== 'photo') return;
@@ -853,7 +864,8 @@ function renderPhotoModal(entry) {
       <div class="detail-back">
         ${answerHtml({ countries: [code], area: '' }, 'md', true)}
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
-        <div class="pfact">${factPanelHtml(topic, code)}</div>
+        ${photoInfoHtml(topic, srcs[i], code)}
+        <div class="pfact">${factPanelHtml(topic, code).replace(/<div class="pfact-note">[^<]*<\/div>/g, '')}</div>
       </div>
     </div>`, 'modal-wide', true);
   attachZoom($('.detail-front .front-img'), srcs.length > 1 ? { onSwipe: (d) => stepPhoto(d) } : {});

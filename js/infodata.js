@@ -24,11 +24,68 @@ AS:YK AU:YK,KW,OK,WG,WK,GW,BY GU:YK NZ:YK,KW,WK
 AR:WR,WB BO:OK BR:KY CL:YK CO:OK,YK EC:YK PE:YK,OK UY:OK
 `;
 const C = { Y: 'yellow', K: 'black', W: 'white', R: 'red', B: 'blue', G: 'green', O: 'orange' };
+// 国ごとの見分け方（Plonkit の各国ガイドより）
+const CHEV_NOTE = {
+  AL: '黒地に白。南ヨーロッパではイタリア・ギリシャ・スペインも同じ。モンテネグロは白地に黒か黄地に赤',
+  AR: '白地に赤（南北アメリカでアルゼンチンだけ）。ラ・パンパ州の T 字路には黄色い長方形の標識も',
+  AU: '黒地に白と、黄地に黒。ニュージーランドも同じ色だが、黄色のものに細い黒い縁がある',
+  AT: '赤地に白と、黄地に赤（ドイツは白地に赤が主で、黄地に赤はまれ）',
+  BE: '白地に赤（オランダも同じ）',
+  BW: '道の脇に小さな赤白のシェブロンも',
+  BR: '黒地に黄（南米のほとんどは黄地に黒なので逆）',
+  BG: '白地に赤。周りではルーマニア・トルコ・北マケドニアも同じ（ギリシャ・セルビアは黒白）',
+  KH: '黒地に黄。東南アジアのほかの国は逆の配色。シェブロン自体が少なく、ボラードを使うことが多い',
+  CA: 'ケベック州だけ赤白。ほかの州は黄地に黒',
+  CL: '黄地に黒',
+  HR: '黄地か白地に赤い矢印',
+  CZ: '白地に赤（スロバキアも同じ）。黄地に赤もまれに',
+  DK: '赤白',
+  EC: 'カーブにシェブロンがとても多い（コロンビアもときどき）',
+  EE: '赤地に白（ロシア・ウクライナも同じ。ラトビア・リトアニアは逆の白地に赤）',
+  FI: '黒地に黄（ノルウェー・アイスランドも同じ。スウェーデンは青地に黄）',
+  FR: '青地に白（ヨーロッパではほかにスペインだけで、スペインは矢印が 2 つか 4 つ）',
+  GR: '黒地に白（アルバニア・イタリア・イギリスも同じ）',
+  HU: '赤地に白。黒白もあるがかなり少ない',
+  IS: '黒地に黄（ノルウェー・フィンランドも同じ）',
+  IE: '黒地に黄（イギリスは黒地に白）',
+  IL: '黒地に白（ヨルダンは白地に赤）',
+  IT: '黒地に白（南ヨーロッパではスペイン・ギリシャ・アルバニアも）',
+  JO: '白地に赤（イスラエルは黒地に白）',
+  KZ: '主に黄地に黒（周りの国と違う）。T 字路には赤白',
+  LV: '白地に赤（リトアニア・ポーランドも同じ。エストニア・ロシア・ウクライナは逆）',
+  LT: '白地に赤。小さな 1 本矢印のものは縁が赤',
+  LU: '黒地に黄（周りの国では見られない）。まれに青地に黄',
+  ME: '白地に黒か黄地に赤（アルバニアは黒地に白）',
+  NZ: '黄地に黒で細い黒い縁（オーストラリアは縁なし）。黒地に白はとてもまれ',
+  NO: '黒地に黄',
+  OM: '黒と黄で、矢印がとても多い',
+  PH: '白地に赤',
+  PL: '白地に赤',
+  PT: '黒地に黄（地中海の国でこの配色はポルトガルだけ）',
+  QA: '赤地に白と青地に白',
+  RO: '白地に赤で、黄色の縁が多い（黄色の縁はルーマニアがいちばん多い）',
+  SM: '黄地にえんじ色の矢印（世界でサンマリノだけ）',
+  RS: '白地に黒（ヨーロッパではスロベニア・モンテネグロ・北マケドニアも）',
+  SK: '白地に赤（チェコも同じ）。黄地に赤もまれに',
+  SI: '白地に赤（オーストリアは赤地に白か黄地に赤）',
+  ZA: '白地に赤。道の脇に細い 1 本矢印の小さなシェブロンも',
+  ES: '黒地に白と青地に白（標識の支柱が平たい）。1 本矢印は少ない',
+  SE: '青地に黄（ヨーロッパでスウェーデンだけ。ルクセンブルクにもごくまれに）。赤と黄も',
+  CH: '黒地に白。白地に黒はまれ（オーストリアは赤白か赤黄）',
+  TW: '黄地に黒。屏東・高雄・台東には黒黄の縞のステッカーのついた曲がった支柱',
+  TR: '白地に赤で、矢印の先が端につかない。黄緑の縁のものも。交差点には黒黄の矢印の多いもの',
+  UA: '赤地に白（ロシア・エストニアも同じ）',
+  GB: '黒地に白（アイルランドは黒地に黄、フランスは青地に白）',
+  UY: '黄地に黒（中南米のほとんどと同じ。アルゼンチンは白地に赤）',
+  VN: '黄地に黒か赤地に白で、矢印は 1 つが多い',
+  DE: '白地に赤が主。黄地に赤はまれ',
+  RU: '赤地に白（エストニア・ウクライナも同じ）',
+};
 export const CHEV_DATA = {};
 for (const item of CHEV_RAW.trim().split(/\s+/)) {
   const [code, list] = item.split(':');
   const [first, ...rest] = list.split(',').map((p) => ({ bg: C[p[0]], fg: C[p[1]] }));
-  CHEV_DATA[code] = { ...first, ...(rest.length ? { alt: rest } : {}) };
+  CHEV_DATA[code] = { ...first, ...(rest.length ? { alt: rest } : {}), ...(CHEV_NOTE[code] ? { note: CHEV_NOTE[code] } : {}) };
 }
 
 // ---- ガードレール
@@ -87,19 +144,19 @@ export const POLE_DATA = {
   EE: p(['wood', 'square'], 'バルト 3 国でいちばん種類がばらばら'), GR: p(['wood'], '濃い茶色で背が高い。碍子 5 つが縦に並ぶことも'), CY: p(['wood'], '濃い茶色で背が高い（ギリシャと同じ）'),
   SZ: p(['wood'], '濃い茶色'), GH: p(['wood'], '金属の横木に碍子 3 つ'), AE: p(['wood'], '濃い茶色。横の金属の棒に碍子 3 つ'), OM: p(['wood'], '上に金属の三角があるものはオマーンだけ'),
   MP: p(['wood']), MN: p(['wood'], '根元を石のブロックで支える'), HK: p(['wood'], '郊外のみ。都市部ではほぼ見ない'), CW: p(['wood'], '横に 3 つ交互に並ぶ碍子'),
-  IT: p(['round'], 'コンクリートの三叉の頂部が多い。木製には白いステッカー'), SM: p(['round', 'wood']), JP: p(['round'], 'ねじのような足場ボルト。地域ごとに違う番号札'),
+  IT: p(['round'], 'コンクリートの三叉の頂部が多い（地中海の国では珍しく丸いコンクリートが多い）。木製には白いステッカー'), SM: p(['round', 'wood']), JP: p(['round'], 'ねじのような足場ボルト。地域ごとに違う番号札'),
   CZ: p(['round'], '太い丸柱を 2 本組にすることが多い'), SK: p(['round'], '太い丸柱を 2 本組にすることが多い'), ME: p(['round', 'wood']),
-  EC: p(['round', 'ladder'], 'はしご状の柱は中南米ではエクアドルにほぼ限られる'), BG: p(['round'], '鉤形の碍子が交互に'), GU: p(['round'], 'とても太いことが多い'),
+  EC: p(['round', 'ladder'], 'はしご状の柱は中南米ではエクアドルにほぼ限られる'), BG: p(['round'], '鉤形の碍子が交互に。はしご状の柱や木製もときどき'), GU: p(['round'], 'とても太いことが多い'),
   PA: p(['round']), BO: p(['round', 'wood'], '上の方に小さな穴。ばらつきが大きい'), HR: p(['round', 'wood'], '木製には交互の鉤形の碍子'),
   AR: p(['round', 'wood'], '電線 3 本が交互に。2 本組の柱も'), ID: p(['round', 'metal'], '黒い鉄柱にインドネシア国旗の色'), JO: p(['round']),
-  RU: p(['square'], '根元にコンクリートの支え'), UA: p(['square'], '根元が白く塗られることも。斜めの支柱'), LT: p(['square'], '斜めの支柱が多い'),
+  RU: p(['square'], '根元にコンクリートの支え。四角いコンクリートはウクライナ・リトアニア・エストニア・ジョージア・カザフスタン・キルギスにも'), UA: p(['square'], '根元が白く塗られることも。斜めの支柱'), LT: p(['square'], '斜めの支柱が多い'),
   DO: p(['square'], '上が逆 L 字。四角い柱は南北アメリカでは珍しい'), IN: p(['square'], '三叉の頂部が多い。木製はほぼない'), NP: p(['square', 'metal'], '山地は細い鉄柱'),
   KZ: p(['square'], 'ロシアに似る'), KG: p(['square'], '根元を白く塗る'), GE: p(['square']),
   PL: p(['holey'], '穴が根元まで続かない。2 本組や A 字形も'), HU: p(['holey', 'wood'], '穴が細く、根元まで続く'), RO: p(['holey', 'round'], '穴が大きく、根元まで続く'),
   VN: p(['holey', 'round'], 'アジアで穴あき柱が多いのはほかにスリランカだけ'), LK: p(['pinhole', 'holey'], '下半分に大きな穴のある柱はスリランカ特有'),
-  TH: p(['pinhole'], '街灯の柱の根元は赤黒・黒白の縞'), LA: p(['pinhole']), BE: p(['pinhole'], '楕円の穴の柱も多い'),
+  TH: p(['pinhole'], '同じ柱はスリランカ・カンボジア・ラオスにも。バンコク周辺にはチリ式の溝のある柱。街灯の柱の根元は赤黒・黒白の縞'), LA: p(['pinhole'], '小さな穴が縦に並ぶ四角い柱（タイ・スリランカ、まれにカンボジアにも）'), BE: p(['pinhole'], '楕円の穴の柱も多い'),
   FR: p(['ladder', 'wood'], '小さな青い長方形の印はフランス特有'), PT: p(['ladder'], 'はしごの段が高い（スペイン・フランスは低い）'), ES: p(['ladder', 'wood']),
-  BR: p(['ladder', 'round'], '下の方がはしごに似る。南部は丸い柱も'), KH: p(['ladder', 'round']), NG: p(['ladder'], 'ブラジルに似るが穴は貫通しない'),
+  BR: p(['ladder', 'round'], '下の方がはしごに似る（パラグアイも同じ）。南部、特にサンパウロは丸い柱も'), KH: p(['ladder', 'round']), NG: p(['ladder'], 'ブラジルに似るが穴は貫通しない'),
   RE: p(['ladder'], 'フランスと同じ設備'), SN: p(['ladder'], 'フランスと同じ設備'), ST: p(['ladder', 'wood'], 'ポルトガルと同じはしご状'),
   CL: p(['indent', 'wood'], '両側に溝のある四角い柱'), NZ: p(['indent'], '長い溝が 1 本。銀色のポッサムよけ'),
   MX: p(['octagonal'], 'コロンビアでも八角形が多い'), PH: p(['metal', 'indent'], '八角形の鉄柱が多い'),
@@ -147,8 +204,9 @@ export const SNOW_DATA = Object.fromEntries(SNOW_RAW.split(' ').map((x) => x.spl
 // 電柱のうち、GeoHints の写真から種類を判断した国（出典の表示用）
 export const POLE_PHOTO = new Set('BA BD BW CH CO CR CX FO GL IS KR LI LS LU LV MG ML MT MY NO PE PM PR PY RS RW SE SI TN TW UG UY ZA'.split(' '));
 
-// ---- ナンバープレート（GeoHints https://geohints.com/meta/licensePlates の自家用車の画像の色を読み取ったもの）
-export const PLATE_SRC = { name: 'GeoHints', url: 'https://geohints.com/meta/licensePlates' };
+// ---- ナンバープレート（GeoHints https://geohints.com/meta/licensePlates の自家用車の画像の色を読み取り、
+//      Plonkit の各国ガイドの記述と照らし合わせて修正したもの）
+export const PLATE_SRC = { name: 'GeoHints・Plonkit', url: 'https://geohints.com/meta/licensePlates' };
 export const PLATE_TYPES = [
   { id: 'w-eu', name: '白・左に青い帯（EU 式）', color: '#1971c2' },
   { id: 'y-eu', name: '黄・左に青い帯', color: '#e67700' },
@@ -162,16 +220,117 @@ export const PLATE_TYPES = [
   { id: 'design', name: '絵柄入り（地域ごとに違う）', color: '#be4bdb' },
 ];
 const PLATE_RAW = `
-BW:wy EG:w SZ:design GH:w KE:wy LS:w MG:k NA:y NG:w RW:wy SN:b ZA:w ST:k TN:k UG:wy
-BD:w BT:r KH:w CX:y CC:w IN:w ID:k IL:y JP:w JO:w KZ:w KG:w LA:y LB:w MY:k MN:w NP:w OM:y PK:w PH:w QA:w
-RU:w SG:wy KR:w LK:wy TW:w TH:w AE:w VN:w
-AL:w-eu AD:w AT:w-eu BE:w-eu BA:w-eu BG:w-eu HR:w-eu CY:w-eu CZ:w-eu DK:w-eu EE:w-eu FO:w-eu FI:w-eu FR:w-eu GE:w-eu
-DE:w-eu GI:wy GR:w-eu HU:w-eu IS:w-eu IE:w-eu IM:wy IT:w-eu JE:wy XK:w-eu LV:w-eu LI:k LT:w-eu LU:y-eu MT:w-eu MC:w
-ME:w-eu NL:y-eu MK:w-eu NO:w-eu PL:w-eu PT:w-eu RO:w-eu SM:w RS:w-eu SK:w-eu SI:w-eu ES:w-eu SE:w-eu CH:w TR:w-eu
-UA:w-eu GB:wy BM:w CR:w CW:w GL:w GT:w VI:design AS:design AU:design GU:w NZ:w
-AR:mercosur BO:mercosur BR:mercosur CL:w CO:y EC:w PY:mercosur PE:w UY:mercosur
+BW:wy EG:w SZ:design GH:w KE:wy LS:w MG:k NA:y NG:w RW:wy SN:b ZA:design ST:k TN:k UG:wy BD:w
+BT:r KH:w CX:y CC:w IN:w ID:k IL:y JP:w JO:w KZ:w KG:w LA:y LB:w-eu MY:k MN:w NP:w
+OM:y PK:w PH:w QA:w RU:w SG:k KR:w LK:wy TW:w TH:w AE:w VN:w AL:w-eu AD:w AT:w-eu BE:w-eu
+BA:w-eu BG:w-eu HR:w-eu CY:w-eu CZ:w-eu DK:w-eu EE:w-eu FO:w-eu FI:w-eu FR:w-eu GE:w-eu DE:w-eu GI:wy GR:w-eu HU:w-eu IS:w
+IE:w-eu IM:wy IT:w-eu JE:wy XK:w-eu LV:w-eu LI:k LT:w-eu LU:y-eu MT:w-eu MC:w ME:w-eu NL:y-eu MK:w NO:w-eu PL:w-eu
+PT:w-eu RO:w-eu SM:w RS:w-eu SK:w-eu SI:w-eu ES:w-eu SE:w-eu CH:w TR:w-eu UA:w-eu GB:wy BM:w CR:w CW:w GL:w
+GT:w VI:design AS:design AU:design GU:w NZ:w AR:mercosur BO:w BR:mercosur CL:w CO:y EC:w PY:mercosur PE:w UY:w HK:wy
+MO:k MX:design US:design CA:design DO:w PA:w
 `;
-export const PLATE_DATA = Object.fromEntries(PLATE_RAW.trim().split(/\s+/).map((x) => { const [c, t] = x.split(':'); return [c, { types: [t] }]; }));
+// 国ごとの見分け方（Plonkit の各国ガイドより）
+const PLATE_NOTE = {
+  AL: '両側に青い帯、または左に赤い帯。左に赤い帯はヨーロッパでアルバニアだけ（イタリアも両側に青い帯だが、前のプレートが短い）',
+  AD: '左にオレンジの点。ヨーロッパではアンドラだけ',
+  AR: '黒いプレート（中央に黒い点）と、上に青い帯の白いプレート。黒い点はアルゼンチンだけ（青い帯はブラジルにも）',
+  AU: '州ごとにデザインが違う',
+  AT: '長い白に左の青い帯。イタリアは両側に帯で前が短い。スイスは帯なし',
+  BD: '白・黒・ターコイズ。ターコイズはバングラデシュだけ',
+  BE: '赤い文字',
+  BT: 'ほぼすべて赤。アジアで全面が赤いのはブータンだけ。タクシーは黄色',
+  BO: '短い白に青い文字（ぼかしで白く見える）',
+  BW: '前が白・後ろが黄。南部アフリカで後ろが黄色なのはボツワナとナミビアだけ',
+  BR: '2018 年までは白、今は上に青い帯（メルコスール）',
+  KH: '白に青い文字（白く見える）。公用車は緑',
+  CA: '州ごとに違う。前のプレートがいらない州も多い',
+  CL: '自家用は白、事業用・タクシーはオレンジ（エクアドルにも）',
+  CO: '黄色。南米で黄色はほぼコロンビアだけ',
+  CR: '短い白に青い文字（薄い青に見える）',
+  HR: '長い白。青い帯がないものも多い（特に Gen 3）',
+  CY: 'ヨーロッパ式の白と、イギリス式（後ろが黄）の両方。レンタカーは赤',
+  DK: '長い白に青い帯。事業用は黄、左が黄色の「オウム」プレートも',
+  DO: '上が淡い黄で下が白。前のプレートは不要',
+  EC: '白で短いものと長いものが混在（中南米でエクアドルだけ）。事業用はオレンジ',
+  SZ: '長くて下が緑（南アフリカの一部に似る）',
+  FI: '少し短い白に青い帯',
+  FR: '白で両側に青い帯。古い車は後ろが黄',
+  GH: '自家用は白、事業用は黄（混在が多い）。ナイジェリアは緑がかる',
+  GI: 'イギリスと同じく前が白・後ろが黄',
+  GR: '白、または左に青い帯。タクシーは黄',
+  GT: '短い。青っぽいか、左が少し緑',
+  HK: '前が白・後ろが黄。中国本土の黒いプレートを併用する車も',
+  HU: '長い白に青い帯。タクシーは黄、電気自動車は緑',
+  IS: '帯のない白に青い文字（ヨーロッパでは珍しく左の帯がない）',
+  IN: '長い白が多い。事業用は黄、電気自動車は緑',
+  ID: '黒に白い文字（白い区切りが 3 つ）。事業用は黄、新しいものは白も。バイクにも前のプレート',
+  IE: '長い白に青い帯で、後ろも白（イギリスは後ろが黄）',
+  IM: '前が白・後ろが黄で、左に赤い帯',
+  IL: '黄色に左の青い帯。ヨルダン・UAE は白',
+  IT: '両側に青い帯で、前のプレートがとても短い（この組み合わせはイタリアだけ）',
+  JP: '短い白に緑の文字',
+  JE: 'イギリス式（前が白・後ろが黄）で、左に赤い紋章',
+  JO: '白で長いものと短いもの',
+  KZ: '白で左に少し青',
+  KE: '前は長い白',
+  KG: '赤い帯がある（アルバニア、まれに UAE にも）',
+  LA: '短い黄色（タイ・カンボジアの自家用は白）。事業用は白、公用は青',
+  LB: '左に青い帯（長いものと短いもの）。タクシーは濃い赤',
+  LS: '長い白に青い文字',
+  LI: '黒に白い文字、左に黄と赤の紋章（ぼかしで灰色に見える）',
+  LU: '長い黄色に青い帯（自家用が黄なのはほかにオランダ・イギリスの後ろだけ）',
+  MO: '黒に白い文字（長いものと四角いもの）',
+  MY: '黒で白い区切りが 2 つ（インドネシアは 3 つ）',
+  MT: '青い帯。短いプレートがとても多い',
+  MX: '短く、州ごとにデザインが違う。前のプレートが必要',
+  MC: '短くて帯がない。フランスの車も多い',
+  MN: '白で左に少し赤（ソヨンボ）',
+  ME: '青い帯と赤い丸の紋章',
+  NA: '前後とも黄色（南部アフリカで後ろが黄なのはボツワナとナミビアだけ）',
+  NP: '長い白が多い',
+  NL: '長い黄色に青い帯。タクシーは青',
+  NZ: '白に黒い文字。縁は角ばっている',
+  NG: '短く、ぼかしで緑がかって見える',
+  MK: '白。青い帯はあったりなかったり、左に赤いブロック（セルビアはほぼ必ず青い帯）',
+  NO: '長い白に青い帯。事業用は緑',
+  OM: '自家用は黄、事業用は赤',
+  PK: '短い。パンジャブは左に緑の帯（全面が緑も）',
+  PA: '短い白で上にターコイズの帯。前のプレートは不要',
+  PE: '白か黄（黄は少なめ）。タクシーは上が黄で下が白',
+  PH: '白に黒い文字。古い 2002 年式は緑がかる',
+  PL: '長い白に青い帯。電気自動車は緑',
+  PT: '青い帯と、右に黄色の帯（ポルトガルだけ。2020 年に廃止）',
+  QA: '長い白で左にえんじ色の帯',
+  RO: '長い白に青い帯',
+  RU: '帯のない白に黒い文字。右に地域番号',
+  RW: '前が白・後ろが黄',
+  SM: '短い白に青い文字',
+  SN: '全面が青（アフリカでセネガルだけ）。新しいものは白に青い帯',
+  RS: '白に青い帯（ほぼ必ず）',
+  SG: '黒に白い文字が多い。イギリス式（白と黄）もときどき',
+  ZA: '州ごとにデザインが違う',
+  KR: '2006 年以降は白（事業用は黄）、それ以前は短い緑',
+  ES: '長い白に青い帯（ポルトガルは右に黄の帯、イタリアは両側に青い帯）',
+  LK: '前は長い白、後ろは短い黄',
+  SE: '長い白に青い帯。タクシーは黄',
+  CH: '前がとても短い白。後ろは長いか縦長',
+  TH: '大きな白。事業用は黄（東南アジアで事業用が黄なのはタイだけ）',
+  TN: '黒に白い文字',
+  TR: '長い白に青い帯',
+  UG: '前が白・後ろが黄（長いものと縦長）',
+  UA: '長い白で左に青と黄の帯（ロシアは帯なし）',
+  GB: '前が白・後ろが黄。青い帯は少ない（アイルランドは後ろも白）',
+  US: '短く、州ごとにデザインが違う。約半分の州は前のプレートが不要',
+  UY: '無地の白に黒い文字（アルゼンチンは黒い点か青い帯）',
+  VI: '短い。明るい青か濃い青',
+  VN: '白に黒い文字',
+  EE: '長い白に青い帯',
+  LV: '長い白に青い帯',
+  LT: '長い白に青い帯',
+  BG: 'ヨーロッパ式（左に青い帯）',
+  CX: '黄色',
+};
+export const PLATE_DATA = Object.fromEntries(PLATE_RAW.trim().split(/\s+/).map((x) => { const [c, t] = x.split(':'); return [c, { types: [t], ...(PLATE_NOTE[c] ? { note: PLATE_NOTE[c] } : {}) }]; }));
 
 // ---- ボラード（GeoHints https://geohints.com/meta/bollards の写真から、本体と帯の色でおおまかに分類し、
 //      Plonkit の各国ガイドの記述と照らし合わせて修正。2026-10 時点）
@@ -196,7 +355,7 @@ export const BOLLARD_TYPES = [
   { id: 'c', name: 'コンクリートの塊', color: '#c2a878', body: '#e9ecef', band: '#868e96', bg: '#8d6e4f' },
 ];
 const BOLLARD_RAW = `
-GH:wr KE:c LS:w NA:wy NG:wk RW:wr RE:wr SN:wr TN:wb UG:w BD:srw BT:c KH:srw CX:wr CC:b IN:skw ID:skw IL:wk
+GH:srw KE:c LS:w NA:wy NG:wk RW:wr RE:wr SN:wr TN:wb UG:w BD:srw BT:c KH:srw CX:wr CC:b IN:skw ID:skw IL:wk
 JP:w KZ:wk KG:wk LA:skw LB:wr MY:wr MN:wr NP:skw OM:wr PH:syk QA:srw RU:wk KR:w LK:c TW:wk TH:skw AE:srw VN:wr
 AL:wk AD:wy AT:wk BY:k BE:wy BA:wk BG:wk HR:wk CY:wr CZ:wk DK:wy EE:w FO:y FI:wk FR:wr GE:wk DE:wk GR:wk
 HU:wk IS:y IE:wg IM:wk IT:wk JE:k XK:wk LV:wk LI:wk LT:wk LU:wk MT:wk MC:wr ME:wk NL:wr MK:wk NO:wk PL:wr

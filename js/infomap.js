@@ -300,7 +300,7 @@ export function factPanelHtml(mode, code) {
   const c = classify(mode, code);
   return `<div class="pfact-head">${m.icon} ${esc(m.name)}</div>
     <div class="pfact-body">${factChipHtml(mode, code)}</div>
-    ${c?.extra ? `<div class="pfact-note">${esc(c.extra)}</div>` : ''}
+    ${c?.extra ? `<div class="pfact-note pfact-extra">${esc(c.extra)}</div>` : ''}
     ${c?.alt?.length ? `<div class="pfact-alt"><span>ほかに見られる種類</span>${c.alt.map((x) => `<span class="alt-sign" title="${esc(chevLabel(x))}">${chevSignSvg(x)}</span>`).join('')}</div>` : ''}
     ${c?.note ? `<div class="pfact-note">${esc(c.note)}</div>` : ''}`;
 }
