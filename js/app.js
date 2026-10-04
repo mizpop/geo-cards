@@ -863,7 +863,7 @@ function renderStudy() {
     <div class="toolbar">
       ${multiPickHtml('study-region', 'すべての地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: state.cards.filter((c) => cardRegions(c).has(r.id)).length })), s.regions)}
       ${multiPickHtml('study-cat', 'すべてのカテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: state.cards.filter((c) => catKey(c) === k.id).length })), s.cats)}
-      <button class="btn ${s.shuffled ? 'btn-on' : ''}" id="study-shuffle" aria-pressed="${s.shuffled}" aria-label="シャッフル">🔀<span class="tab-long"> シャッフル</span></button>
+      <button class="btn" id="study-shuffle" aria-label="シャッフル" title="押すたびに順番をランダムに並べ替え">🔀<span class="tab-long"> シャッフル</span></button>
       <span class="counter">${total ? `${s.index + 1} / ${total}` : '0 / 0'}</span>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${total ? ((s.index + 1) / total) * 100 : 0}%"></div></div>
@@ -903,7 +903,15 @@ function renderStudy() {
   bindMultiPick('study-region', s.regions, () => repick('study-region'), s.openPick === 'study-region');
   bindMultiPick('study-cat', s.cats, () => repick('study-cat'), s.openPick === 'study-cat');
   s.openPick = null;
-  $('#study-shuffle').addEventListener('click', () => { s.shuffled = !s.shuffled; rebuildStudyDeck(); renderStudy(); });
+  // 押すたびに並べ替えて 1 枚目から（以降、絞り込みを変えてもランダムな順のまま）
+  $('#study-shuffle').addEventListener('click', () => {
+    s.shuffled = true;
+    rebuildStudyDeck();
+    s.enter = 'next';
+    play('flip');
+    renderStudy();
+    toast('順番をシャッフルしました');
+  });
   if (card) {
     $('#flashcard').addEventListener('click', (e) => {
       // 画像部分のタップは attachZoom 側で処理（ドラッグ・拡大中はめくらない）
