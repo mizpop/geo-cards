@@ -212,8 +212,9 @@ export async function renderMap(view, ctx) {
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
         ${mode === 'cards' ? '' : `<div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend"><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeDef(mode).icon} ${modeDef(mode).name}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${modeDef(mode).desc}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
       </div>
-      <aside class="map-panel" id="map-panel">
+      <aside class="map-panel" id="map-panel" style="--pinfo-h:${(ctx.panelSplit() * 100).toFixed(1)}%">
         <section class="pinfo" id="pinfo"></section>
+        <div class="psplit" id="psplit" role="separator" aria-orientation="horizontal" aria-label="上下の高さを調整" tabindex="0" title="ドラッグで上下の高さを調整（ダブルクリックで元に戻す）"></div>
         <section class="plist" id="plist"></section>
       </aside>
     </div>`;
@@ -995,6 +996,43 @@ export async function renderMap(view, ctx) {
     ms.dispatchEvent(new Event('input'));
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
+  // 右パネルの上（国の情報）と下（カード・一覧）の高さの割合をドラッグで変える
+  {
+    const panel = $id('map-panel');
+    const bar = $id('psplit');
+    const DEFAULT = 0.36;
+    const apply = (r) => panel.style.setProperty('--pinfo-h', `${(r * 100).toFixed(1)}%`);
+    const clamp = (r) => Math.min(0.85, Math.max(0.12, r));
+    const commit = (r) => { ctx.setPanelSplit(r); renderPanel(); }; // 一覧は高さに合わせて数を決めるので描き直す
+    let dragging = false;
+    let ratio = ctx.panelSplit();
+    let lastDown = 0;
+    bar.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      // 2 回続けて押したら元の高さに戻す（pointerdown を止めると dblclick が来ないため自前で判定）
+      if (Date.now() - lastDown < 350) { lastDown = 0; ratio = DEFAULT; apply(ratio); commit(ratio); return; }
+      lastDown = Date.now();
+      dragging = true;
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add('is-dragging');
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const r = panel.getBoundingClientRect();
+      ratio = clamp((e.clientY - r.top) / r.height);
+      apply(ratio);
+    });
+    const end = () => { if (!dragging) return; dragging = false; bar.classList.remove('is-dragging'); commit(ratio); };
+    bar.addEventListener('pointerup', end);
+    bar.addEventListener('pointercancel', end);
+    bar.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      ratio = clamp(ratio + (e.key === 'ArrowDown' ? 0.05 : -0.05));
+      apply(ratio);
+      commit(ratio);
+    });
+  }
   $id('map-photos')?.addEventListener('change', (e) => { ctx.setMapPhotos(e.target.checked); refreshMap(view, ctx); });
   $id('map-mode').addEventListener('change', (e) => {
     ctx.setMapMode(e.target.value);

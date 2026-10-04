@@ -3376,6 +3376,8 @@ const mapCtx = {
   liveSearch: () => settings.liveSearch,
   mapMode: () => settings.mapMode || 'cards',
   mapPhotos: () => settings.mapPhotos !== false,
+  panelSplit: () => Number(settings.mapPanelSplit) || 0.36,
+  setPanelSplit: (r) => { settings.mapPanelSplit = Math.round(r * 1000) / 1000; saveSettings(); },
   openPhoto: (topic, code, srcs, i, src) => openPhotoModal(topic, code, srcs, i, src),
   photoNote: (topic, src, code) => photoNote(topic, src, code),
   setMapPhotos: (on) => { settings.mapPhotos = on; saveSettings(); },
