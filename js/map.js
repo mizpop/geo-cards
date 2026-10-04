@@ -187,7 +187,7 @@ export async function renderMap(view, ctx) {
         <div class="map-search">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           <input type="search" id="map-search" list="country-list" placeholder="国を検索（そのまま入力 ／ ww で世界全体）" autocomplete="off" enterkeyhint="go" aria-label="国を検索">
-          <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動 ／ Enter: 確定して入力を終える ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
+          <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動（設定でオフにできます） ／ Enter: 確定して入力を終える ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
         </div>
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
       </div>
@@ -865,7 +865,8 @@ export async function renderMap(view, ctx) {
       setTimeout(() => { ms.value = ''; ms.dispatchEvent(new Event('input')); }, 0);
       return;
     }
-    // 入力のたびにすぐ移動（候補が変わったときだけ）
+    // 入力のたびにすぐ移動（候補が変わったときだけ）。設定でオフなら Enter まで待つ
+    if (!ctx.liveSearch()) return;
     const code = ctx.resolveCountry(ms.value);
     if (code && code !== lastAuto) { lastAuto = code; goTo(code); }
   });

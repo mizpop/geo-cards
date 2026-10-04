@@ -98,6 +98,7 @@ const DEFAULT_SETTINGS = {
   showDesc: true, // 表面に説明文を表示（暗記・クイズ）
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
+  liveSearch: true, // 地図: 検索バーに入力するたびに候補の国へ移動（オフなら Enter で移動）
   sound: true, // 効果音（右上のボタンでも切り替え）
   keys: {}, // キー割り当て（DEFAULT_KEYS からの変更分）
 };
@@ -150,6 +151,7 @@ function openSettings() {
     </section>
     <h3 class="set-group-title">🗺 地図</h3>
     <section class="set-group">
+      ${item('入力中に国へ移動', '地図の検索バーに入力するたびに、候補の国へ移動します。オフにすると Enter を押したときだけ移動します', sw('liveSearch'))}
       ${item('止まると詳しく表示', '国にマウスを乗せて 0.5 秒止まると、吹き出しに詳しい情報を出します。オフでも右クリックで表示できます', sw('hoverExpand'))}
     </section>
     <h3 class="set-group-title">⌨ キーボード操作</h3>
@@ -2269,6 +2271,7 @@ const mapCtx = {
   openCard: (card, src, list) => openCardModal(card, src, list),
   animations: () => settings.animations,
   hoverAutoExpand: () => settings.hoverExpand,
+  liveSearch: () => settings.liveSearch,
   toast: (msg, kind) => toast(msg, kind),
   tileHtml: (card) => tileHtml(card),
   bindTiles: () => bindTiles(),
