@@ -44,7 +44,8 @@ export function attachZoom(container, opts = {}) {
   }
 
   const apply = () => {
-    img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    // 重ねて表示している画像（裏面だけの書き込みのレイヤー）も一緒に動かす
+    for (const x of container.querySelectorAll('img')) x.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
     container.classList.toggle('is-zoomed', scale > 1.001);
   };
 

@@ -2,7 +2,7 @@ import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry
 import { initApi } from './api.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
-import { annotateImage } from './annotate.js';
+import { editImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
 import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
@@ -289,6 +289,8 @@ function openSettings() {
   }, { once: true });
 }
 const imgUrl = (card) => card.src || state.urls.get(card.id) || '';
+// 裏面だけに表示する書き込みのレイヤー（なければ ''）
+const backUrl = (card) => (card.photo ? '' : state.urls.get(`${card.id}|back`) || '');
 
 /* ================= 起動・ログイン ================= */
 async function boot() {
@@ -696,9 +698,11 @@ function onKeydown(e) {
 }
 
 /* ================= カード表示部品 ================= */
-function frontHtml(card, showDesc = settings.showDesc) {
+// withBack: 裏面だけの書き込み（ヒントの印）を画像に重ねる（答えが見えている場面用）
+function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
+  const back = withBack && backUrl(card);
   return `
-    <div class="front-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img src="${esc(imgUrl(card))}" alt="カード画像">` : '<div class="img-missing">画像なし</div>'}</div>
+    <div class="front-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img src="${esc(imgUrl(card))}" alt="カード画像">${back ? `<img class="layer-back" src="${esc(back)}" alt="" aria-hidden="true"><button type="button" class="layer-toggle" title="裏面の印（ヒントの場所）の表示を切り替え">🔁 印</button>` : ''}` : '<div class="img-missing">画像なし</div>'}</div>
     ${card.description && showDesc ? `<p class="front-desc">${nl2br(card.description)}</p>` : ''}`;
 }
 
@@ -718,8 +722,49 @@ function answerHtml(card, size = 'lg', linkCountries = false) {
 function backImgHtml(card) {
   const src = imgUrl(card);
   if (!src) return '';
-  return `<div class="back-img"><div class="back-img-box"><img src="${esc(src)}" alt="カード画像"></div></div>`;
+  const back = backUrl(card);
+  return `<div class="back-img"><div class="back-img-box"><img src="${esc(src)}" alt="カード画像">${back ? `<img class="back-layer" src="${esc(back)}" alt="" aria-hidden="true">` : ''}</div></div>`;
 }
+
+// 関連カード（このカードが選んだカードと、このカードを選んでいるカード）
+function relatedCards(card) {
+  if (card.photo) return [];
+  const ids = new Set((card.related || []).filter((id) => id !== card.id));
+  for (const c of state.cards) if (c.id !== card.id && (c.related || []).includes(card.id)) ids.add(c.id);
+  return [...ids].map((id) => state.cards.find((c) => c.id === id)).filter(Boolean);
+}
+function relatedHtml(card) {
+  const list = relatedCards(card);
+  if (!list.length) return '';
+  return `<div class="related">
+    <div class="related-head">🔗 関連カード <span class="muted">${list.length}</span></div>
+    <div class="related-list">${list.map((c) => `<button type="button" class="related-item" data-related="${c.id}" style="${catStyle(c)}" title="${esc(c.description || catOf(c).name)}">
+      <span class="related-thumb">${imgUrl(c) ? `<img src="${esc(imgUrl(c))}" alt="" loading="lazy">` : ''}</span>
+      <span class="related-text"><span class="related-country">${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}</span></span>
+    </button>`).join('')}</div>
+  </div>`;
+}
+function bindRelated(root) {
+  root.querySelectorAll('[data-related]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const c = cardById(b.dataset.related);
+    if (c) openCardModal(c, b);
+  }));
+  // 画像に重ねた裏面の印の表示切り替え
+  root.querySelectorAll('.layer-toggle').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    b.closest('.front-img').classList.toggle('hide-layer');
+  }));
+}
+
+// 日時の表示（2026/10/04 12:34）
+function fmtTime(t) {
+  const d = t ? new Date(t) : null;
+  if (!d || Number.isNaN(d.getTime())) return '—';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const cardDatesHtml = (card) => (card.photo || !card.created_at ? '' : `<p class="card-dates muted small">追加: ${fmtTime(card.created_at)}${card.updated_at && card.updated_at !== card.created_at ? ` ・ 最終編集: ${fmtTime(card.updated_at)}` : ''}</p>`);
 
 function notesHtml(card) {
   return card.notes ? `<div class="notes">${nl2br(card.notes)}</div>` : '';
@@ -1021,13 +1066,15 @@ function renderCardModal(card, entry = {}) {
     </div>
     <div class="detail ${entry.enter ? `enter-${entry.enter}` : ''}">
       <div class="detail-front">
-        ${frontHtml(card, true)}
+        ${frontHtml(card, true, true)}
       </div>
       <div class="detail-back">
         ${answerHtml(card, 'md', true)}
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
         ${notesHtml(card)}
         ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : cardFactsHtml(card)}
+        ${relatedHtml(card)}
+        ${cardDatesHtml(card)}
       </div>
     </div>
     ${state.user.isEditor && !card.photo ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
@@ -1037,6 +1084,7 @@ function renderCardModal(card, entry = {}) {
   $('#modal').style.setProperty('--cat', catOf(card).color);
   attachZoom($('.detail-front .front-img'), pager ? { onSwipe: (d) => stepCard(d) } : {});
   bindCardFacts($('#modal'));
+  bindRelated($('#modal'));
   $('#card-prev')?.addEventListener('click', () => stepCard(-1));
   $('#card-next')?.addEventListener('click', () => stepCard(1));
   delete entry.enter;
@@ -1473,6 +1521,7 @@ function renderStudy() {
               <div class="back-answer">${answerHtml(card)}</div>
               <div class="srs-row">${levelHtml(card.id)}</div>
               ${notesHtml(card)}
+              ${relatedHtml(card)}
             </div>
             ${cardFactsHtml(card, true)}
           </div>
@@ -1501,7 +1550,7 @@ function renderStudy() {
     renderStudy();
     toast(s.review ? `復習モード: ${s.deck.length} 枚` : 'すべてのカードに戻りました');
   });
-  if (card) bindCardFacts($('#flashcard'));
+  if (card) { bindCardFacts($('#flashcard')); bindRelated($('#flashcard')); }
   $('#back-facts')?.addEventListener('toggle', (e) => { s.factsOpen = e.currentTarget.open; });
   $('#study-ok')?.addEventListener('click', () => markStudy('ok'));
   $('#study-ng')?.addEventListener('click', () => markStudy('ng'));
@@ -1517,7 +1566,7 @@ function renderStudy() {
   if (card) {
     $('#flashcard').addEventListener('click', (e) => {
       // 画像部分のタップは attachZoom 側で処理（ドラッグ・拡大中はめくらない）
-      if (e.target.closest('.front-img, button, .card-facts-mini, a')) return;
+      if (e.target.closest('.front-img, button, .card-facts-mini, .related, a')) return;
       flipStudy();
     });
     attachZoom($('#flashcard .front-img'), { onTap: flipStudy, onSwipe: moveStudy, dblclick: false });
@@ -2927,6 +2976,9 @@ function openEditor(card, preset = {}) {
     blob: null,
     preview: card ? imgUrl(card) : '',
     countries: new Set(card ? card.countries : preset.countries || []),
+    back: null, // 裏面だけの書き込み: null（変更なし）/ Blob（新しく保存）/ 'clear'（消す）
+    backPreview: card ? backUrl(card) : '',
+    related: new Set((card?.related || []).filter((id) => state.cards.some((c) => c.id === id))),
   };
 
   openModal(`
@@ -2938,14 +2990,18 @@ function openEditor(card, preset = {}) {
       <section class="editor-side">
         <h3 class="side-title">表面</h3>
         <div class="dropzone" id="ed-drop" tabindex="0">
-          <img id="ed-img" alt="" ${ed.preview ? `src="${esc(ed.preview)}"` : 'hidden'}>
+          <div class="ed-img-wrap" id="ed-img-wrap" ${ed.preview ? '' : 'hidden'}>
+            <img id="ed-img" alt="" ${ed.preview ? `src="${esc(ed.preview)}"` : ''}>
+            <img id="ed-back" class="ed-back" alt="" ${ed.backPreview ? `src="${esc(ed.backPreview)}"` : 'hidden'}>
+          </div>
+          <span class="ed-back-tag" id="ed-back-tag" ${ed.backPreview ? '' : 'hidden'} title="カードを裏返したときだけ表示される書き込みがあります">🔁 裏面の印あり</span>
           <div class="dropzone-hint" id="ed-hint" ${ed.preview ? 'hidden' : ''}>
             <strong>画像をドロップ</strong><br>またはクリックしてファイルを選択<br><span class="muted">Ctrl+V（⌘+V）でも貼り付けできます</span>
           </div>
         </div>
         <div class="row">
           <button class="btn" id="ed-paste" type="button">📋 クリップボードから貼り付け</button>
-          <button class="btn btn-ghost" id="ed-annot" type="button" title="画像に丸・矢印などを書き込む" ${ed.preview ? '' : 'disabled'}>✏️ 書き込み</button>
+          <button class="btn btn-ghost" id="ed-annot" type="button" title="トリミング・丸や矢印の書き込み（裏面だけに表示する印も）" ${ed.preview ? '' : 'disabled'}>🎨 画像編集</button>
           <label class="btn btn-ghost">ファイルを選択<input type="file" id="ed-file" accept="image/*" hidden></label>
         </div>
         <div class="field">
@@ -2998,10 +3054,17 @@ function openEditor(card, preset = {}) {
           <span>解説</span>
           <textarea id="ed-notes" rows="4" placeholder="見分け方や注意点など">${esc(card?.notes)}</textarea>
         </label>
+        <div class="field">
+          <span>関連カード（暗記では裏面、そのほかはカードを開いたときに表示）</span>
+          <div class="ed-related" id="ed-related"></div>
+          <input type="search" id="ed-rel-q" class="input" placeholder="国名・地域名・説明でカードを検索して追加" autocomplete="off">
+          <div class="ed-rel-results" id="ed-rel-results"></div>
+        </div>
       </section>
     </div>
     <div class="modal-foot">
       ${card ? '<button class="btn btn-danger-ghost" id="ed-delete" type="button">削除</button>' : ''}
+      ${card ? cardDatesHtml(card).replace('card-dates', 'card-dates ed-dates') : ''}
       <span class="grow"></span>
       <button class="btn btn-ghost" data-close type="button">キャンセル</button>
       <button class="btn btn-primary" id="ed-save" type="button">保存</button>
@@ -3009,21 +3072,46 @@ function openEditor(card, preset = {}) {
   `, 'modal-wide');
   modalCurrent = { kind: 'editor' }; // 検索から詳細を開いても、戻ると編集を続けられるように
 
-  const setImage = async (blob) => {
+  const showBack = () => {
+    const b = $('#ed-back');
+    b.hidden = !ed.backPreview;
+    if (ed.backPreview) b.src = ed.backPreview; else b.removeAttribute('src');
+    $('#ed-back-tag').hidden = !ed.backPreview;
+  };
+  // fromEditor: 画像編集の結果（裏面の印もそれに合わせてある）。それ以外の新しい画像では裏面の印を外す
+  const setImage = async (blob, fromEditor = false) => {
     if (!blob || !blob.type.startsWith('image/')) { toast('画像ファイルではありません', 'error'); return; }
     ed.blob = blob;
     ed.preview = await blobToDataUrl(blob);
-    const img = $('#ed-img');
-    img.src = ed.preview;
-    img.hidden = false;
+    $('#ed-img').src = ed.preview;
+    $('#ed-img-wrap').hidden = false;
     $('#ed-hint').hidden = true;
     $('#ed-annot').disabled = false;
+    if (!fromEditor && ed.backPreview) {
+      ed.back = card?.back_path ? 'clear' : null;
+      ed.backPreview = '';
+      showBack();
+      toast('画像を差し替えたので、裏面の印は外しました');
+    }
   };
-  // 画像に丸・矢印を書き込む（書き込んだ画像に差し替え）
-  $('#ed-annot').addEventListener('click', async () => {
+  // 画像編集: トリミング・書き込み（表面に焼き込み / 裏面だけのレイヤー）
+  $('#ed-annot').addEventListener('click', async (e) => {
     if (!ed.preview) return;
-    const out = await annotateImage(ed.preview, $('#modal'));
-    if (out) { await setImage(out); toast('書き込みを反映しました'); }
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const out = await editImage(ed.preview, { backSrc: ed.backPreview, host: $('#modal') });
+      if (!out) return;
+      if (out.image) await setImage(out.image, true);
+      if (out.back instanceof Blob) { ed.back = out.back; ed.backPreview = await blobToDataUrl(out.back); }
+      else if (out.back === 'clear') { ed.back = card?.back_path ? 'clear' : null; ed.backPreview = ''; }
+      showBack();
+      if (out.image || out.back) toast('画像の編集を反映しました（保存すると確定します）');
+    } catch (ex) {
+      toast(`画像を編集できませんでした: ${ex.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+    }
   });
   // 参考写真などから作るときの初期値
   if (preset.blob) setImage(preset.blob);
@@ -3129,6 +3217,35 @@ function openEditor(card, preset = {}) {
   });
   renderChips();
 
+  // 関連カード: 検索して追加（検索パネルと同じ一致のしかた）
+  const renderRelated = () => {
+    const list = [...ed.related].map((id) => state.cards.find((c) => c.id === id)).filter(Boolean);
+    $('#ed-related').innerHTML = list.length
+      ? list.map((c) => `<span class="chip chip-removable rel-chip" style="${catStyle(c)}">${imgUrl(c) ? `<img class="rel-chip-img" src="${esc(imgUrl(c))}" alt="">` : ''}${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}・${esc(catOf(c).name)}<button type="button" data-rel-rm="${c.id}" aria-label="関連カードから外す">✕</button></span>`).join('')
+      : '<span class="muted small">まだありません</span>';
+    $$('#ed-related [data-rel-rm]').forEach((b) => b.addEventListener('click', () => { ed.related.delete(b.dataset.relRm); renderRelated(); renderRelResults(); }));
+  };
+  const renderRelResults = () => {
+    const q = $('#ed-rel-q').value.trim();
+    const box = $('#ed-rel-results');
+    if (!q) { box.innerHTML = ''; return; }
+    const hits = sortCards(matchCards(q)).filter((c) => c.id !== card?.id && !ed.related.has(c.id));
+    box.innerHTML = hits.length
+      ? `${hits.slice(0, 12).map((c) => `<button type="button" class="rel-hit" data-rel-add="${c.id}" style="${catStyle(c)}" title="${esc(c.description || '')}">
+          <span class="related-thumb">${imgUrl(c) ? `<img src="${esc(imgUrl(c))}" alt="" loading="lazy">` : ''}</span>
+          <span class="related-text"><span class="related-country">${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}${c.description ? `・${esc(c.description)}` : ''}</span></span>
+        </button>`).join('')}${hits.length > 12 ? `<p class="muted small">ほか ${hits.length - 12} 枚（言葉を足して絞り込めます）</p>` : ''}`
+      : '<p class="muted small">該当するカードがありません</p>';
+    $$('#ed-rel-results [data-rel-add]').forEach((b) => b.addEventListener('click', () => { ed.related.add(b.dataset.relAdd); renderRelated(); renderRelResults(); }));
+  };
+  $('#ed-rel-q').addEventListener('input', renderRelResults);
+  $('#ed-rel-q').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    $('#ed-rel-results [data-rel-add]')?.click(); // Enter で先頭の候補を追加
+  });
+  renderRelated();
+
   // 保存・削除
   if (card) $('#ed-delete').addEventListener('click', () => confirmDelete(card));
   $('#ed-save').addEventListener('click', async (e) => {
@@ -3140,13 +3257,14 @@ function openEditor(card, preset = {}) {
       area: $('#ed-area').value.trim(),
       notes: $('#ed-notes').value.trim(),
       category_id: (() => { const v = $('input[name=ed-cat]:checked')?.value; return v && v !== 'none' ? v : null; })(),
+      related: [...ed.related],
     };
     const btn = e.currentTarget;
     btn.disabled = true;
     btn.textContent = '保存中…';
     try {
-      if (card) await api.updateCard(card, fields, ed.blob);
-      else await api.createCard(fields, ed.blob);
+      if (card) await api.updateCard(card, fields, ed.blob, ed.back);
+      else await api.createCard(fields, ed.blob, ed.back instanceof Blob ? ed.back : null);
       closeModal();
       toast(card ? '更新しました' : '追加しました');
       await reloadCards();
@@ -3507,7 +3625,9 @@ async function exportBackup() {
       let image = '';
       const url = imgUrl(c);
       if (url) image = url.startsWith('data:') ? url : await blobToDataUrl(await (await fetch(url)).blob());
-      out.push({ description: c.description, countries: c.countries, area: c.area, notes: c.notes, category: catOf(c) === UNCAT ? '' : catOf(c).name, created_at: c.created_at, image });
+      const bu = backUrl(c);
+      const back = bu ? (bu.startsWith('data:') ? bu : await blobToDataUrl(await (await fetch(bu)).blob())) : '';
+      out.push({ description: c.description, countries: c.countries, area: c.area, notes: c.notes, category: catOf(c) === UNCAT ? '' : catOf(c).name, created_at: c.created_at, image, ...(back ? { back } : {}) });
     }
     const json = JSON.stringify({ app: 'geo-cards', version: 1, exportedAt: new Date().toISOString(), cards: out, countryNotes: Object.fromEntries(state.countryNotes) });
     const a = document.createElement('a');
@@ -3620,7 +3740,7 @@ async function importBackup(file) {
         state.categories = await api.listCategories();
         cat = state.categories.find((c) => c.name === it.category);
       }
-      await api.createCard({ ...it, countries, category_id: cat?.id ?? null }, await dataUrlToBlob(it.image));
+      await api.createCard({ ...it, related: undefined, countries, category_id: cat?.id ?? null }, await dataUrlToBlob(it.image), it.back ? await dataUrlToBlob(it.back) : null);
       ok++;
       toast(`読み込み中… ${ok} / ${items.length}`);
     } catch (ex) {

@@ -39,6 +39,9 @@ create table if not exists public.categories (
   sort  integer not null default 0
 );
 alter table public.cards add column if not exists category_id uuid references public.categories (id) on delete set null;
+-- 裏面だけに表示する書き込みのレイヤー・関連カード（card-extras.sql と同じ）
+alter table public.cards add column if not exists back_path text;
+alter table public.cards add column if not exists related uuid[] not null default '{}';
 
 -- 初期カテゴリー（まだ1つもない場合のみ）
 insert into public.categories (name, color, sort)

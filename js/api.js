@@ -13,13 +13,25 @@ function uuid() {
 }
 
 function cleanFields(f) {
-  return {
+  const out = {
     description: f.description ?? '',
     countries: Array.from(f.countries ?? []),
     area: f.area ?? '',
     notes: f.notes ?? '',
     category_id: f.category_id || null,
   };
+  // 関連カード（card-extras.sql で追加した列）。使っていないときは送らない（列がまだなくても保存できるように）
+  if (f.related) out.related = Array.from(f.related);
+  return out;
+}
+
+// card-extras.sql をまだ実行していない（列がない）ときのエラーを分かりやすく
+function explainColumnError(error) {
+  const msg = error?.message || '';
+  if (/(related|back_path)/.test(msg) && /(column|schema cache)/i.test(msg)) {
+    return new Error('データベースに新しい列がありません。Supabase の SQL Editor で supabase/card-extras.sql を実行してください');
+  }
+  return error;
 }
 
 // 初期カテゴリー（デモモード用。Supabase では setup.sql で投入）
@@ -90,7 +102,7 @@ function createSupabaseApi(sb) {
     async imageUrls(cards) {
       const now = Date.now();
       const need = cards
-        .map((c) => c.image_path)
+        .flatMap((c) => [c.image_path, c.back_path].filter(Boolean))
         .filter((p) => { const hit = urlCache.get(p); return !hit || now - hit.at > (SIGNED_URL_TTL - 3600) * 1000; });
       for (let i = 0; i < need.length; i += 200) {
         const chunk = need.slice(i, i + 200);
@@ -98,39 +110,67 @@ function createSupabaseApi(sb) {
         if (error) throw error;
         for (const row of data) if (row.signedUrl) urlCache.set(row.path, { url: row.signedUrl, at: now });
       }
-      return new Map(cards.map((c) => [c.id, urlCache.get(c.image_path)?.url || '']));
+      // 裏面だけのレイヤーは「id|back」で
+      return new Map(cards.flatMap((c) => [[c.id, urlCache.get(c.image_path)?.url || ''], ...(c.back_path ? [[`${c.id}|back`, urlCache.get(c.back_path)?.url || '']] : [])]));
     },
 
-    async createCard(fields, imageBlob) {
+    // backBlob: 裏面だけに表示する書き込みのレイヤー（透明な画像）
+    async createCard(fields, imageBlob, backBlob = null) {
       const id = uuid();
       const blob = await compressImage(imageBlob);
       const path = `${id}.${extFromType(blob.type)}`;
       const up = await bucket().upload(path, blob, { contentType: blob.type, upsert: false });
       if (up.error) throw up.error;
-      const { error } = await sb.from('cards').insert({ id, image_path: path, ...cleanFields(fields) });
+      const row = { id, image_path: path, ...cleanFields(fields) };
+      if (!row.related?.length) delete row.related;
+      const uploaded = [path];
+      if (backBlob instanceof Blob) {
+        const bb = await compressImage(backBlob);
+        row.back_path = `${id}-back-${Date.now()}.${extFromType(bb.type)}`;
+        const ub = await bucket().upload(row.back_path, bb, { contentType: bb.type, upsert: false });
+        if (ub.error) { await bucket().remove(uploaded); throw ub.error; }
+        uploaded.push(row.back_path);
+      }
+      const { error } = await sb.from('cards').insert(row);
       if (error) {
-        await bucket().remove([path]);
-        throw error;
+        await bucket().remove(uploaded);
+        throw explainColumnError(error);
       }
     },
 
-    async updateCard(card, fields, imageBlob) {
+    // back: 裏面だけのレイヤー。null なら変更なし、'clear' なら削除、Blob なら差し替え
+    async updateCard(card, fields, imageBlob, back = null) {
       const patch = { ...cleanFields(fields), updated_at: new Date().toISOString() };
-      let oldPath = null;
+      if (!patch.related?.length && !card.related?.length) delete patch.related;
+      const added = [];
+      const old = [];
       if (imageBlob) {
         const blob = await compressImage(imageBlob);
         const path = `${card.id}-${Date.now()}.${extFromType(blob.type)}`;
         const up = await bucket().upload(path, blob, { contentType: blob.type, upsert: false });
         if (up.error) throw up.error;
         patch.image_path = path;
-        oldPath = card.image_path;
+        added.push(path);
+        old.push(card.image_path);
+      }
+      if (back instanceof Blob) {
+        const bb = await compressImage(back);
+        const path = `${card.id}-back-${Date.now()}.${extFromType(bb.type)}`;
+        const up = await bucket().upload(path, bb, { contentType: bb.type, upsert: false });
+        if (up.error) { if (added.length) await bucket().remove(added); throw up.error; }
+        patch.back_path = path;
+        added.push(path);
+        if (card.back_path) old.push(card.back_path);
+      } else if (back === 'clear' && card.back_path) {
+        patch.back_path = null;
+        old.push(card.back_path);
       }
       const { error } = await sb.from('cards').update(patch).eq('id', card.id);
       if (error) {
-        if (patch.image_path) await bucket().remove([patch.image_path]);
-        throw error;
+        if (added.length) await bucket().remove(added);
+        throw explainColumnError(error);
       }
-      if (oldPath) { await bucket().remove([oldPath]); urlCache.delete(oldPath); }
+      if (old.length) { await bucket().remove(old); for (const p of old) urlCache.delete(p); }
     },
 
     // チャット形式のメモ（古い順）
@@ -215,7 +255,7 @@ function createSupabaseApi(sb) {
     async deleteCard(card) {
       const { error } = await sb.from('cards').delete().eq('id', card.id);
       if (error) throw error;
-      await bucket().remove([card.image_path]);
+      await bucket().remove([card.image_path, card.back_path].filter(Boolean));
       urlCache.delete(card.image_path);
     },
   };
@@ -253,21 +293,26 @@ function createDemoApi() {
     async listCards() {
       return load().sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
-    async imageUrls(cards) { return new Map(cards.map((c) => [c.id, c.image_path])); },
-    async createCard(fields, imageBlob) {
+    async imageUrls(cards) { return new Map(cards.flatMap((c) => [[c.id, c.image_path], ...(c.back_path ? [[`${c.id}|back`, c.back_path]] : [])])); },
+    async createCard(fields, imageBlob, backBlob = null) {
       const image = await blobToDataUrl(await compressImage(imageBlob, 1000, 0.75));
+      const backPath = backBlob instanceof Blob ? await blobToDataUrl(await compressImage(backBlob, 1000, 0.75)) : null;
       // 読み込み〜保存の間に await を挟まない（並行して追加したときに上書きし合わないように）
       const cards = load();
       const now = new Date().toISOString();
-      cards.push({ id: uuid(), image_path: image, ...cleanFields(fields), created_at: now, updated_at: now });
+      cards.push({ id: uuid(), image_path: image, back_path: backPath, ...cleanFields(fields), created_at: now, updated_at: now });
       save(cards);
     },
-    async updateCard(card, fields, imageBlob) {
+    async updateCard(card, fields, imageBlob, back = null) {
+      const image = imageBlob ? await blobToDataUrl(await compressImage(imageBlob, 1000, 0.75)) : null;
+      const backPath = back instanceof Blob ? await blobToDataUrl(await compressImage(back, 1000, 0.75)) : null;
       const cards = load();
       const c = cards.find((x) => x.id === card.id);
       if (!c) throw new Error('カードが見つかりません');
       Object.assign(c, cleanFields(fields), { updated_at: new Date().toISOString() });
-      if (imageBlob) c.image_path = await blobToDataUrl(await compressImage(imageBlob, 1000, 0.75));
+      if (image) c.image_path = image;
+      if (backPath) c.back_path = backPath;
+      else if (back === 'clear') c.back_path = null;
       save(cards);
     },
     async deleteCard(card) {
