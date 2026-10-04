@@ -1582,4 +1582,5 @@ textarea { resize: vertical; line-height: 1.6; }
 
 .og-export { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 10px; }
 .og-export .muted { flex-basis: 100%; }
-#q-og { margin-top: 6px; }
+#q-og-site { width: auto; }
+.og-export .og-site { width: auto; margin-left: 6px; }

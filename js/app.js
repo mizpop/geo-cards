@@ -913,7 +913,8 @@ function renderPhotoModal(entry) {
         ${photoInfoHtml(topic, srcs[i], code)}
         ${state.user.isEditor ? '<button type="button" class="btn btn-sm" id="photo-to-card" title="この写真を自分のカードにする（国・カテゴリー・見分け方を入れた状態で作成画面を開きます）">＋ この写真でカードを作る</button>' : ''}
         <div class="og-export">
-          <span class="muted small">🎮 OpenGuessr でこの場所から遊ぶ（マップとして書き出し）:</span>
+          <span class="muted small">🎮 この場所から遊ぶ（マップとして書き出し）:
+            <select class="select select-sm og-site" aria-label="書き出し先">${Object.entries(PLAY_SITES).map(([k, v]) => `<option value="${k}" ${playSite() === v ? 'selected' : ''}>${v.name}</option>`).join('')}</select></span>
           <button type="button" class="btn btn-ghost btn-sm" data-og="one">この写真の地点</button>
           <button type="button" class="btn btn-ghost btn-sm" data-og="country">この国の${esc(m.name)}の写真すべて（${srcs.length}）</button>
         </div>
@@ -922,7 +923,8 @@ function renderPhotoModal(entry) {
     </div>`, 'modal-wide', true);
   attachZoom($('.detail-front .front-img'), srcs.length > 1 ? { onSwipe: (d) => stepPhoto(d) } : {});
   $('#photo-to-card')?.addEventListener('click', (e) => photoToCard(topic, code, srcs[i], e.currentTarget));
-  // OpenGuessr 用の書き出し（この写真 / この国のこの種類の写真すべて）
+  // OpenGuessr / WorldGuessr 用の書き出し（この写真 / この国のこの種類の写真すべて）
+  $('#modal .og-site')?.addEventListener('change', (e) => { settings.playSite = e.target.value; saveSettings(); });
   const refOf = (src) => { const list = REF_IMAGES[topic]?.[code] || []; const k = list.indexOf(src.slice(REF_BASE.length)); return k >= 0 ? refCard(`ref|${topic}|${code}|${k}`) : null; };
   $$('#modal [data-og]').forEach((b) => b.addEventListener('click', () => {
     const cards = b.dataset.og === 'one' ? [refOf(srcs[i])] : srcs.map(refOf);
@@ -1575,7 +1577,11 @@ function renderQuiz() {
           ${PHOTO_TOPICS.map((t) => `<button class="${q.photoTopics.has(t) ? 'on' : ''}" data-ptopic="${t}">${modeDef(t).icon} ${modeDef(t).name}</button>`).join('')}
         </div>
         <p class="muted small">地図の参考写真（約 1,000 枚）から出題します。答えたあとに撮影場所と Google マップのリンクが出ます</p>
-        <button type="button" class="btn btn-ghost btn-sm" id="q-og" title="選んだ種類・地域の写真の撮影地点を、OpenGuessr で遊べるマップ（GeoGuessr 形式の JSON）として書き出します">🎮 この条件の地点を OpenGuessr 用に書き出し</button>
+        <div class="og-export">
+          <span class="muted small">🎮 この条件の写真の撮影地点を、ほかのサイトで遊べるマップ（GeoGuessr 形式の JSON）として書き出し</span>
+          <select class="select select-sm og-site" id="q-og-site" aria-label="書き出し先">${Object.entries(PLAY_SITES).map(([k, v]) => `<option value="${k}" ${playSite() === v ? 'selected' : ''}>${v.name} 用</option>`).join('')}</select>
+          <button type="button" class="btn btn-ghost btn-sm" id="q-og">書き出す</button>
+        </div>
       </div>` : ''}
       ${isFact ? `
       <div class="setup-block">
@@ -1684,6 +1690,7 @@ function renderQuiz() {
     if (q.photoTopics.has(b.dataset.ptopic)) { if (q.photoTopics.size > 1) q.photoTopics.delete(b.dataset.ptopic); } else q.photoTopics.add(b.dataset.ptopic);
     renderQuiz();
   }));
+  $('#q-og-site')?.addEventListener('change', (e) => { settings.playSite = e.target.value; saveSettings(); });
   $('#q-og')?.addEventListener('click', () => {
     const pool = photoPool({ ...q, mode: 'pin' });
     exportOpenGuessr(pool, `GeoGuessr単語帳 参考写真（${[...q.photoTopics].map((t) => modeDef(t).name).join('・')}）`);
@@ -2075,7 +2082,12 @@ function renderQuestion() {
 
 /* ---- OpenGuessr / GeoGuessr 用に、参考写真の撮影地点をマップとして書き出す ----
    GeoGuessr 形式（customCoordinates）の JSON。OpenGuessr の「マップ作成」で読み込むと、その地点から遊べる */
-const OPENGUESSR_CREATE = 'https://www.openguessr.com/maps/create';
+// 書き出し先（どちらも GeoGuessr 形式の JSON を読み込んでマップを作れる）
+const PLAY_SITES = {
+  worldguessr: { name: 'WorldGuessr', url: 'https://www.worldguessr.com/maps', how: 'WorldGuessr の Community Maps →「Make Map」でこのファイルを読み込んで公開してください（公開まで最大 1 時間ほど）' },
+  openguessr: { name: 'OpenGuessr', url: 'https://www.openguessr.com/maps/create', how: 'OpenGuessr の「マップ作成」でこのファイルを読み込んでください' },
+};
+const playSite = () => PLAY_SITES[settings.playSite] || PLAY_SITES.worldguessr;
 function exportOpenGuessr(cards, name) {
   const locs = cards.filter((c) => c?.lat != null).map((c) => {
     const info = refInfo(c.topic, c.src.slice(REF_BASE.length)) || {};
@@ -2093,8 +2105,9 @@ function exportOpenGuessr(cards, name) {
   a.download = `${name.replace(/[\\/:*?"<>|\s]+/g, '_')}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  toast(`${locs.length} 地点を書き出しました。OpenGuessr の「マップ作成」でこのファイルを読み込んでください`);
-  window.open(OPENGUESSR_CREATE, '_blank', 'noopener');
+  const site = playSite();
+  toast(`${locs.length} 地点を書き出しました。${site.how}`);
+  window.open(site.url, '_blank', 'noopener');
 }
 
 // 撮影地点を当てる（参考写真）: 地図のどこでもクリック。距離で採点（GeoGuessr のように最大 5000 点）
