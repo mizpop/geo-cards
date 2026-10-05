@@ -51,22 +51,22 @@ const toBlob = (canvas) => new Promise((resolve, reject) => {
   } catch (ex) { reject(ex); }
 });
 
-export async function editImage(src, { backSrc = '', host = document.body } = {}) {
+export async function editImage(src, { backSrc = '', host = document.body, tool: initTool = '', crop: initCrop = null } = {}) {
   const image = await loadImage(src);
   if (!image) throw new Error('画像を読み込めませんでした');
   const backImage = backSrc ? await loadImage(backSrc) : null;
-  return new Promise((resolve) => start(image, backImage, host, resolve));
+  return new Promise((resolve) => start(image, backImage, host, resolve, { tool: initTool, crop: initCrop }));
 }
 
-function start(image, backImage, host, resolve) {
+function start(image, backImage, host, resolve, initial = {}) {
   const W = image.naturalWidth;
   const H = image.naturalHeight;
   const lw = Math.max(3, Math.round(Math.max(W, H) / 220)); // 線の太さは画像の大きさに合わせる
   const shapes = []; // { layer: 'front' | 'back', type, color, ... }
   const history = []; // 戻す用: { kind: 'shape' } / { kind: 'crop', prev } / { kind: 'clearBack', prev }
-  let crop = null; // { x, y, w, h }（画像の座標）
+  let crop = initial.crop || null; // { x, y, w, h }（画像の座標）。最初から範囲を決めておくこともできる
   let backCleared = false; // 前からある「裏面だけ」のレイヤーを消した
-  let tool = 'ellipse';
+  let tool = initial.tool || 'ellipse';
   let layer = 'front';
   let color = COLORS[0][0];
   let level = LV_DEFAULT; // 線の太さ（1〜10。3 が標準）

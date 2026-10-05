@@ -3449,13 +3449,13 @@ function openEditor(card, preset = {}) {
       toast('画像を差し替えたので、裏面の印は外しました');
     }
   };
-  // 画像編集: トリミング・書き込み（表面に焼き込み / 裏面だけのレイヤー）
-  $('#ed-annot').addEventListener('click', async (e) => {
+  // 画像編集: トリミング・書き込み（表面に焼き込み / 裏面だけのレイヤー）。opts: 最初に選ぶツール・切り抜きの範囲
+  const runImageEdit = async (opts = {}) => {
     if (!ed.preview) return;
-    const btn = e.currentTarget;
+    const btn = $('#ed-annot');
     btn.disabled = true;
     try {
-      const out = await editImage(ed.preview, { backSrc: ed.backPreview, host: $('#modal') });
+      const out = await editImage(ed.preview, { backSrc: ed.backPreview, host: $('#modal'), ...opts });
       if (!out) return;
       if (out.image) await setImage(out.image, true);
       if (out.back instanceof Blob) { ed.back = out.back; ed.backPreview = await blobToDataUrl(out.back); }
@@ -3467,11 +3467,12 @@ function openEditor(card, preset = {}) {
     } finally {
       btn.disabled = false;
     }
-  });
+  };
+  $('#ed-annot').addEventListener('click', () => runImageEdit());
   // 参考写真などから作るときの初期値
-  if (preset.blob) setImage(preset.blob);
+  if (preset.blob) setImage(preset.blob).then(() => { if (preset.cropFirst) { const c = preset.cropFirst; runImageEdit({ tool: 'crop', crop: c.w > 8 && c.h > 8 ? c : null }); } });
   // クリップボードに画像（スクリーンショット）があれば自動で入れる（許可を求められることがあります。なければ何もしない）
-  if (preset.autoPaste) readClipboardImage().then((b) => { if (b && !ed.blob) setImage(b); }).catch(() => {});
+  if (preset.autoPaste) readClipboardImage().then(async (b) => { if (b && !ed.blob) { await setImage(b); if (preset.cropFirst) runImageEdit({ tool: 'crop' }); } }).catch(() => {});
   if (preset.description) $('#ed-desc').value = preset.description;
   if (preset.notes) $('#ed-notes').value = preset.notes;
   if (preset.area) $('#ed-area').value = preset.area;
@@ -3934,7 +3935,33 @@ const EXT_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none
 
 /* ================= 地図 ================= */
 // ストリートビューで見つけた場所からカードを作る: 国・場所の名前・Google マップのリンクを入れた作成画面を開く
-async function cardFromSv({ lat, lng, code }) {
+// いま開いているタブの画面を 1 枚撮る（ブラウザの「このタブを共有」の確認が出る）。撮れなければ null
+async function captureThisTab() {
+  if (!navigator.mediaDevices?.getDisplayMedia) return null;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' });
+  } catch { return null; }
+  try {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.srcObject = stream;
+    await video.play();
+    await new Promise((r) => setTimeout(r, 450)); // 共有の確認の表示が消えるのを少し待つ
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    return blob ? { blob, scale: video.videoWidth / window.innerWidth } : null;
+  } catch { return null; } finally { stream.getTracks().forEach((t) => t.stop()); }
+}
+
+// ストリートビューで見つけた場所からカードを作る: 画面を撮って、映像の部分を切り抜いた状態の画像編集を開き、
+// 国・場所の名前・Google マップのリンクを入れた作成画面にする。画面を撮れなければ、クリップボードの画像を使う
+async function cardFromSv({ lat, lng, codePromise, frameRect }) {
+  const shot = await captureThisTab(); // ボタンを押した直後に始める（ユーザー操作が必要なため）
+  const code = await Promise.resolve(codePromise).catch(() => null);
   let area = '';
   try { // 場所の名前（県・市など）を OpenStreetMap で調べる。調べられなくても作成は続ける
     const ctl = new AbortController();
@@ -3945,13 +3972,22 @@ async function cardFromSv({ lat, lng, code }) {
     area = [a.state || a.province || a.region, a.city || a.county || a.town || a.municipality].filter(Boolean).filter((x, i, arr) => arr.indexOf(x) === i).join(' ');
   } catch { /* 空のまま */ }
   if (!code) toast('国を判定できなかったので、国は選び直してください');
-  else toast('先にスクリーンショットをコピーしておけば、画像が自動で入ります（なければ Ctrl+V で貼り付け）');
+  else if (!shot) toast('画面を撮影できませんでした。クリップボードの画像があれば入れます（なければ Ctrl+V で貼り付け）');
   closeModal();
-  openEditor(null, {
+  const preset = {
     countries: code ? [code] : [], area,
     notes: `ストリートビュー: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`,
-    autoPaste: true,
-  });
+  };
+  if (shot) {
+    preset.blob = shot.blob;
+    // 撮った画面の中で、ストリートビューの映像の部分（画像の座標）。最初の切り抜きの範囲にする
+    if (frameRect) preset.cropFirst = { x: Math.max(0, Math.round(frameRect.left * shot.scale)), y: Math.max(0, Math.round(frameRect.top * shot.scale)), w: Math.round(frameRect.width * shot.scale), h: Math.round(frameRect.height * shot.scale) };
+    else preset.cropFirst = {};
+  } else {
+    preset.autoPaste = true;
+    preset.cropFirst = {}; // クリップボードの画像でも、貼り付けたらすぐ切り抜きの画面を開く
+  }
+  openEditor(null, preset);
 }
 const mapCtx = {
   createCardFromSv: (p) => cardFromSv(p),
