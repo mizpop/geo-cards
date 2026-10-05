@@ -442,40 +442,52 @@ export function mountBattle(host, ctx) {
   }
 
   function renderReveal() {
-    host.classList.remove('bt-play');
-    ctx.setFit('scroll');
+    host.classList.add('bt-play'); // 単独プレイと同じ画面構成（画面いっぱいの問題カード＋スクロールできる下の欄）
+    ctx.setFit(true);
     const Q = game.questions[game.i];
     const got = game.answers.get(game.i) || new Map();
+    const mine = got.get(me.id);
     ctx.setSvHide(false);
-    let body;
-    let cardHtml = '';
+    let info;
+    let cardHtml;
+    let choices = '';
     let sv = false;
     if (Q.k === 'fact') {
       const item = Q.item;
-      body = `<div class="quiz-card fact-card"><img class="fact-flag" src="${esc(ctx.flagUrl(item.code))}" alt=""><div class="fact-country">${esc(countryName(item.code))}</div></div>
-        <div class="choices fact-choices bt-choices">${item.options.map((o) => `<div class="choice ${o.key === item.answer ? 'correct' : 'dim'}">${o.swatch}<span>${esc(o.label)}</span></div>`).join('')}</div>
-        <div class="pfact">${ctx.factPanelHtml(Q.topic, item.code)}</div>`;
+      cardHtml = `<div class="quiz-card fact-card"><img class="fact-flag" src="${esc(ctx.flagUrl(item.code))}" alt=""><div class="fact-country">${esc(countryName(item.code))}</div></div>`;
+      choices = `<div class="choices fact-choices bt-choices">${item.options.map((o) => `<div class="choice ${o.key === item.answer ? 'correct' : 'dim'}">${o.swatch}<span>${esc(o.label)}</span></div>`).join('')}</div>`;
+      info = `<div class="pfact">${ctx.factPanelHtml(Q.topic, item.code)}</div>`;
     } else {
       const card = ctx.cardFor(Q);
       cardHtml = `<div class="quiz-card">${card ? frontHtml(card, false, true) : ''}</div>`;
-      body = card ? `<div class="bt-answer">${ctx.answerHtml(card)}${ctx.cardInfoHtml(card)}</div>` : '';
+      info = card ? `${ctx.answerHtml(card, 'sm', true)}${ctx.cardInfoHtml(card)}` : '';
       sv = !!card?.sv;
     }
     const rows = board().map((p) => {
       const a = got.get(p.id);
       return `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-pname">${esc(p.name)}</span><span class="bt-res res-${a?.res || 'ng'}">${a ? { ok: '○', partial: '△', ng: '✗' }[a.res] : '－'}</span><span class="bt-label">${a ? esc(a.label || '') : '未回答'}</span><b class="bt-score">+${(a?.pts || 0).toLocaleString()}</b></li>`;
     }).join('');
-    const rest = `${body}<h3 class="bt-sub">この問題の結果</h3><ul class="bt-board bt-results">${rows}</ul>
-      <h3 class="bt-sub">現在の順位</h3>${boardHtml()}
-      ${isHost ? `<div class="bt-row"><button type="button" class="btn btn-primary btn-lg" id="bt-next">${game.i + 1 < game.questions.length ? '▶ 次の問題へ' : '▶ 結果発表へ'}</button><span class="muted small">押さなくても、しばらくすると自動で進みます</span></div>` : `<p class="muted small">${game.i + 1 < game.questions.length ? 'ホストが進めるか、しばらくすると次の問題です…' : 'まもなく結果発表です…'}</p>`}`;
-    // ストリートビューは右に大きく、答えと結果は左に
-    main.innerHTML = `${head(`第 ${game.i + 1} 問 / ${game.questions.length} の答え`)}${sv ? `<div class="sv-split"><div class="bt-left">${rest}</div>${cardHtml}</div>` : `${cardHtml}${rest}`}`;
+    const last = game.i + 1 >= game.questions.length;
+    const title = mine ? { ok: '○ 正解！', partial: '△ 惜しい', ng: '✗ 不正解' }[mine.res] : '⏱ 未回答';
+    const toolbar = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length} の答え</span><span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
+      <div class="progress"><div class="progress-bar" style="width:${((game.i + 1) / game.questions.length) * 100}%"></div></div>`;
+    const bottom = `<div class="quiz-bottom is-answered">${choices}
+      <div class="feedback fb-${mine?.res || 'ng'}">
+        <div class="feedback-head"><div class="feedback-title">${title}${mine ? ` <small>+${mine.pts.toLocaleString()} 点</small>` : ''}</div>
+          ${isHost ? `<button type="button" class="btn btn-primary" id="bt-next">${last ? '結果発表へ' : '次の問題へ'}</button>` : ''}</div>
+        ${info}
+        <h3 class="bt-sub">この問題の結果</h3><ul class="bt-board bt-results">${rows}</ul>
+        <h3 class="bt-sub">現在の順位</h3>${boardHtml()}
+        <p class="muted small">${isHost ? '押さなくても、しばらくすると自動で進みます' : last ? 'まもなく結果発表です…' : 'ホストが進めるか、しばらくすると次の問題です…'}</p>
+      </div></div>`;
+    // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）
+    main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${cardHtml}</div>` : `${cardHtml}${bottom}`}`;
     bindExit();
     ctx.attachZoom(host.querySelector('.quiz-card .front-img'));
     main.querySelector('#bt-next')?.addEventListener('click', () => { // ホスト: 続けるボタンですぐに次へ
       if (!isHost || phase !== 'reveal') return;
       clearHostTimers();
-      send(game.i + 1 < game.questions.length ? { t: 'q', i: game.i + 1 } : { t: 'end' });
+      send(last ? { t: 'end' } : { t: 'q', i: game.i + 1 });
     });
   }
   function renderFinal() {
