@@ -47,6 +47,7 @@ let renderSeq = 0;
 let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 // ストリートビュー: ボタンで入る「クリックで開くモード」と、最後に開いた地点（地図を描き直しても開き直す）
 let svOn = false;
+let svTemp = false; // スペース長押しで一時的にオンにしている間は true
 let svSpace = null; // スペースキー長押しの一時オンのイベント（描き直すとき外す）
 let svPoint = null; // [lat, lng]
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
@@ -814,7 +815,7 @@ export async function renderMap(view, ctx) {
     }
   }
   map.on('zoomend', () => { if (svOn && !bannerTimer) $id('sv-banner-text').textContent = helpText(); });
-  $id('map-sv').addEventListener('click', () => setSv(!svOn));
+  $id('map-sv').addEventListener('click', () => { if (svTemp) { svTemp = false; return; } setSv(!svOn); }); // スペース長押し中にボタンを押したら、そのままオンで固定（スペースを離してもオフにしない）
   $id('sv-exit').addEventListener('click', () => setSv(false));
   svPanel.querySelector('#sv-close').addEventListener('click', closeSv);
   // 「📍 この場所でカードを作る」: 国・場所の名前・Google マップのリンクを入れた作成画面を開く（画像は作成画面で選ぶ）
@@ -941,16 +942,18 @@ export async function renderMap(view, ctx) {
   // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る）
   if (svSpace) { document.removeEventListener('keydown', svSpace.down); document.removeEventListener('keyup', svSpace.up); window.removeEventListener('blur', svSpace.up); }
   {
-    let temp = false;
-    const typing = (t) => /^(input|textarea|select|button|a)$/i.test(t?.tagName || '') || t?.isContentEditable;
+    const typing = (t) => /^(input|textarea|select)$/i.test(t?.tagName || '') || t?.isContentEditable; // ボタンにフォーカスがあっても、スペースは「長押しで一時オン」として扱う（ボタンの押下にはしない）
     const down = (e) => {
       if (e.code !== 'Space' || e.ctrlKey || e.altKey || e.metaKey || typing(e.target) || document.querySelector('dialog[open]:not(.is-window)') || !$id('map')) return;
       e.preventDefault(); // ページが下へ動かないように
       if (e.repeat || svOn) return;
-      temp = true;
+      svTemp = true;
       setSv(true);
     };
-    const up = (e) => { if (e.type === 'keyup' && e.code !== 'Space') return; if (temp) { temp = false; setSv(false); } };
+    const up = (e) => {
+      if (e.type === 'keyup') { if (e.code !== 'Space') return; if (!typing(e.target) && $id('map')) e.preventDefault(); } // フォーカス中のボタンがスペースで押されないように
+      if (svTemp) { svTemp = false; setSv(false); }
+    };
     svSpace = { down, up };
     document.addEventListener('keydown', down);
     document.addEventListener('keyup', up);
