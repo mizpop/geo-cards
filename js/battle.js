@@ -139,7 +139,7 @@ export function mountBattle(host, ctx) {
       const next = (act().map((p) => p.id).sort()[0]) || [...players.keys()].sort()[0];
       setHost(next);
     }
-    if (phase === 'lobby') renderLobby(); else if (phase === 'play') renderPlayStatus();
+    if (phase === 'lobby') renderLobby(); else if (phase === 'play') { renderPlayStatus(); updateHint(); }
     renderChatKeep();
   }
   // ホストを id にする。引き継ぐ側（自分）は、進行の役割（次の問題・答え合わせ）も受け持つ
@@ -243,6 +243,10 @@ export function mountBattle(host, ctx) {
       renderPlay();
       startTick();
       if (isHost) hostOpened(m.i);
+    } else if (m.t === 'hint' && game && m.i === game.i) {
+      const r = hintReqs();
+      if (m.lv === 1 || m.lv === 2) r[m.lv].add(m.id);
+      if (phase === 'play') updateHint();
     } else if (m.t === 'ans' && game) {
       if (!game.answers.has(m.i)) game.answers.set(m.i, new Map());
       const got = game.answers.get(m.i);
@@ -299,25 +303,37 @@ export function mountBattle(host, ctx) {
       const left = Math.max(0, game.perQ - ms / 1000);
       const el = host.querySelector('#bt-timer');
       if (el) { el.textContent = Math.ceil(left); el.closest('.counter')?.classList.toggle('is-hurry', left < 5); }
-      if (game.hints) updateHint();
     }, 200);
   }
-  // ヒント（部屋の設定）: 時間が経つと、地域・頭文字のヒントが出る。得点は 0.8 倍・0.6 倍
-  const hintLevel = () => { if (!game?.hints) return 0; const f = (performance.now() - game.t0) / (game.perQ * 1000); return f >= 0.7 ? 2 : f >= 0.4 ? 1 : 0; };
+  // ヒント（部屋の設定）: 参加者の全員が「ヒントを要求」したときだけ、全員に表示される（得点は 0.8 倍・0.6 倍）
+  const hintReqs = () => { const m = game.hintReq || (game.hintReq = new Map()); if (!m.has(game.i)) m.set(game.i, { 1: new Set(), 2: new Set() }); return m.get(game.i); };
+  const allReq = (lv) => { const ids = act().map((p) => p.id); return ids.length > 0 && ids.every((id) => hintReqs()[lv].has(id)); };
+  const hintLevel = () => { if (!game?.hints) return 0; return allReq(1) ? (allReq(2) ? 2 : 1) : 0; };
   const hintFactor = () => [1, 0.8, 0.6][hintLevel()];
   function updateHint() {
     const el = host.querySelector('#bt-hint');
-    if (!el || phase !== 'play') return;
+    const btn = host.querySelector('#bt-hintreq');
+    if (!game?.hints || phase !== 'play') return;
     const Q = game.questions[game.i];
-    if (Q.k === 'fact') return;
-    const code = ctx.cardFor(Q)?.countries?.[0];
-    if (!code) return;
+    const code = Q.k === 'fact' ? null : ctx.cardFor(Q)?.countries?.[0];
     const lv = hintLevel();
-    if (el.dataset.lv === String(lv)) return;
-    el.dataset.lv = String(lv);
-    el.hidden = lv === 0;
-    if (lv === 1) el.textContent = `💡 ヒント 1: ${ctx.regionName(code)}（得点 ×0.8）`;
-    if (lv === 2) el.textContent = `💡 ヒント 2: ${ctx.regionName(code)} ・ 頭文字「${countryName(code)[0]}」（得点 ×0.6）`;
+    const reqs = hintReqs();
+    const total = act().length;
+    if (el) {
+      el.hidden = lv === 0;
+      if (lv === 1) el.textContent = `💡 ヒント 1: ${code ? ctx.regionName(code) : 'ヒントはありません'}（得点 ×0.8）`;
+      if (lv === 2) el.textContent = `💡 ヒント 2: ${code ? `${ctx.regionName(code)} ・ 頭文字「${countryName(code)[0]}」` : 'ヒントはありません'}（得点 ×0.6）`;
+    }
+    if (btn) { // 次のヒントの要求ボタン（自分の要求と、要求している人数）
+      const next = lv + 1;
+      btn.hidden = !!me.spec || lv >= 2 || Q.k === 'fact';
+      if (!btn.hidden) {
+        const n = [...reqs[next]].filter((id) => act().some((p) => p.id === id)).length;
+        btn.textContent = reqs[next].has(me.id) ? `💡 ヒント ${next} を要求中（${n} / ${total} 人）` : `💡 ヒント ${next} を要求（${n} / ${total} 人）`;
+        btn.disabled = reqs[next].has(me.id);
+        btn.dataset.lv = String(next);
+      }
+    }
   }
   function sendState(to) {
     if (!game) return;
@@ -463,7 +479,7 @@ export function mountBattle(host, ctx) {
           <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ)}</div>
           <div class="setup-block"><div class="setup-label"><span>答え合わせから次の問題へ</span></div>${sliderHtml('bt-an', 0, 60, 5, cfg.autoNext)}</div>
           <div class="setup-block"><div class="setup-label"><span>対戦の形式</span></div>${segHtml('bt-teams', [[0, '個人戦'], [1, 'チーム戦（赤 vs 青）']], cfg.teams ? 1 : 0)}</div>
-          <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（時間が経つと表示・得点が下がる）']], cfg.hints ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（全員が要求すると表示・得点が下がる）']], cfg.hints ? 1 : 0)}</div>
           <div class="setup-block"><div class="setup-label"><span>パスワード（空なら誰でも入れる）</span></div><input id="bt-pw" class="input" type="text" maxlength="20" placeholder="なし" value="${esc(cfg.password)}" autocomplete="off"></div>
         </div>
         <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${act().length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${act().length} 人）`}</button></div>` : ''}`;
@@ -504,7 +520,7 @@ export function mountBattle(host, ctx) {
   function renderPlay() {
     const Q = game.questions[game.i];
     // 単独プレイと同じ見た目・大きさ（画面いっぱいの問題カード、下に選択肢）
-    const top = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length}</span><span class="counter qt-counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span>${me.spec ? '<span class="bt-speclabel">👁 観戦中</span>' : ''}${teamsOn() && me.team ? `<span class="bt-speclabel">${TEAMS[me.team].dot} ${TEAMS[me.team].name}</span>` : ''}<span class="grow"></span>${isHost ? '<button type="button" class="btn btn-sm" id="bt-force" title="まだ答えていない人を待たずに、いますぐ答え合わせにする">⏩ 答え合わせにする</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
+    const top = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length}</span><span class="counter qt-counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span>${game.hints && !me.spec && Q.k !== 'fact' ? '<button type="button" class="btn btn-sm" id="bt-hintreq" title="参加者の全員が要求すると、ヒントが全員に表示されます">💡 ヒントを要求</button>' : ''}${me.spec ? '<span class="bt-speclabel">👁 観戦中</span>' : ''}${teamsOn() && me.team ? `<span class="bt-speclabel">${TEAMS[me.team].dot} ${TEAMS[me.team].name}</span>` : ''}<span class="grow"></span>${isHost ? '<button type="button" class="btn btn-sm" id="bt-force" title="まだ答えていない人を待たずに、いますぐ答え合わせにする">⏩ 答え合わせにする</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
       <div class="progress"><div class="progress-bar" style="width:${(game.i / game.questions.length) * 100}%"></div></div>
       ${game.hints ? '<div class="bt-hint" id="bt-hint" hidden></div>' : ''}`;
     host.classList.add('bt-play');
@@ -592,6 +608,8 @@ export function mountBattle(host, ctx) {
   }
   // ホスト: 答えていない人を待たずに、いますぐ答え合わせにする
   function bindForce() {
+    host.querySelector('#bt-hintreq')?.addEventListener('click', (e) => { const lv = Number(e.currentTarget.dataset.lv || 1); if (!me.spec && phase === 'play') send({ t: 'hint', id: me.id, i: game.i, lv }); });
+    updateHint();
     host.querySelector('#bt-force')?.addEventListener('click', () => { if (isHost && phase === 'play') send({ t: 'reveal', i: game.i }); });
   }
   function renderPlayStatus() {
