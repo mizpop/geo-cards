@@ -463,9 +463,10 @@ export function mountBattle(host, ctx) {
       info = card ? `${ctx.answerHtml(card, 'sm', true)}${ctx.cardInfoHtml(card)}` : '';
       sv = !!card?.sv;
     }
-    const rows = board().map((p) => {
+    // 現在の順位に、この問題の結果（○✗・答え・得点）を並べる。答え合わせと一緒に、スクロールせずに見える位置に置く
+    const rows = board().map((p, i) => {
       const a = got.get(p.id);
-      return `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-pname">${esc(p.name)}</span><span class="bt-res res-${a?.res || 'ng'}">${a ? { ok: '○', partial: '△', ng: '✗' }[a.res] : '－'}</span><span class="bt-label">${a ? esc(a.label || '') : '未回答'}</span><b class="bt-score">+${(a?.pts || 0).toLocaleString()}</b></li>`;
+      return `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${esc(p.name)}</span><span class="bt-res res-${a?.res || 'ng'}">${a ? { ok: '○', partial: '△', ng: '✗' }[a.res] : '－'}</span><span class="bt-label">${a ? esc(a.label || '') : '未回答'}</span><span class="bt-gain">+${(a?.pts || 0).toLocaleString()}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`;
     }).join('');
     const last = game.i + 1 >= game.questions.length;
     const title = mine ? { ok: '○ 正解！', partial: '△ 惜しい', ng: '✗ 不正解' }[mine.res] : '⏱ 未回答';
@@ -475,9 +476,8 @@ export function mountBattle(host, ctx) {
       <div class="feedback fb-${mine?.res || 'ng'}">
         <div class="feedback-head"><div class="feedback-title">${title}${mine ? ` <small>+${mine.pts.toLocaleString()} 点</small>` : ''}</div>
           ${isHost ? `<button type="button" class="btn btn-primary" id="bt-next">${last ? '結果発表へ' : '次の問題へ'}</button>` : ''}</div>
+        <h3 class="bt-sub">現在の順位（今回の得点つき）</h3><ul class="bt-board bt-results">${rows}</ul>
         ${info}
-        <h3 class="bt-sub">この問題の結果</h3><ul class="bt-board bt-results">${rows}</ul>
-        <h3 class="bt-sub">現在の順位</h3>${boardHtml()}
         <p class="muted small">${isHost ? '押さなくても、しばらくすると自動で進みます' : last ? 'まもなく結果発表です…' : 'ホストが進めるか、しばらくすると次の問題です…'}</p>
       </div></div>`;
     // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）

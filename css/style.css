@@ -2016,3 +2016,6 @@ body:has(.sv-front) { overflow-x: clip; }
 .battle.bt-play .quiz-card { flex: 1; min-height: 0; }
 
 .battle.bt-play { margin: 0; width: 100%; }
+
+.bt-gain { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.bt-results .bt-score { min-width: 3.5em; text-align: right; }
