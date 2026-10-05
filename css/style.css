@@ -1729,3 +1729,46 @@ textarea { resize: vertical; line-height: 1.6; }
 .annot-width input { width: 92px; accent-color: var(--accent); }
 .btn.btn-icon { padding: 5px 9px; display: inline-flex; align-items: center; }
 .annot-stage.is-select canvas { cursor: default; }
+
+/* ---------- 地図: ストリートビュー ---------- */
+.map.sv-on, .map.sv-on .leaflet-interactive, .map.sv-on .leaflet-marker-icon { cursor: crosshair !important; }
+.sv-banner {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1100; max-width: calc(100% - 24px);
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: #1c7ed6; color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+.sv-banner[hidden], .sv-panel[hidden] { display: none; }
+.sv-banner span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-banner .link-btn { color: #fff; text-decoration: underline; white-space: nowrap; font-size: 12px; }
+.map-search { z-index: 1050; }
+.sv-panel {
+  position: absolute; left: 12px; bottom: 12px; z-index: 1200; display: flex; flex-direction: column;
+  width: min(520px, calc(100% - 24px)); height: min(400px, 65%); min-width: 280px; min-height: 220px; max-width: calc(100% - 4px); max-height: calc(100% - 4px);
+  resize: both; overflow: hidden; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 10px 34px rgba(0, 0, 0, .5);
+}
+.sv-panel.is-max { inset: 12px !important; width: auto; height: auto; resize: none; }
+.sv-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 12px; cursor: move; user-select: none; background: var(--surface-2); touch-action: none; }
+.sv-title { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+.sv-coord { margin-right: auto; font-variant-numeric: tabular-nums; }
+.sv-btn { width: 30px; height: 30px; font-size: 15px; display: inline-grid; place-items: center; text-decoration: none; cursor: pointer; }
+.sv-panel iframe { flex: 1; min-height: 0; width: 100%; border: 0; background: #0b0f12; }
+.sv-note { flex: none; margin: 0; padding: 3px 12px; font-size: 11px; }
+.sv-pin { background: none; border: 0; }
+.sv-pin span { display: block; width: 22px; height: 22px; border-radius: 50%; background: #e8590c; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(232, 89, 12, .5), 0 2px 8px rgba(0, 0, 0, .5); }
+@media (max-width: 760px) {
+  .sv-panel { left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important; width: auto; height: 58%; max-width: none; resize: none; border-radius: 12px 12px 0 0; }
+  .sv-panel.is-max { inset: 0 !important; border-radius: 0; }
+  .sv-banner { top: auto; bottom: 12px; }
+  .sv-head { cursor: default; }
+  .sv-title { white-space: nowrap; }
+  .sv-coord { display: none; }
+  .sv-head .sv-btn:first-of-type { margin-left: auto; }
+  .sv-note { display: none; }
+}
+
+/* スマホ: 地図の上の操作が増えたので、入り切らないときは 2 行にする（地図の表示の選択が潰れないように） */
+@media (max-width: 760px) {
+  .view-fit .map-toolbar { flex-wrap: wrap; }
+  .view-fit .map-toolbar .map-mode-pick { flex: 1 1 100%; }
+  .view-fit .map-toolbar .map-mode-pick .select { width: 100%; }
+}
