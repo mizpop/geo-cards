@@ -1,7 +1,7 @@
 // オフラインでも開けるようにする（ホーム画面に追加したとき用）
 // 方針: このサイトのファイルは「まずネットから取得し、取れなければ保存済みのものを使う」。
 // 更新したのに古いファイルが残る、ということが起きないように、ネットにつながるときは常に最新を使う
-const CACHE = 'geo-cards-v1';
+const CACHE = 'geochecker-v1';
 const CORE = ['./', './index.html', './css/style.css', './manifest.webmanifest', './icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {

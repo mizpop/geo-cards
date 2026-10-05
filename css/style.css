@@ -160,9 +160,14 @@ textarea { resize: vertical; line-height: 1.6; }
 }
 .tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; scrollbar-width: none; }
 .tabs a {
-  padding: 8px 14px; border-radius: var(--radius-sm); color: var(--muted);
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 12px; border-radius: var(--radius-sm); color: var(--muted);
   text-decoration: none; font-weight: 500; white-space: nowrap;
 }
+.tab-icon { flex: none; }
+/* タブの名前は開いているタブだけ（ほかはアイコンだけ） */
+.tab-label { display: none; }
+.tabs a.active .tab-label { display: inline; }
 .tabs a:hover { background: var(--surface-2); color: var(--text); }
 .tabs a.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .user-area { display: flex; align-items: center; gap: 10px; }
@@ -658,9 +663,12 @@ textarea { resize: vertical; line-height: 1.6; }
   /* ヘッダーを1行に */
   .topbar { flex-wrap: nowrap; padding: 6px 10px; gap: 6px; }
   .brand-text { display: none; }
-  .tabs { order: 0; flex: 1; flex-basis: auto; gap: 2px; }
-  .tabs a { padding: 6px 9px; font-size: 14px; }
-  .user-area { margin-left: 0; }
+  .tabs { order: 0; flex: 1 1 0; min-width: 0; flex-basis: auto; gap: 0; }
+  .tabs a { padding: 6px 7px; gap: 5px; font-size: 13px; flex: none; }
+  .tabs a.active { padding: 6px 9px; }
+  .user-area { margin-left: 0; gap: 0; flex: none; }
+  .user-area .icon-btn { width: 32px; height: 32px; }
+  #search-btn { padding: 0 8px; min-width: 0; }
   #logout-btn { min-height: 34px; padding: 0 10px; }
   .demo-banner { padding: 4px 12px; font-size: 12px; }
 

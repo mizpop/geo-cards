@@ -352,7 +352,6 @@ function bindLogin() {
 async function enterApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
-  $('#tab-manage').hidden = !state.user.isEditor;
   $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? `編集者: ${state.user.email}` : '閲覧のみ';
   $('#logout-btn').hidden = api.mode === 'demo';
   $('#view').innerHTML = '<p class="empty">読み込み中…</p>';
@@ -506,9 +505,12 @@ async function route() {
     setTimeout(openSpotlight, 0);
   }
   if (!['study', 'quiz', 'map', 'manage', 'compare', 'lang'].includes(view)) view = 'study';
-  if (view === 'manage' && !state.user.isEditor) view = 'study';
   state.view = view;
   $$('#tabs a').forEach((a) => a.classList.toggle('active', a.dataset.view === view));
+  // 狭い画面で、開いているタブ（名前つき）がヘッダーの外に出ないようにタブの列を動かす
+  const act = $('#tabs a.active');
+  const nav = $('#tabs');
+  if (act && nav) requestAnimationFrame(() => { nav.scrollLeft = Math.max(0, act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2); });
   await refreshUrlsIfStale().catch(() => {});
   render();
 }
@@ -558,7 +560,7 @@ const KEY_ACTIONS = [
   ['tab1', '暗記カードへ'],
   ['tab2', 'クイズへ'],
   ['tab3', '地図へ'],
-  ['tab4', '編集へ'],
+  ['tab4', 'カード一覧へ'],
   ['tab5', '比較へ'],
   ['tab6', '言語へ'],
   ['search', '検索を開く'],
@@ -585,13 +587,12 @@ function updateSearchKeyHint() {
 let capturingKey = false;
 
 function switchTab(delta) {
-  const tabs = ['study', 'quiz', 'map'].concat(state.user.isEditor ? ['manage'] : [], ['compare', 'lang']);
+  const tabs = ['study', 'quiz', 'map', 'manage', 'compare', 'lang'];
   const i = Math.max(0, tabs.indexOf(state.view));
   goTab(tabs[(i + delta + tabs.length) % tabs.length]);
 }
 // キー操作でタブを移るとき（効果音つき）
 function goTab(view) {
-  if (view === 'manage' && !state.user.isEditor) return;
   if (view === state.view) return;
   play('tab');
   location.hash = `#${view}`;
@@ -1949,7 +1950,7 @@ function renderQuiz() {
   $('#q-og-site')?.addEventListener('change', (e) => { settings.playSite = e.target.value; saveSettings(); });
   $('#q-og')?.addEventListener('click', () => {
     const pool = photoPool({ ...q, mode: 'pin' });
-    exportOpenGuessr(pool, `GeoGuessr単語帳 参考写真（${[...q.photoTopics].map((t) => modeDef(t).name).join('・')}）`);
+    exportOpenGuessr(pool, `GeoChecker 参考写真（${[...q.photoTopics].map((t) => modeDef(t).name).join('・')}）`);
   });
   $$('#q-time button').forEach((b) => b.addEventListener('click', () => { q.timeLimit = Number(b.dataset.t); renderQuiz(); }));
   $('#q-start').addEventListener('click', () => (isFact ? startFactQuiz(factQuizPool(q.factTopic, q.regions)) : startQuiz(isPhoto ? photoPool(q) : quizEligible(q.regions))));
@@ -2909,17 +2910,18 @@ function bindTiles() {
 function renderManage() {
   setFit(false);
   const m = state.manage;
+  const ed = state.user.isEditor; // 編集権限がなくても一覧は見られる（追加・編集・削除・選択などは編集者だけ）
   $('#view').innerHTML = `
     <div class="manage-head">
     <div class="toolbar">
-      <button class="btn btn-primary" id="m-new">＋ 新しいカード</button>
+      ${ed ? '<button class="btn btn-primary" id="m-new">＋ 新しいカード</button>' : ''}
       <input type="search" id="m-filter" class="input grow" placeholder="絞り込み（国名・地域名・説明）" value="${esc(m.q)}">
       ${regionPickHtml('m-region', m.regionsOff)}
       ${catPickHtml('m-cat', m.catsOff)}
       ${sortSelectHtml('m-sort')}
       <span class="counter" id="m-count"></span>
     </div>
-    <div class="toolbar toolbar-sub">
+    ${ed ? `<div class="toolbar toolbar-sub">
       <button class="btn btn-ghost btn-sm" id="m-cats">🏷 カテゴリー管理</button>
       <button class="btn btn-ghost btn-sm" id="m-bulk" title="複数の画像からまとめてカードを作る">📥 まとめて追加</button>
       ${api.mode === 'supabase' && state.cards.some((c) => !c.thumb_path) ? `<button class="btn btn-ghost btn-sm" id="m-thumbs" title="一覧・地図で読み込む画像を軽くします（まだ低画質版のないカード ${state.cards.filter((c) => !c.thumb_path).length} 枚）">🖼 軽量画像を作成 <b class="badge-n">${state.cards.filter((c) => !c.thumb_path).length}</b></button>` : ''}
@@ -2928,8 +2930,8 @@ function renderManage() {
       <span class="grow"></span>
       <button class="btn btn-ghost btn-sm" id="m-sel-all" title="表示中のカードをすべて選択">☑ 全選択</button>
       <button class="btn btn-ghost btn-sm" id="m-sel-none" title="選択を解除（Esc）">☐ 選択解除</button>
-    </div>
-    <div class="sel-bar" id="sel-bar" hidden>
+    </div>` : ''}
+    ${ed ? `<div class="sel-bar" id="sel-bar" hidden>
       <b id="sel-count"></b>
       <span class="muted small sel-tip tab-long">Shift+クリックで範囲選択・Ctrl+クリックで1枚ずつ</span>
       <span class="grow"></span>
@@ -2939,17 +2941,17 @@ function renderManage() {
       </select>
       <button class="btn btn-sm btn-danger" id="sel-del">🗑 削除</button>
       <button class="icon-btn" id="sel-clear" aria-label="選択を解除" title="選択を解除（Esc）">✕</button>
-    </div>
+    </div>` : ''}
     </div>
     <div id="manage-list"></div>`;
-  $('#m-new').addEventListener('click', () => openEditor(null));
+  $('#m-new')?.addEventListener('click', () => openEditor(null));
   $('#m-filter').addEventListener('input', (e) => { m.q = e.target.value; renderManageList(); });
   $('#m-sort').addEventListener('change', (e) => { settings.cardSort = e.target.value; saveSettings(); renderManageList(); });
   const repick = (id) => { m.openPick = id; renderManage(); };
   bindMultiPick('m-region', m.regionsOff, () => repick('m-region'), m.openPick === 'm-region');
   bindMultiPick('m-cat', m.catsOff, () => repick('m-cat'), m.openPick === 'm-cat');
   m.openPick = null;
-  $('#m-export').addEventListener('click', exportBackup);
+  $('#m-export')?.addEventListener('click', exportBackup);
   $('#m-thumbs')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -2964,18 +2966,19 @@ function renderManage() {
       btn.disabled = false;
     }
   });
-  $('#m-bulk').addEventListener('click', openBulkAdd);
-  $('#m-cats').addEventListener('click', openCategoryManager);
-  $('#m-import').addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
-  $('#m-sel-all').addEventListener('click', () => { for (const c of manageFiltered()) m.sel.add(c.id); updateSelUI(); });
-  $('#m-sel-none').addEventListener('click', clearSel);
-  $('#sel-clear').addEventListener('click', clearSel);
-  $('#sel-del').addEventListener('click', confirmBulkDelete);
-  $('#sel-cat').addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) bulkSetCategory(v); });
+  $('#m-bulk')?.addEventListener('click', openBulkAdd);
+  $('#m-cats')?.addEventListener('click', openCategoryManager);
+  $('#m-import')?.addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
+  $('#m-sel-all')?.addEventListener('click', () => { for (const c of manageFiltered()) m.sel.add(c.id); updateSelUI(); });
+  $('#m-sel-none')?.addEventListener('click', clearSel);
+  $('#sel-clear')?.addEventListener('click', clearSel);
+  $('#sel-del')?.addEventListener('click', confirmBulkDelete);
+  $('#sel-cat')?.addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) bulkSetCategory(v); });
   // 選択: Shift+クリックで範囲・Ctrl(⌘)+クリックで1枚ずつ。選択中は普通のクリック / チェックでも切り替え
   const listEl = $('#manage-list');
-  listEl.addEventListener('mousedown', (e) => { if (e.shiftKey && e.target.closest('.tile')) e.preventDefault(); }); // 文字が選択されないように
+  listEl.addEventListener('mousedown', (e) => { if (ed && e.shiftKey && e.target.closest('.tile')) e.preventDefault(); }); // 文字が選択されないように
   listEl.addEventListener('click', (e) => {
+    if (!ed) return; // 閲覧だけのときは選択しない（普通にカード詳細を開く）
     const tile = e.target.closest('.tile[data-id]');
     if (!tile) return;
     const check = e.target.closest('.tile-check');
@@ -3016,7 +3019,8 @@ function updateSelUI() {
   bar.hidden = !m.sel.size;
   $('#manage-list').classList.toggle('is-selecting', m.sel.size > 0);
   $('#sel-count').textContent = `${m.sel.size} 枚を選択中`;
-  $('#m-sel-none').disabled = !m.sel.size;
+  const sn = $('#m-sel-none');
+  if (sn) sn.disabled = !m.sel.size;
 }
 
 function confirmBulkDelete() {
@@ -3072,14 +3076,15 @@ function renderManageList() {
   const list = manageFiltered();
   const filtered = m.q.trim() || m.regionsOff.size || m.catsOff.size;
   $('#m-count').textContent = filtered ? `${list.length} / ${state.cards.length} 枚` : `${state.cards.length} 枚`;
+  const ed = state.user.isEditor;
   $('#manage-list').innerHTML = list.length
-    ? `<div class="tiles">${list.map((c) => tileHtml(c, `
+    ? `<div class="tiles">${list.map((c) => tileHtml(c, !ed ? '' : `
         <label class="tile-check" title="選択（Shift / Ctrl+クリックでも）"><input type="checkbox" aria-label="このカードを選択"></label>
         <div class="tile-actions">
           <button class="btn btn-sm" data-edit="${c.id}">編集</button>
           <button class="btn btn-sm btn-danger-ghost" data-del="${c.id}">削除</button>
         </div>`)).join('')}</div>`
-    : `<div class="empty"><p>${state.cards.length ? '該当するカードがありません' : 'まだカードがありません。「＋ 新しいカード」から追加しましょう'}</p></div>`;
+    : `<div class="empty"><p>${state.cards.length ? '該当するカードがありません' : ed ? 'まだカードがありません。「＋ 新しいカード」から追加しましょう' : 'まだカードがありません'}</p></div>`;
   bindTiles();
   $$('[data-edit]').forEach((b) => b.addEventListener('click', () => openEditor(cardById(b.dataset.edit))));
   $$('[data-del]').forEach((b) => b.addEventListener('click', () => confirmDelete(cardById(b.dataset.del))));
@@ -3773,7 +3778,7 @@ async function exportBackup() {
     const json = JSON.stringify({ app: 'geo-cards', version: 1, exportedAt: new Date().toISOString(), cards: out, countryNotes: Object.fromEntries(state.countryNotes) });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-    a.download = `geo-cards-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `geochecker-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     toast(`${out.length} 枚を書き出しました`);

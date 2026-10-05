@@ -1,7 +1,7 @@
 {
-  "name": "GeoGuessr 単語帳",
-  "short_name": "GeoGuessr単語帳",
-  "description": "GeoGuessr の手がかりを覚える単語帳（暗記カード・クイズ・地図）",
+  "name": "GeoChecker",
+  "short_name": "GeoChecker",
+  "description": "GeoGuessr の手がかりを覚えて確かめる学習アプリ（暗記カード・クイズ・地図）",
   "lang": "ja",
   "start_url": "./#study",
   "scope": "./",

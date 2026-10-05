@@ -1,4 +1,4 @@
--- GeoGuessr 単語帳: Supabase 初期設定
+-- GeoChecker: Supabase 初期設定
 -- Supabase ダッシュボード → SQL Editor に全文を貼り付けて「Run」してください。
 -- 何度実行しても壊れないように書いてあります。
 
