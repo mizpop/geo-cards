@@ -84,9 +84,9 @@ function svTileAlpha(x, y, z) {
   return svTiles.get(url);
 }
 // クリックした地点に一番近い「ストリートビューのある線」の地点。見つからなければ null、読み取れなければクリックした地点
-async function svSnap(lat, lng, zoom, { R: Ropt = 0, lenient = false, k = 1 } = {}) {
+async function svSnap(lat, lng, zoom, { R: Ropt = 0, lenient = false, k = 1, zFix = 0 } = {}) {
   const thin = zoom >= SV_THIN_ZOOM; // 画面に出ている青い線と同じタイル（細い線は 1 つ細かい縮尺のタイル）を読む
-  const z = thin ? Math.min(20, Math.round(zoom) + 1) : Math.min(17, Math.round(zoom));
+  const z = zFix || (thin ? Math.min(20, Math.round(zoom) + 1) : Math.min(17, Math.round(zoom)));
   const n = 256 * 2 ** z;
   const sin = Math.sin((lat * Math.PI) / 180);
   const px = Math.round(((lng + 180) / 360) * n);
@@ -103,6 +103,7 @@ async function svSnap(lat, lng, zoom, { R: Ropt = 0, lenient = false, k = 1 } = 
   let best = null;
   let bestD = Infinity;
   let readable = false;
+  let bestD8 = null; // 見つかった画素のあるタイルの画素データ
   for (const [tx, ty, pr] of tiles) {
     const d = await pr;
     if (!d) continue;
@@ -114,12 +115,24 @@ async function svSnap(lat, lng, zoom, { R: Ropt = 0, lenient = false, k = 1 } = 
         const gx = px + dx - tx * 256;
         const gy = py + dy - ty * 256;
         if (gx < 0 || gx > 255 || gy < 0 || gy > 255) continue;
-        if (d[(gy * 256 + gx) * 4 + 3] > 40) { best = [px + dx, py + dy]; bestD = dd; }
+        if (d[(gy * 256 + gx) * 4 + 3] > 40) { best = [px + dx, py + dy]; bestD = dd; bestD8 = d; }
       }
     }
   }
   if (!readable) return lenient ? { lat, lng } : null; // タイルを読めなかった（通信できないなど）: lenient なら、クリックした地点をそのまま開く
   if (!best) return null;
+  { // 線のふち（一番近い画素）ではなく、その周りの青い画素の中心（線の真ん中）に寄せる
+    let sx = 0, sy = 0, c = 0;
+    for (let dy = -6; dy <= 6; dy++) {
+      for (let dx = -6; dx <= 6; dx++) {
+        const X = best[0] + dx, Y = best[1] + dy;
+        const gx = X - Math.floor(best[0] / 256) * 256, gy = Y - Math.floor(best[1] / 256) * 256;
+        if (gx < 0 || gx > 255 || gy < 0 || gy > 255 || dx * dx + dy * dy > 36) continue;
+        if (bestD8[(gy * 256 + gx) * 4 + 3] > 40) { sx += X; sy += Y; c++; }
+      }
+    }
+    if (c) best = [sx / c, sy / c];
+  }
   return {
     lng: (best[0] / n) * 360 - 180,
     lat: (Math.atan(Math.sinh(Math.PI * (1 - (2 * best[1]) / n))) * 180) / Math.PI,
@@ -135,7 +148,18 @@ async function svFind(lat, lng, zoom) {
   }
   return null;
 }
+// 見つけた地点を、細かい縮尺で道路の真ん中に寄せ直す（寄せられなければ元の地点）
+async function svFinish(p) {
+  let cur = (await svSnap(p.lat, p.lng, 17, { R: 16, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 45, zFix: 17 }));
+  if (!cur) return null; // 細かい縮尺で道路が見つからない所（道路から遠い）では開かない
+  cur = (await svSnap(cur.lat, cur.lng, 19, { R: 12, zFix: 19 })) || cur;
+  return cur;
+}
 async function svFindOnce(lat, lng, zoom, k) {
+  const r = await svFindCoarse(lat, lng, zoom, k);
+  return r ? svFinish(r) : null;
+}
+async function svFindCoarse(lat, lng, zoom, k) {
   if (zoom >= SV_LINE_ZOOM) return svSnap(lat, lng, zoom, { lenient: true, k });
   const z0 = Math.max(5, Math.min(13, Math.round(zoom)));
   let cur = await svSnap(lat, lng, z0, { R: Math.max(8, Math.min(150, Math.round(svSnapPx(zoom, k) * 2 ** (z0 - zoom)))), lenient: true });
