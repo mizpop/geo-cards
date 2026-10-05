@@ -8,7 +8,7 @@ import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTi
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
+import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
@@ -132,6 +132,7 @@ const DEFAULT_SETTINGS = {
   cardSort: 'new', // 編集画面・検索結果の並び順（CARD_SORTS）
   mapTiles: 'en', // 地図の背景: en（国名・地名が英語表記）/ osm（OpenStreetMap・現地の言語）
   studySplit: false,
+  studyPhotos: false, // 暗記に参考写真（GeoHints）も混ぜる
   mapMode: 'cards', // 地図の表示: カード / シェブロン / ガードレール / 通行 / 文字 / 苦手 // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
   liveSearch: true, // 地図: 検索バーに入力するたびに候補の国へ移動（オフなら Enter で移動）
   sound: true, // 効果音（右上のボタンでも切り替え）
@@ -1587,19 +1588,67 @@ document.addEventListener('pointerdown', (e) => {
 });
 
 /* ================= 暗記カード ================= */
+/* ---- 暗記に混ぜる参考写真 ---- */
+const PHOTO_NEW_PER_DAY = 10; // 復習では、まだ見ていない写真は 1 日に何枚ずつ増やすか
+const PHOTO_NEW_KEY = 'geo-cards-photo-new-v1'; // { day, ids: [今日はじめて覚え具合をつけた写真] }
+const photoNewToday = () => {
+  let v = null;
+  try { v = JSON.parse(localStorage.getItem(PHOTO_NEW_KEY)); } catch { /* 空 */ }
+  return v && v.day === dayKey() ? v : { day: dayKey(), ids: [] };
+};
+function notePhotoIntroduced(id) {
+  const v = photoNewToday();
+  if (!v.ids.includes(id)) v.ids.push(id);
+  try { localStorage.setItem(PHOTO_NEW_KEY, JSON.stringify(v)); } catch { /* 無視 */ }
+}
+// 地域・カテゴリーの絞り込みに従った参考写真（カテゴリーの「ボラード」などを外すと、その種類の写真も外れる）
+function studyPhotoCards(s) {
+  const off = new Set(state.categories.filter((k) => s.catsOff.has(k.id) && PHOTO_TOPICS.includes(CAT_TOPIC[k.name])).map((k) => CAT_TOPIC[k.name]));
+  const out = [];
+  for (const t of PHOTO_TOPICS) {
+    if (off.has(t)) continue;
+    for (const [code, list] of Object.entries(REF_IMAGES[t] || {})) {
+      if (!COUNTRY_BY_CODE.has(code) || s.regionsOff.has(COUNTRY_BY_CODE.get(code).region)) continue;
+      list.forEach((_, i) => { const c = refCard(`ref|${t}|${code}|${i}`); if (c) out.push(c); });
+    }
+  }
+  return out;
+}
+// 日付から決まる並び（同じ日のうちは、組み直しても同じ写真が選ばれるように）
+function seededOrder(ids, seedText) {
+  let h = 2166136261;
+  for (const ch of seedText) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  const rnd = () => { h = (h + 0x6d2b79f5) | 0; let t = Math.imul(h ^ (h >>> 15), 1 | h); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const a = [...ids].sort();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+// 復習に出す id: 自分のカード全部 + 覚え具合をつけた写真 + まだの写真（1 日 PHOTO_NEW_PER_DAY 枚まで）
+function reviewPoolIds(s) {
+  const ids = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff)).map((c) => c.id);
+  if (!settings.studyPhotos) return ids;
+  const photos = studyPhotoCards(s).map((c) => c.id);
+  const today = new Set(photoNewToday().ids);
+  const seen = photos.filter((id) => getProg(id));
+  const unseen = seededOrder(photos.filter((id) => !getProg(id)), dayKey());
+  const room = Math.max(0, PHOTO_NEW_PER_DAY - today.size);
+  return [...ids, ...seen, ...unseen.slice(0, room)];
+}
+
 function rebuildStudyDeck(keepPosition = false) {
   const s = state.study;
   const currentId = s.deck[s.index];
   let list = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff));
   if (s.review) {
     // 復習: 期限が来たカード（苦手な順）→ まだ覚え具合をつけていないカード
-    const order = reviewOrder(list.map((c) => c.id));
+    const order = reviewOrder(reviewPoolIds(s));
     s.deck = order;
     const idx = keepPosition ? s.deck.indexOf(currentId) : -1;
     s.index = idx >= 0 ? idx : 0;
     if (idx < 0) s.flipped = settings.studyStart === 'back';
     return;
   }
+  if (settings.studyPhotos) list = [...list, ...studyPhotoCards(s)]; // 自分のカードのあとに写真（シャッフルしたときは混ぜる）
   if (s.shuffled) {
     // 既存の並びをなるべく保つ
     const prev = new Map(s.deck.map((id, i) => [id, i]));
@@ -1619,7 +1668,7 @@ function renderStudy() {
   const total = s.deck.length;
   const card = cardById(s.deck[s.index]);
   const split = settings.studySplit;
-  const filteredIds = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff)).map((c) => c.id);
+  const filteredIds = reviewPoolIds(s);
   const reviewCount = filteredIds.filter((id) => isDue(id)).length;
   const keys = { ...DEFAULT_KEYS, ...settings.keys };
   $('#view').classList.toggle('is-back', split || s.flipped);
@@ -1629,6 +1678,7 @@ function renderStudy() {
       ${catPickHtml('study-cat', s.catsOff)}
       <button class="btn" id="study-shuffle" aria-label="シャッフル" title="押すたびに順番をランダムに並べ替え">🔀<span class="tab-long"> シャッフル</span></button>
       <button class="btn ${s.review ? 'btn-on' : ''}" id="study-review" aria-pressed="${s.review}" title="期限が来たカード・苦手なカードと、まだ覚え具合をつけていないカードだけを出します">🧠<span class="tab-long"> 復習</span>${reviewCount ? ` <b class="badge-n">${reviewCount}</b>` : ''}</button>
+      <button class="btn ${settings.studyPhotos ? 'btn-on' : ''}" id="study-photos" aria-pressed="${settings.studyPhotos}" aria-label="参考写真も出す" title="GeoHints の参考写真（約 1,000 枚）も暗記に混ぜます。復習では、まだ見ていない写真は 1 日 ${PHOTO_NEW_PER_DAY} 枚ずつ増えます">📷<span class="tab-long"> 写真も</span></button>
       <button class="btn ${split ? 'btn-on' : ''}" id="study-split" aria-pressed="${split}" aria-label="表と裏を並べて表示" title="表面と裏面を左右に並べて表示">◫<span class="tab-long"> 並べて表示</span></button>
       <span class="counter">${total ? `${s.index + 1} / ${total}` : '0 / 0'}</span>
     </div>
@@ -1647,13 +1697,14 @@ function renderStudy() {
                   ${card.countries.map((c) => `<button type="button" role="menuitem" data-country="${c}">${flagImg(c)}${esc(countryName(c))}</button>`).join('')}
                 </div>` : ''}
               </div>
-              ${state.user.isEditor ? '<button class="btn btn-sm" id="study-edit" type="button" title="編集">✏️<span class="tab-long"> 編集</span></button>' : ''}
+              ${state.user.isEditor && !card.photo ? '<button class="btn btn-sm" id="study-edit" type="button" title="編集">✏️<span class="tab-long"> 編集</span></button>' : ''}
             </div>
             <div class="back-inner">
               ${split ? '' : backImgHtml(card)}
               <div class="back-answer">${answerHtml(card)}</div>
               <div class="srs-row">${levelHtml(card.id)}</div>
               ${notesHtml(card)}
+              ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : ''}
               ${relatedHtml(card)}
             </div>
             ${cardFactsHtml(card, true)}
@@ -1685,9 +1736,20 @@ function renderStudy() {
   });
   if (card) { bindCardFacts($('#flashcard')); bindRelated($('#flashcard')); }
   preloadStudyImages();
+  // 参考写真の解説は大きなデータなので、写真を混ぜているときだけ読み込んで描き直す
+  if (settings.studyPhotos && !refInfoLoaded()) ensureRefInfo().then(() => { if (state.view === 'study') renderStudy(); }).catch(() => {});
   $('#back-facts')?.addEventListener('toggle', (e) => { s.factsOpen = e.currentTarget.open; });
   $('#study-ok')?.addEventListener('click', () => markStudy('ok'));
   $('#study-ng')?.addEventListener('click', () => markStudy('ng'));
+  $('#study-photos').addEventListener('click', async () => {
+    settings.studyPhotos = !settings.studyPhotos;
+    saveSettings();
+    if (settings.studyPhotos) await ensureRefInfo().catch(() => {}); // 写真の解説・撮影場所
+    rebuildStudyDeck();
+    s.enter = 'next';
+    renderStudy();
+    toast(settings.studyPhotos ? `参考写真も出します（${s.review ? `復習は 1 日 ${PHOTO_NEW_PER_DAY} 枚ずつ` : `${s.deck.length} 枚`}）` : '自分のカードだけに戻しました');
+  });
   $('#study-split').addEventListener('click', () => { settings.studySplit = !settings.studySplit; saveSettings(); renderStudy(); });
   $('#study-shuffle').addEventListener('click', () => {
     s.shuffled = true;
@@ -1793,6 +1855,7 @@ function markStudy(result) {
   const s = state.study;
   const card = cardById(s.deck[s.index]);
   if (!card || !(s.flipped || settings.studySplit)) return;
+  if (card.photo && !getProg(card.id)) notePhotoIntroduced(card.id); // 今日の「新しい写真」の枚数に数える
   record(card.id, result);
   logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
   play(result === 'ok' ? 'correct' : 'partial');
