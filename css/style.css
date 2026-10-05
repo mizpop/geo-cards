@@ -1123,13 +1123,13 @@ textarea { resize: vertical; line-height: 1.6; }
 .chat-fab[hidden] { display: none; }
 .chat-badge { position: absolute; top: 2px; right: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--ng); border: 2px solid var(--surface); }
 .chat-panel {
-  position: fixed; inset: auto 20px 86px auto; margin: 0; z-index: 4000; padding: 0;
-  width: min(380px, calc(100vw - 24px)); height: min(560px, calc(100vh - 120px)); height: min(560px, calc(100dvh - 120px));
+  position: fixed; inset: 64px 14px auto auto; margin: 0; z-index: 4000; padding: 0;
+  width: min(380px, calc(100vw - 24px)); height: min(560px, calc(100vh - 90px)); height: min(560px, calc(100dvh - 90px));
   display: none; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 16px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, .35);
 }
-.chat-panel.open { display: flex; animation: chat-in .2s cubic-bezier(.2, .8, .25, 1.1) both; transform-origin: bottom right; }
+.chat-panel.open { display: flex; animation: chat-in .2s cubic-bezier(.2, .8, .25, 1.1) both; transform-origin: top right; }
 @keyframes chat-in { from { opacity: 0; transform: translateY(12px) scale(.94); } }
 .chat-head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--border); }
 .chat-head b { font-size: 15px; }
@@ -1162,7 +1162,7 @@ textarea { resize: vertical; line-height: 1.6; }
 .chat-send:hover { filter: brightness(1.08); }
 @media (max-width: 760px) {
   .chat-fab { inset: auto 14px 14px auto; width: 50px; height: 50px; }
-  .chat-panel { inset: auto 8px 74px 8px; width: auto; height: min(70dvh, calc(100dvh - 90px)); }
+  .chat-panel { inset: 60px 8px auto 8px; width: auto; height: min(78dvh, calc(100dvh - 76px)); }
   /* 暗記カード・クイズ（画面いっぱい）のときは、ボタンを少し小さく半透明に */
   .app-fit ~ .chat-fab { opacity: .85; }
 }
@@ -2004,3 +2004,8 @@ body:has(.sv-front) { overflow-x: clip; }
 /* 上の「はみ出し」方式をやめ、ストリートビューのあるときは画面（#view）そのものを左右いっぱいにする */
 .view:has(.sv-front) { max-width: none; }
 .quiz-card:has(.sv-front), .qm-layout:has(.sv-front), .sv-split, .battle:has(.sv-front) { left: 0 !important; transform: none !important; width: 100% !important; }
+
+/* 上のバーのメモボタン（設定・ミュートと同じ並び） */
+.chat-btn { position: relative; }
+.chat-btn.active { color: var(--accent); }
+.chat-btn .chat-badge { top: 4px; right: 4px; width: 9px; height: 9px; }

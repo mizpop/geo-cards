@@ -45,7 +45,6 @@ export function initChat(opts) {
   loaded = false;
   if (!btn) build();
   btn.hidden = false;
-  show(btn);
   // 閉じている間も変更を受け取り、ほかの人の新しいメモはボタンの赤い点で知らせる
   unsubscribe?.();
   unsubscribe = api.subscribeMemos ? api.subscribeMemos(onRemoteChange) : null;
@@ -94,8 +93,7 @@ function topHost() {
 export function raiseChat() {
   if (!btn || btn.hidden) return;
   const host = topHost();
-  if (btn.parentNode !== host) host.append(btn, panel); // 移すとポップオーバーは一旦閉じるので下で開き直す
-  show(btn);
+  if (panel.parentNode !== host) host.append(panel); // 移すとポップオーバーは一旦閉じるので下で開き直す（ボタンは上のバーに置いたまま）
   if (isOpen()) show(panel);
 }
 // モーダルが閉じたら（close は伝わらないイベントなので capture で拾う）、残っている画面か本体に戻す
@@ -105,13 +103,14 @@ window.addEventListener('geo:dialog', () => raiseChat());
 function build() {
   btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'chat-fab';
+  btn.className = 'icon-btn chat-btn';
   btn.title = 'メモ';
   btn.setAttribute('aria-label', 'メモを開く');
-  btn.setAttribute('popover', 'manual');
-  btn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20l1.1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4.5"/></svg><span class="chat-badge" hidden></span>';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20l1.1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4.5"/></svg><span class="chat-badge" hidden></span>';
   btn.addEventListener('click', () => (isOpen() ? closePanel() : openPanel()));
-  document.body.appendChild(btn);
+  // 設定・ミュートと同じ、上のバーの並びに置く
+  const anchor = document.getElementById('sound-btn');
+  if (anchor?.parentNode) anchor.parentNode.insertBefore(btn, anchor); else document.body.appendChild(btn);
 
   panel = document.createElement('section');
   panel.className = 'chat-panel';
@@ -183,7 +182,6 @@ async function openPanel() {
   btn.classList.add('active');
   setUnread(false);
   show(panel);
-  show(btn);
   renderList(true);
   await refresh(true);
   panel.querySelector('.chat-input').focus();
