@@ -300,7 +300,7 @@ export function addBaseTiles(map, opts = {}) {
     mk('svRoads', 440); // 道路の線（Esri の道路タイルには線も含まれる）: 塗り（400）の上、青い線（450）・地名の下
     mk('svLabels', 460); // 地名: 塗り・青い線・道路より上、マーカー（600）より下
     for (const [name, pane] of [['Reference/World_Transportation', 'svRoads'], ['Reference/World_Boundaries_and_Places', 'svLabels']]) {
-      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`, { pane, maxZoom: 19, maxNativeZoom: 18, keepBuffer: lean ? 1 : 2, updateWhenIdle: lean, attribution: '', ...opts }).addTo(map);
+      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`, { pane, maxZoom: 19, maxNativeZoom: 18, attribution: '', ...opts, keepBuffer: lean ? 2 : 4, updateWhenIdle: false, updateWhenZooming: true, updateInterval: 60 }).addTo(map); // 地名は軽い透明タイルなので、動かしている最中も先読みして早く出す
     }
   }
   return layer;
