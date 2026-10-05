@@ -1835,3 +1835,19 @@ textarea { resize: vertical; line-height: 1.6; }
 .modal.is-window.is-min[open] { height: auto !important; min-height: 0; resize: none; }
 .modal.is-window.is-min .modal-inner > :not(.modal-head:first-child) { display: none; }
 .modal.is-window.is-min .modal-inner { overflow: hidden; }
+
+/* ---------- 画面分割: ウィンドウを左右のはしに入れたとき（ヘッダーは分割せず、その下の部分だけ） ---------- */
+body[data-split="left"] .view { margin: 0 0 0 calc(var(--split) * 100vw); width: calc((1 - var(--split)) * 100vw); max-width: none; }
+body[data-split="right"] .view { margin: 0; width: calc((1 - var(--split)) * 100vw); max-width: none; }
+.is-snap { border-radius: 0 !important; resize: none !important; box-shadow: none !important; }
+.modal.is-window.is-snap[open] { border-top: 0; border-bottom: 0; }
+.snap-preview {
+  position: fixed; z-index: 2790; pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 22%, transparent); border: 2px solid var(--accent); box-sizing: border-box;
+}
+.split-bar { position: fixed; width: 10px; cursor: col-resize; touch-action: none; background: transparent; }
+.split-bar::after { content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.split-bar:hover::after, .split-bar:active::after { background: var(--accent); width: 4px; left: 3px; }
+/* 分割中の（狭くなった）ページ側 */
+body[data-split] .map-hint { display: none; }
+body[data-split] .view { padding-left: 14px; padding-right: 14px; }

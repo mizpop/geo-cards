@@ -8,7 +8,7 @@ import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTi
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { bringFront } from './floatz.js';
+import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, releaseSnap } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
@@ -546,7 +546,7 @@ function bindGlobal() {
   // close イベントは非同期に届くため、閉じた直後に別の画面（編集など）を開いた場合は片付けない
   modal.addEventListener('close', () => {
     if (modal.open) return;
-    modal.innerHTML = ''; modal.className = 'modal'; modal.removeAttribute('style'); delete modal.dataset.winFront; winFocused = false; modalPasteHandler = null; modalStack = []; modalCurrent = null;
+    releaseSnap(modal); modal.innerHTML = ''; modal.className = 'modal'; modal.removeAttribute('style'); delete modal.dataset.winFront; winFocused = false; modalPasteHandler = null; modalStack = []; modalCurrent = null;
   });
   document.addEventListener('paste', (e) => { if (modalPasteHandler) modalPasteHandler(e); });
   document.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('#modal')) winFocused = false; }, true); // ウィンドウの外をクリックしたら、キー操作はページ側へ
@@ -885,7 +885,7 @@ function navModal(entry) {
 function showNav(entry) {
   if (entry.kind === 'editor') {
     const m = $('#modal');
-    if (m.classList.contains('is-window')) { m.close(); m.removeAttribute('style'); delete m.dataset.winFront; m.className = entry.cls; m.showModal(); } // 編集はモーダルで開き直す
+    if (m.classList.contains('is-window')) { m.close(); releaseSnap(m); m.removeAttribute('style'); delete m.dataset.winFront; m.className = entry.cls; m.showModal(); } // 編集はモーダルで開き直す
     else m.className = entry.cls;
     m.style.removeProperty('--cat');
     m.replaceChildren(entry.node);
@@ -1588,7 +1588,7 @@ function setupWindow(m) {
     });
   };
   const remember = () => {
-    if (!m.open || m.classList.contains('is-max') || m.classList.contains('is-min')) return;
+    if (!m.open || m.classList.contains('is-max') || m.classList.contains('is-min') || m.classList.contains('is-snap')) return;
     const r = m.getBoundingClientRect();
     winRect = { left: r.left, top: r.top, width: r.width, height: r.height };
     saveWinRect();
@@ -1599,7 +1599,7 @@ function setupWindow(m) {
     if ('ResizeObserver' in window) new ResizeObserver(() => { if (modalIsWindow()) remember(); }).observe(m);
     m.__remember = remember;
   }
-  if (!m.classList.contains('is-max') && !m.classList.contains('is-min')) place();
+  if (!m.classList.contains('is-max') && !m.classList.contains('is-min') && !isSnapped(m)) place();
   if (!m.style.zIndex || !m.dataset.winFront) { bringFront(m); m.dataset.winFront = '1'; }
   if (!head) return;
   // 縮小・拡大のボタンを、閉じるボタンの手前に
@@ -1616,13 +1616,13 @@ function setupWindow(m) {
     head.insertBefore(b, closeBtn || null);
   };
   const setMin = (on) => {
-    if (on) { remember(); m.classList.remove('is-max'); }
+    if (on) { unsnapWindow(m); remember(); m.classList.remove('is-max'); }
     m.classList.toggle('is-min', on);
     const b = $('#win-min', m);
     if (b) { b.textContent = on ? '□' : '—'; b.title = on ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）'; }
     if (!on) place();
   };
-  const toggleMax = () => { setMin(false); remember(); m.classList.toggle('is-max'); if (!m.classList.contains('is-max')) place(); };
+  const toggleMax = () => { unsnapWindow(m); setMin(false); remember(); m.classList.toggle('is-max'); if (!m.classList.contains('is-max')) place(); };
   mk('win-min', m.classList.contains('is-min') ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）', m.classList.contains('is-min') ? '□' : '—', () => setMin(!m.classList.contains('is-min')));
   mk('win-max', '大きく / 元の大きさ（ヘッダーのダブルクリックでも）', '⤢', toggleMax);
   // ヘッダーのドラッグで動かす（少し動かしてから動かし始める。ダブルクリックで拡大）
@@ -1638,12 +1638,22 @@ function setupWindow(m) {
     if (!drag.started) {
       if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
       drag.started = true;
-      if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.dx = Math.min(drag.dx, winRect.width - 40); drag.w = winRect.width; }
+      if (isSnapped(m)) { unsnapWindow(m); drag.dx = Math.min(drag.dx, winRect.width / 2); drag.w = winRect.width; } // 分割から外す（元の大きさに戻る）
+      else if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.dx = Math.min(drag.dx, winRect.width - 40); drag.w = winRect.width; }
     }
+    showSnapPreview(snapSideAt(e.clientX)); // 画面の左右のはしに近いときは、離したときに入る場所を見せる
     m.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`;
     m.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy))}px`;
   });
-  const end = () => { if (drag?.started) remember(); drag = null; };
+  const end = (e) => {
+    if (drag?.started) {
+      const side = e.type === 'pointerup' ? snapSideAt(e.clientX) : null;
+      if (side) snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }); // 画面の左右のはしで離したら、画面を分割
+      else remember();
+    }
+    showSnapPreview(null);
+    drag = null;
+  };
   head.addEventListener('pointerup', end);
   head.addEventListener('pointercancel', end);
   head.addEventListener('dblclick', (e) => {
@@ -1657,11 +1667,11 @@ function openModal(html, cls = '', nav = false) {
   const m = $('#modal');
   const asWindow = nav && canWindow();
   const wasWindow = m.classList.contains('is-window');
-  const keep = asWindow && wasWindow ? ['is-max', 'is-min'].filter((c) => m.classList.contains(c)) : []; // ウィンドウの中で移るときは、拡大・縮小の状態を保つ
+  const keep = asWindow && wasWindow ? ['is-max', 'is-min', 'is-snap'].filter((c) => m.classList.contains(c)) : []; // ウィンドウの中で移るときは、拡大・縮小の状態を保つ
   if (!nav) { modalStack = []; modalCurrent = null; }
   if (m.open && wasWindow !== asWindow) m.close(); // モーダルとウィンドウを行き来するときは開き直す
   m.className = `modal ${cls}${asWindow ? ' is-window' : ''}${keep.length ? ` ${keep.join(' ')}` : ''}`;
-  if (!asWindow) { m.removeAttribute('style'); delete m.dataset.winFront; }
+  if (!asWindow) { releaseSnap(m); m.removeAttribute('style'); delete m.dataset.winFront; }
   m.style.removeProperty('--cat');
   if (!m.open) play('open'); // 詳細の中で移るとき（戻る・国へ）はタップ音だけ
   m.innerHTML = `<div class="modal-inner">${html}</div>`;

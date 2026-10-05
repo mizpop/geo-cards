@@ -1,5 +1,5 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
-import { bringFront } from './floatz.js';
+import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, releaseSnap } from './floatz.js';
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
 import { REF_IMAGES, REF_BASE, REF_PAGES } from './refimages.js';
@@ -206,7 +206,7 @@ export async function randomSvPoint(code, attempts = 8) {
 }
 // パネルの位置と大きさ（画面全体の中で動かせる。開き直しても引き継ぐ）
 let svRect = null; // { left, top, width, height }
-export function removeSvPanel() { document.getElementById('sv-panel')?.remove(); }
+export function removeSvPanel() { const p = document.getElementById('sv-panel'); if (p) { releaseSnap(p); p.remove(); } }
 
 const SV_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><path d="M12 9v6M8 11l4-2 4 2M9.5 21l2.5-6 2.5 6"/></svg>';
 let legendOpenPref = null; // 凡例の開閉（未操作なら、広い画面は開く・スマホは閉じる）
@@ -722,11 +722,12 @@ export async function renderMap(view, ctx) {
     });
   };
   const saveRect = () => {
-    if (mobileSv() || svPanel.hidden || svPanel.classList.contains('is-max') || svPanel.classList.contains('is-min')) return;
+    if (mobileSv() || svPanel.hidden || svPanel.classList.contains('is-max') || svPanel.classList.contains('is-min') || svPanel.classList.contains('is-snap')) return;
     const r = svPanel.getBoundingClientRect();
     svRect = { left: r.left, top: r.top, width: r.width, height: r.height };
   };
   function closeSv() {
+    releaseSnap(svPanel);
     svPoint = null;
     setMin(false);
     svPanel.hidden = true;
@@ -776,10 +777,10 @@ export async function renderMap(view, ctx) {
     const [lat, lng] = svPoint;
     ctx.createCardFromSv({ lat, lng, codePromise: countryAt(lat, lng) });
   });
-  svPanel.querySelector('#sv-max').addEventListener('click', () => { setMin(false); saveRect(); svPanel.classList.toggle('is-max'); });
+  svPanel.querySelector('#sv-max').addEventListener('click', () => { unsnapWindow(svPanel); setMin(false); saveRect(); svPanel.classList.toggle('is-max'); });
   // 一時的な縮小: ヘッダーだけにして、地図を見やすくする（もう一度押す・新しい場所を開くと戻る）
   function setMin(on) {
-    if (on) { saveRect(); svPanel.classList.remove('is-max'); }
+    if (on) { unsnapWindow(svPanel); saveRect(); svPanel.classList.remove('is-max'); }
     svPanel.classList.toggle('is-min', on);
     const b = svPanel.querySelector('#sv-min');
     b.textContent = on ? '□' : '—';
@@ -847,13 +848,15 @@ export async function renderMap(view, ctx) {
       if (!drag.started) { // 少し動かしてから動かし始める（ダブルクリックで拡大するときに、位置が動かないように）
         if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
         drag.started = true;
-        if (svPanel.classList.contains('is-max')) { // 大きくしている途中で動かしたら元の大きさに戻す
+        if (isSnapped(svPanel)) { unsnapWindow(svPanel); drag.dx = Math.min(drag.dx, svRect.width / 2); drag.w = svRect.width; } // 分割から外す
+        else if (svPanel.classList.contains('is-max')) { // 大きくしている途中で動かしたら元の大きさに戻す
           svPanel.classList.remove('is-max');
           placePanel();
           drag.dx = Math.min(drag.dx, svRect.width - 40);
           drag.w = svRect.width;
         }
       }
+      showSnapPreview(snapSideAt(e.clientX)); // 画面の左右のはしに近いときは、離したときに入る場所を見せる
       svPanel.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`; // 画面の端に少し残す
       svPanel.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy))}px`;
     });
@@ -861,10 +864,19 @@ export async function renderMap(view, ctx) {
     head.addEventListener('dblclick', (e) => {
       if (e.target.closest('button, a')) return;
       if (svPanel.classList.contains('is-min')) { setMin(false); return; }
+      unsnapWindow(svPanel);
       saveRect();
       svPanel.classList.toggle('is-max');
     });
-    const endDrag = () => { if (drag?.started) saveRect(); drag = null; };
+    const endDrag = (e) => {
+      if (drag?.started) {
+        const side = e.type === 'pointerup' ? snapSideAt(e.clientX) : null;
+        if (side) snapWindow(svPanel, side, () => { svPanel.classList.remove('is-snap'); placePanel(); }); // 画面の左右のはしで離したら、画面を分割
+        else saveRect();
+      }
+      showSnapPreview(null);
+      drag = null;
+    };
     head.addEventListener('pointerup', endDrag);
     head.addEventListener('pointercancel', endDrag);
     // 角のドラッグで大きさを変えたときも覚える
