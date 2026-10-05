@@ -300,7 +300,7 @@ export function addBaseTiles(map, opts = {}) {
     pane.style.zIndex = 460; // 塗り（400）・青い線（450）より上、マーカー（600）より下
     pane.style.pointerEvents = 'none';
     const lopt = { pane: 'svLabels', maxZoom: 19, maxNativeZoom: 18, keepBuffer: lean ? 1 : 2, updateWhenIdle: lean, attribution: '', ...opts };
-    for (const name of ['Reference/World_Boundaries_and_Places', 'Reference/World_Transportation']) {
+    for (const name of ['Reference/World_Transportation', 'Reference/World_Boundaries_and_Places']) { // 道路名を下、地名を上に
       L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`, lopt).addTo(map);
     }
   }
