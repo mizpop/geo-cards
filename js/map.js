@@ -47,6 +47,7 @@ let renderSeq = 0;
 let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 // ストリートビュー: ボタンで入る「クリックで開くモード」と、最後に開いた地点（地図を描き直しても開き直す）
 let svOn = false;
+let svSpace = null; // スペースキー長押しの一時オンのイベント（描き直すとき外す）
 let svPoint = null; // [lat, lng]
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
 export const svEmbedUrl = (lat, lng, heading = 0) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,${Math.round(heading)},0,0,0&hl=ja&output=svembed`;
@@ -866,6 +867,7 @@ export async function renderMap(view, ctx) {
   mapEl.addEventListener('mousedown', (e) => { svDown = [e.clientX, e.clientY]; }, true);
   mapEl.addEventListener('click', async (e) => {
     if (!svOn || e.target.closest('.leaflet-control')) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl / Alt を押しながらのクリックは、ストリートビューではなく Plonkit・国の情報（いつもの動作）
     e.stopPropagation();
     e.preventDefault();
     if (svDown && Math.hypot(e.clientX - svDown[0], e.clientY - svDown[1]) > 5) return;
@@ -935,6 +937,24 @@ export async function renderMap(view, ctx) {
       else if (carry.max) svPanel.classList.add('is-max');
       else if (carry.min) setMin(true);
     }
+  }
+  // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る）
+  if (svSpace) { document.removeEventListener('keydown', svSpace.down); document.removeEventListener('keyup', svSpace.up); window.removeEventListener('blur', svSpace.up); }
+  {
+    let temp = false;
+    const typing = (t) => /^(input|textarea|select|button|a)$/i.test(t?.tagName || '') || t?.isContentEditable;
+    const down = (e) => {
+      if (e.code !== 'Space' || e.ctrlKey || e.altKey || e.metaKey || typing(e.target) || document.querySelector('dialog[open]:not(.is-window)') || !$id('map')) return;
+      e.preventDefault(); // ページが下へ動かないように
+      if (e.repeat || svOn) return;
+      temp = true;
+      setSv(true);
+    };
+    const up = (e) => { if (e.type === 'keyup' && e.code !== 'Space') return; if (temp) { temp = false; setSv(false); } };
+    svSpace = { down, up };
+    document.addEventListener('keydown', down);
+    document.addEventListener('keyup', up);
+    window.addEventListener('blur', up);
   }
   escHandler = () => { if (svPoint) closeSv(); else if (svOn) setSv(false); else clearFocus(); };
   notesHandler = () => renderInfo();
