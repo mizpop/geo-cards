@@ -2784,34 +2784,37 @@ function renderPinQuestion(card) {
             </div>
             ${answerHtml(card, 'sm')}
             ${cardInfoHtml(card)}
-          </div>` : `<p class="quiz-prompt">${card.sv ? 'このストリートビューの場所を' : 'この写真の撮影地点を'}、地図でクリック（近いほど高得点）</p>`}
+          </div>` : `<p class="quiz-prompt">${card.sv ? 'このストリートビューの場所を' : 'この写真の撮影地点を'}、地図をクリックしてピンを置き、「回答」を押してください（近いほど高得点）</p><button class="btn btn-primary qm-guess" id="q-guess" type="button" disabled>📍 この場所で回答</button>`}
       </div>
     </div>`;
   attachZoom($('.quiz-card .front-img'));
   $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
   const at = q.i;
+  let pending = null; // 地図に置いたピンの位置（「回答」ボタンを押すまで答えは確定しない）
+  const submit = (guess) => {
+    if (q.answered || q.i !== at || state.view !== 'quiz') return;
+    const km = distanceBetween(guess, [card.lat, card.lng]);
+    const points = Math.round(5000 * Math.exp(-km / 1500));
+    const result = km <= 150 ? 'ok' : km <= 750 ? 'partial' : 'ng';
+    q.answered = { given: [], guess, km, points, result };
+    q.answers.push({ cardId: card.id, given: [], result, km, points });
+    if (!card.sv) record(card.id, result);
+    logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
+    play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
+    renderPinQuestion(card);
+    afterAnswer(result);
+  };
   mountPinMap($('#quiz-map'), {
     answer: [card.lat, card.lng],
     guess: a?.guess,
     animate: settings.animations,
     qid: q.questions[q.i],
-    onPick: (guess) => {
-      if (q.answered || q.i !== at || state.view !== 'quiz') return;
-      const km = distanceBetween(guess, [card.lat, card.lng]);
-      const points = Math.round(5000 * Math.exp(-km / 1500));
-      const result = km <= 150 ? 'ok' : km <= 750 ? 'partial' : 'ng';
-      q.answered = { given: [], guess, km, points, result };
-      q.answers.push({ cardId: card.id, given: [], result, km, points });
-      if (!card.sv) record(card.id, result);
-      logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
-      play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
-      renderPinQuestion(card);
-      afterAnswer(result);
-    },
+    onPlace: (g) => { pending = g; const b = $('#q-guess'); if (b) b.disabled = false; },
   }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
     const el = $('#quiz-map .map-loading');
     if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`;
   });
+  $('#q-guess')?.addEventListener('click', () => { if (pending) submit(pending); });
   if (a) {
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-next').focus({ preventScroll: true });

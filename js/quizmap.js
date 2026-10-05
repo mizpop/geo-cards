@@ -90,8 +90,8 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
   return map;
 }
 
-// 撮影地点を当てる: 地図のどこでもクリックして回答。answered なら答えた地点と正解の地点を線で結ぶ
-export async function mountPinMap(el, { answer, guess, onPick, animate = true, qid = null }) {
+// 撮影地点を当てる: 地図のどこでもクリックしてピンを置き、ボタンで回答。answered なら答えた地点と正解の地点を線で結ぶ
+export async function mountPinMap(el, { answer, guess, onPlace, animate = true, qid = null }) {
   await loadLibs();
   if (!el.isConnected) return null;
   const L = window.L;
@@ -116,9 +116,12 @@ export async function mountPinMap(el, { answer, guess, onPick, animate = true, q
     if (animate) map.flyToBounds(b, { padding: [40, 40], maxZoom: 9, duration: 0.7 }); else map.fitBounds(b, { padding: [40, 40], maxZoom: 9, animate: false });
   } else {
     map.getContainer().style.cursor = 'crosshair';
+    // クリックでピンを置く（何度でも置き直せる）。回答は、ピンを置いたあとに「回答」ボタンを押したとき（呼び出し側が行う）
+    let pin = null;
     map.on('click', (e) => {
+      if (pin) pin.setLatLng(e.latlng); else pin = L.circleMarker(e.latlng, { radius: 9, color: '#fff', weight: 3, fillColor: '#e03131', fillOpacity: 1 }).addTo(map);
       const w = e.latlng.wrap();
-      onPick?.([w.lat, w.lng]);
+      onPlace?.([w.lat, w.lng]);
     });
   }
   setTimeout(() => map.invalidateSize(), 50);

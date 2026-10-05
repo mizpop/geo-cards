@@ -1889,3 +1889,6 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
   .qm-layout.qm-float .qm-side:hover .quiz-map, .qm-layout.qm-float .qm-side:focus-within .quiz-map { height: min(520px, calc(100vh - 260px)); opacity: 1; }
   .qm-layout.qm-float .qm-side .quiz-prompt { order: 2; margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; text-align: center; pointer-events: auto; }
 }
+
+.qm-side .qm-guess { flex: none; width: 100%; }
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) { .qm-layout.qm-float .qm-side .qm-guess { order: 3; margin-top: 6px; pointer-events: auto; } }
