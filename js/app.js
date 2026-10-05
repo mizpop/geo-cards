@@ -21,6 +21,9 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
 
+// Windows 版（exe）のダウンロード先（Google ドライブの共有リンク）。exe の中・スマホ・Windows 以外では出さない
+const DESKTOP_DOWNLOAD_URL = 'https://drive.google.com/uc?export=download&id=1i8LmhVIhyaMxy-Z0f4Mw9UdQAAJMNYnz';
+const canDownloadApp = () => /Windows/i.test(navigator.userAgent) && !/Electron/i.test(navigator.userAgent) && !window.matchMedia?.('(pointer: coarse)').matches;
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -198,6 +201,10 @@ function openSettings() {
     </section>
     <h3 class="set-group-title">🔄 学習記録の同期</h3>
     <section class="set-group" id="sync-box"></section>
+    ${canDownloadApp() ? `<h3 class="set-group-title">💻 デスクトップ版（Windows）</h3>
+    <section class="set-group">
+      ${item('Windows 版アプリ（exe）', 'インストール不要で、ダブルクリックで起動できます。中身はこのサイトなので、サイトの更新は自動で反映されます（インターネット接続が必要）。初めて開くとき Windows の警告が出たら、「詳細情報」→「実行」で開けます。', `<a class="btn btn-primary btn-sm" href="${esc(DESKTOP_DOWNLOAD_URL)}" target="_blank" rel="noopener">ダウンロード（約 74MB）</a>`)}
+    </section>` : ''}
     <h3 class="set-group-title">⌨ キーボード操作</h3>
     <section class="set-group set-keys">
       ${KEY_ACTIONS.map(([act, label]) => `
