@@ -2644,7 +2644,7 @@ function renderQuestion() {
             <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
             <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
           </div>
-          ${q.mode === 'choice' || a.result !== 'ok' ? answerHtml(card, 'sm') : ''}
+          ${q.mode === 'choice' || a.result !== 'ok' ? answerHtml(card, 'sm', true) : ''}
           ${notesHtml(card)}
           ${cardInfoHtml(card)}
         </div>` : ''}
@@ -2782,7 +2782,7 @@ function renderPinQuestion(card) {
               <div class="feedback-title">📍 約 ${Math.round(a.km).toLocaleString()} km ・ <b>${a.points.toLocaleString()}</b> 点</div>
               <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
-            ${answerHtml(card, 'sm')}
+            ${answerHtml(card, 'sm', true)}
             ${cardInfoHtml(card)}
           </div>` : `<p class="quiz-prompt">${card.sv ? 'このストリートビューの場所を' : 'この写真の撮影地点を'}、地図をクリックしてピンを置き、「回答」を押してください（近いほど高得点）</p><button class="btn btn-primary qm-guess" id="q-guess" type="button" disabled>📍 この場所で回答</button>`}
       </div>
@@ -2848,7 +2848,7 @@ function renderMapQuestion(card) {
               <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
-            ${answerHtml(card, 'sm')}
+            ${answerHtml(card, 'sm', true)}
             ${notesHtml(card)}
             ${cardInfoHtml(card)}
           </div>` : `<p class="quiz-prompt">${card.sv ? 'この場所がある国を、地図でクリック（映像の中は動き回れます）' : 'この特徴が見られる国を、地図でクリック'}</p>`}
@@ -4334,3 +4334,10 @@ async function importBackup(file) {
 }
 
 boot();
+
+// クイズの解答に出る国名から、国の詳細を開く（描き直しても効くよう、まとめて受ける）
+document.addEventListener('click', (e) => {
+  if (state.view !== 'quiz') return;
+  const b = e.target.closest('#view .answer-country[data-info]');
+  if (b) openCountryInfo(b.dataset.info, b);
+});
