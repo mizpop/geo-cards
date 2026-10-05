@@ -1,25 +1,65 @@
 // GeoChecker のデスクトップ版: 公開中のサイトを読み込むだけの入れ物。サイトを更新すれば、このアプリにも自動で反映される
-const { app, BrowserWindow, shell } = require('electron');
+// 上の細いバー（タイトルバー）に再読み込みボタンを置くため、バーとサイトを別々の画面（WebContentsView）にしている
+const { app, BrowserWindow, WebContentsView, ipcMain, shell } = require('electron');
 const path = require('path');
 
 const SITE = 'https://geo-cards-533.pages.dev/';
 const ownHost = new URL(SITE).host;
+const BAR_H = 36;
+
+const barHtml = `<!doctype html><meta charset="utf-8"><style>
+  html,body{margin:0;height:100%;background:#141b21;color:#e6edf3;font:13px 'Segoe UI','Yu Gothic UI',sans-serif;user-select:none}
+  body{display:flex;align-items:center;-webkit-app-region:drag;padding-left:12px;box-sizing:border-box}
+  #t{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;opacity:.85}
+  /* 右端の最小化・最大化・閉じるのボタン（約 140px）の左に置く */
+  #r{-webkit-app-region:no-drag;margin-right:146px;width:30px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+  #r:hover{background:#2a3640}#r:active{background:#34f0a022}
+</style><div id="t">GeoChecker</div>
+<button id="r" title="再読み込み（Ctrl+R）／ Shift を押しながらで、キャッシュも捨てて読み込み直す" aria-label="再読み込み"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+<script>
+  document.getElementById('r').addEventListener('click', (e) => window.bar.reload(e.shiftKey));
+  window.bar.onTitle((t) => { document.getElementById('t').textContent = t || 'GeoChecker'; });
+</script>`;
 
 function createWindow() {
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 420, minHeight: 500,
     title: 'GeoChecker', icon: path.join(__dirname, 'icon.png'), backgroundColor: '#0e1418', autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#141b21', symbolColor: '#e6edf3', height: BAR_H }, // 右端の最小化・最大化・閉じるのボタン
   });
-  win.loadURL(SITE);
+  const bar = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js') } });
+  const site = new WebContentsView();
+  win.contentView.addChildView(site);
+  win.contentView.addChildView(bar);
+  const layout = () => {
+    const { width, height } = win.getContentBounds();
+    bar.setBounds({ x: 0, y: 0, width, height: BAR_H });
+    site.setBounds({ x: 0, y: BAR_H, width, height: Math.max(0, height - BAR_H) });
+  };
+  layout();
+  ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen'].forEach((ev) => win.on(ev, layout));
+  bar.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(barHtml));
+
+  const wc = site.webContents;
+  wc.loadURL(SITE);
+  wc.on('page-title-updated', (_e, t) => { win.setTitle(t); if (!bar.webContents.isDestroyed()) bar.webContents.send('title', t); });
   // 別のサイトへのリンク（Google マップ・Plonkit など）は、既定のブラウザで開く。このサイトの中は、そのままアプリで開く
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  wc.setWindowOpenHandler(({ url }) => {
     try { if (new URL(url).host === ownHost) return { action: 'allow' }; } catch { /* 無視 */ }
     shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.webContents.on('did-fail-load', (_e, code, desc, _url, isMain) => {
+  wc.on('did-fail-load', (_e, code, desc, _url, isMain) => {
     if (!isMain || code === -3) return;
-    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<body style="font:16px sans-serif;background:#0e1418;color:#e6edf3;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><h2>サイトに接続できません</h2><p>${desc}</p><p>ネットワークを確認して、Ctrl+R で再読み込みしてください。</p></div></body>`));
+    wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<body style="font:16px sans-serif;background:#0e1418;color:#e6edf3;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><h2>サイトに接続できません</h2><p>${desc}</p><p>ネットワークを確認して、上の再読み込みボタン（Ctrl+R）を押してください。</p></div></body>`));
+  });
+  // 再読み込み: ボタン・Ctrl+R・F5（Shift を足すとキャッシュも捨てる）
+  const reload = (hard) => { const u = wc.getURL(); if (!u || u.startsWith('data:')) wc.loadURL(SITE); else if (hard) wc.reloadIgnoringCache(); else wc.reload(); };
+  ipcMain.on('reload', (e, hard) => { if (e.sender === bar.webContents) reload(hard); });
+  wc.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'F5' || ((input.control || input.meta) && input.key.toLowerCase() === 'r')) { e.preventDefault(); reload(input.shift); }
   });
 }
 

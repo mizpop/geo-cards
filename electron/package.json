@@ -10,7 +10,7 @@
   "build": {
     "appId": "net.pages.geo-cards.geochecker",
     "productName": "GeoChecker",
-    "files": ["main.js", "icon.png", "package.json"],
+    "files": ["main.js", "preload.js", "icon.png", "package.json"],
     "win": { "target": "portable", "signAndEditExecutable": false, "icon": "icon.png" },
     "portable": { "artifactName": "GeoChecker.exe" },
     "directories": { "output": "dist" }

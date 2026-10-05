@@ -90,7 +90,7 @@ const state = {
   urlsAt: 0,
   view: 'study',
   study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, review: false, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
-  quiz: { photoTopics: new Set(['bollard', 'pole', 'chevron', 'plate']), timeLimit: 0, kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
+  quiz: { photoTopics: new Set(['bollard', 'pole', 'chevron', 'plate']), timeLimit: 0, kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, svSource: 'random', catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
   mapMatch: {}, // 地図の「条件で絞り込み」の条件 { topic: key }
   compare: { codes: [], closed: new Set() }, // 比較タブで並べる国・閉じている項目
@@ -2135,6 +2135,12 @@ function renderQuiz() {
           <button type="button" class="btn btn-ghost btn-sm" id="q-og">書き出す</button>
         </div>
       </div>` : ''}
+      ${isSv ? `<div class="setup-block"><div class="setup-label"><span>出題する地点</span></div>
+        <div class="seg" id="q-svsrc">
+          <button class="${q.svSource === 'random' ? 'on' : ''}" data-src="random">🎲 ランダムな道路</button>
+          <button class="${q.svSource === 'ref' ? 'on' : ''}" data-src="ref">📷 GeoHints の写真の地点だけ</button>
+        </div>
+        ${q.svSource === 'ref' ? '<p class="muted small">GeoHints の参考写真（ボラード・電柱・シェブロン・ナンバープレート）が撮られた地点のストリートビューを出します。写真と同じ場所で、見分けの手がかりを探しながら国を当てます</p>' : ''}</div>` : ''}
       ${isSv ? '<p class="muted small sv-setup-note">選んだ地域の国からランダムな道路を選んで、その場所のストリートビューを出します（映像は Google マップから読み込みます）。映像の中は動き回れます。答えるまで、場所の名前の表示は隠します。出題は毎回違い、覚え具合の記録には入りません</p>' : ''}
       ${isFact ? `
       <div class="setup-block">
@@ -2233,6 +2239,7 @@ function renderQuiz() {
   }));
   $('#q-all').addEventListener('click', () => { q.regions = new Set(REGIONS.map((r) => r.id)); renderQuiz(); });
   $('#q-none').addEventListener('click', () => { q.regions = new Set(); renderQuiz(); });
+  $$('#q-svsrc button').forEach((b) => b.addEventListener('click', () => { q.svSource = b.dataset.src; renderQuiz(); }));
   $$('#q-count button').forEach((b) => b.addEventListener('click', () => { q.count = Number(b.dataset.n); renderQuiz(); }));
   $$('#q-mode button').forEach((b) => b.addEventListener('click', () => { q.mode = b.dataset.mode; renderQuiz(); }));
   $$('#q-order button').forEach((b) => b.addEventListener('click', () => { q.order = b.dataset.order; renderQuiz(); }));
@@ -2251,7 +2258,7 @@ function renderQuiz() {
   });
   $$('#q-time button').forEach((b) => b.addEventListener('click', () => { q.timeLimit = Number(b.dataset.t); renderQuiz(); }));
   $('#q-start').addEventListener('click', async (e) => {
-    if (isSv) { startSvQuiz(svCodes, e.currentTarget); return; }
+    if (isSv) { (q.svSource === 'ref' ? startSvRefQuiz : startSvQuiz)(svCodes, e.currentTarget); return; }
     if (isPhoto) await ensureRefInfo().catch(() => {}); // 撮影地点を当てる問題に必要な座標
     if (isFact) startFactQuiz(factQuizPool(q.factTopic, q.regions));
     else startQuiz(isPhoto ? photoPool(q) : quizEligible(q.regions));
@@ -2480,6 +2487,41 @@ function startQuiz(pool) {
 }
 
 // ストリートビューの練習: 選んだ地域の国から、ストリートビューのあるランダムな地点を作って出題する
+// GeoHints の参考写真が撮られた地点だけから出題するストリートビューの練習（国はなるべくばらけさせる）
+async function startSvRefQuiz(codes, btn) {
+  const q = state.quiz;
+  const n = q.count || 10;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '地点を読み込み中…';
+  try { await ensureRefInfo(); } catch { btn.textContent = label; btn.disabled = false; toast('写真の地点データを読み込めませんでした。通信を確認してもう一度試してください', 'error'); return; }
+  const allowed = new Set(codes);
+  const byCountry = new Map(); // 国 → その国の写真の地点
+  for (const [topic, byCode] of Object.entries(REF_IMAGES)) {
+    for (const [code, rels] of Object.entries(byCode)) {
+      if (!allowed.has(code)) continue;
+      for (const rel of rels) {
+        const i = refInfo(topic, rel);
+        if (i && i.lat != null && i.lng != null) { if (!byCountry.has(code)) byCountry.set(code, []); byCountry.get(code).push({ code, lat: i.lat, lng: i.lng, heading: i.heading || 0 }); }
+      }
+    }
+  }
+  btn.textContent = label;
+  btn.disabled = false;
+  const picks = [];
+  const pools = shuffle([...byCountry.values()].map((a) => shuffle(a)));
+  while (picks.length < n && pools.some((p) => p.length)) { // 1 周ごとに、各国から 1 地点ずつ
+    for (const p of pools) { if (picks.length >= n) break; if (p.length) picks.push(p.pop()); }
+  }
+  if (picks.length < Math.min(n, 3)) { toast('選んだ地域に、写真の地点がほとんどありません。地域を広げてください', 'error'); return; }
+  const cards = shuffle(picks).map((p, k) => {
+    const card = { id: `sv|${Date.now()}|${k}`, countries: [p.code], sv: true, lat: p.lat, lng: p.lng, heading: Math.round(p.heading), description: '', area: '', notes: '', category_id: null, created_at: '' };
+    svCards.set(card.id, card);
+    return card;
+  });
+  q.timeLimit = 0;
+  startQuiz(cards);
+}
 async function startSvQuiz(codes, btn) {
   const q = state.quiz;
   const n = q.count || 10;
