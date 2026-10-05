@@ -2129,6 +2129,9 @@ function renderBattle() {
     mountQuizMap, mountPinMap, distanceBetween, resolveCountryCode,
     factTopics: FACT_TOPICS.map((id) => ({ id, name: modeDef(id).name, icon: modeDef(id).icon })),
     setSvHide: (v) => { svHide = v; },
+    regions: REGIONS.map((r) => ({ id: r.id, name: r.name })),
+    categories: allCats().map((c) => ({ key: c.id, name: c.name })),
+    photoTopics: PHOTO_TOPICS.map((t) => ({ id: t, name: modeDef(t).name, icon: modeDef(t).icon })),
     cardFor: (Q) => (Q.card ? svCards.get(Q.card.id) : cardById(Q.cardId)),
     buildQuestions: battleBuild,
     prepare: async (qs) => {
@@ -2144,8 +2147,7 @@ function renderBattle() {
 }
 // 対戦の問題を作る（ホスト）。クイズ設定の地域・カテゴリー・写真の種類を使う
 async function battleBuild(cfg) {
-  const q = state.quiz;
-  const regions = q.regions;
+  const regions = cfg.regions; // 対戦用の出題範囲（ロビーで設定）
   const n = cfg.qn;
   if (cfg.kind === 'fact') {
     const groups = legendGroups(cfg.topic, allCodes());
@@ -2179,8 +2181,8 @@ async function battleBuild(cfg) {
     return out;
   }
   let pool;
-  if (cfg.kind === 'photo') { await ensureRefInfo().catch(() => {}); pool = photoPool({ photoTopics: new Set(PHOTO_TOPICS), regions, mode: cfg.mode }); }
-  else pool = quizEligible(regions).filter((c) => !c.sv && c.countries.length);
+  if (cfg.kind === 'photo') { await ensureRefInfo().catch(() => {}); pool = photoPool({ photoTopics: cfg.photoTopics, regions, mode: cfg.mode }); }
+  else pool = state.cards.filter((c) => !c.sv && c.countries.length && !cfg.catsOff.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
   return shuffle(pool).slice(0, n).map((card) => ({ k: 'card', mode: cfg.mode, cardId: card.id, options: opts(card) }));
 }
 function renderQuiz() {

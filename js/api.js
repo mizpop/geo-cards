@@ -259,7 +259,7 @@ function createSupabaseApi(sb) {
       ch.on('presence', { event: 'sync' }, () => on.presence(Object.values(ch.presenceState()).map((a) => a[0]).filter(Boolean)));
       await new Promise((resolve, reject) => ch.subscribe((st) => { if (st === 'SUBSCRIBED') resolve(); else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') reject(new Error('対戦の通信に接続できませんでした')); }));
       await ch.track({ id: me.id, name: me.name, host: !!me.host });
-      return { send: (payload) => ch.send({ type: 'broadcast', event: 'm', payload }), leave: () => sb.removeChannel(ch) };
+      return { send: (payload) => ch.send({ type: 'broadcast', event: 'm', payload }), setMe: (info) => ch.track(info), leave: () => sb.removeChannel(ch) };
     },
     // 国ごとのメモ: Map(code -> note)
     // 国ごとの情報（地図のインフォグラフィック）: Map(topic → Map(code → value))
@@ -484,6 +484,7 @@ function createDemoApi() {
       setTimeout(emit, 50);
       return {
         send: (m) => { bc.postMessage({ m }); setTimeout(() => on.msg(m), 0); },
+        setMe: (info) => { Object.assign(me, info); peers.set(me.id, { ...me, seen: Date.now() }); hello(); emit(); },
         leave: () => { clearInterval(beat); bc.postMessage({ bye: me.id }); bc.close(); },
       };
     },
