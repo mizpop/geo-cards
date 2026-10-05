@@ -292,8 +292,18 @@ export function addBaseTiles(map, opts = {}) {
   // attribution は地図の帰属表示（右下）に自動で出る
   const layer = tileStyle === 'osm'
     ? L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', ...opts })
-    : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 18, attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', ...opts });
+    : L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png', { maxZoom: 19, subdomains: 'abcd', attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; OpenStreetMap contributors / 地名: Esri', ...opts });
   layer.addTo(map);
+  // 地名・道路名は別のタイル（英語表記・透明）にして、色で塗った地図や青い線の上に重ねる。OSM は地名が焼き込み済みで分けられない
+  if (tileStyle !== 'osm') {
+    const pane = map.getPane('svLabels') || map.createPane('svLabels');
+    pane.style.zIndex = 460; // 塗り（400）・青い線（450）より上、マーカー（600）より下
+    pane.style.pointerEvents = 'none';
+    const lopt = { pane: 'svLabels', maxZoom: 19, maxNativeZoom: 18, keepBuffer: lean ? 1 : 2, updateWhenIdle: lean, attribution: '', ...opts };
+    for (const name of ['Reference/World_Boundaries_and_Places', 'Reference/World_Transportation']) {
+      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`, lopt).addTo(map);
+    }
+  }
   return layer;
 }
 
@@ -486,13 +496,6 @@ export async function renderMap(view, ctx) {
   const dark = isDark();
   // 背景の地図（設定で英語表記 / OpenStreetMap を切り替え）。ダークモードは CSS で色を反転
   addBaseTiles(map, { updateWhenZooming: false });
-  // 地名・道路名だけの透明なタイルを、色で塗った地図や青い線の上に重ねる（英語表記の地図のとき。OSM は地名が地図に焼き込み済みで分けられない）
-  if (tileStyle !== 'osm') {
-    const pane = map.createPane('svLabels');
-    pane.style.zIndex = 460; // 塗り（400）・青い線（450）より上、マーカー（600）より下
-    pane.style.pointerEvents = 'none';
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { pane: 'svLabels', maxZoom: 19, maxNativeZoom: 18, keepBuffer: leanTiles() ? 1 : 2, updateWhenZooming: false, attribution: '' }).addTo(map);
-  }
   $id('map').classList.toggle('map-dark', dark);
   if (lastView) map.setView(lastView.center, lastView.zoom);
   else map.setView([25, 10], 2);
