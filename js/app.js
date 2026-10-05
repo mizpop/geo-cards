@@ -1683,6 +1683,7 @@ function renderStudy() {
     toast(s.review ? `復習モード: ${s.deck.length} 枚` : 'すべてのカードに戻りました');
   });
   if (card) { bindCardFacts($('#flashcard')); bindRelated($('#flashcard')); }
+  preloadStudyImages();
   $('#back-facts')?.addEventListener('toggle', (e) => { s.factsOpen = e.currentTarget.open; });
   $('#study-ok')?.addEventListener('click', () => markStudy('ok'));
   $('#study-ng')?.addEventListener('click', () => markStudy('ng'));
@@ -1730,6 +1731,27 @@ function renderStudy() {
     $('#study-prev').addEventListener('click', () => moveStudy(-1));
     $('#study-next').addEventListener('click', () => moveStudy(1));
   }
+}
+
+// 次（と前）のカードの画像を先に読み込んでおく（めくったあとの表示が待たされないように）
+// 読み込み中の Image は参照を持っておく（なくなると読み込みが途中で止まることがあるため）
+const preloaded = new Map(); // url -> Image（新しいものだけ残す）
+function preloadStudyImages() {
+  if (navigator.connection?.saveData) return; // データ節約の設定では先読みしない
+  const s = state.study;
+  for (const i of [s.index + 1, s.index + 2, s.index - 1]) {
+    const c = cardById(s.deck[i]);
+    if (!c) continue;
+    for (const url of [imgUrl(c), backUrl(c)]) {
+      if (!url || preloaded.has(url) || url.startsWith('data:')) continue;
+      const img = new Image();
+      img.fetchPriority = 'low'; // 今見ているカードの読み込みを邪魔しない
+      img.decoding = 'async';
+      img.src = url;
+      preloaded.set(url, img);
+    }
+  }
+  while (preloaded.size > 12) preloaded.delete(preloaded.keys().next().value); // 古いものから手放す
 }
 
 // 裏面など、拡大機能のない場所での横スワイプ
