@@ -2042,3 +2042,9 @@ body:has(.sv-front) { overflow-x: clip; }
 .cl-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; line-height: 1.7; }
 
 .bt-head-actions { display: flex; align-items: center; gap: 8px; }
+
+.cl-version { margin: 6px 0 22px; }
+.cl-ver { font-size: 18px; margin: 0 0 8px; }
+.cl-now { font-size: 11px; font-weight: 700; color: var(--accent-text); background: var(--accent); border-radius: 999px; padding: 2px 8px; vertical-align: middle; }
+.cl-group { margin: 10px 0 14px; }
+.cl-date { font-size: 14px; margin: 0 0 6px; color: var(--muted); }

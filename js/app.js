@@ -13,6 +13,7 @@ import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isVali
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
 import { mountBattle, watchPublicRooms } from './battle.js';
+import { APP_VERSION } from './changelog.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
@@ -184,7 +185,7 @@ async function openChangelog() {
   const { CHANGELOG } = await import('./changelog.js');
   openModal(`
     <div class="modal-head"><h2>🕘 更新履歴</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
-    ${CHANGELOG.map((g) => `<section class="cl-group"><h3 class="cl-date">${esc(g.date)} <span class="muted">${esc(g.title)}</span></h3><ul class="cl-list">${g.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>`).join('')}`, 'modal-settings');
+    ${CHANGELOG.map((v) => `<section class="cl-version"><h3 class="cl-ver">${esc(v.version)} <span class="muted">${esc(v.date)}</span>${v === CHANGELOG[0] ? ' <span class="cl-now">現在のバージョン</span>' : ''}</h3>${v.sections.map((g) => `<div class="cl-group"><h4 class="cl-date">${esc(g.title)}</h4><ul class="cl-list">${g.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>`).join('')}</section>`).join('')}`, 'modal-settings');
 }
 function openSettings() {
   const seg = (key, opts) => `<div class="seg" data-key="${key}">${opts.map(([v, label]) => `<button type="button" class="${settings[key] === v ? 'on' : ''}" data-v="${v}">${label}</button>`).join('')}</div>`;
@@ -240,12 +241,14 @@ function openSettings() {
       <p class="set-desc set-key-note">ボタンを押してから割り当てたいキーを押します（Esc で取り消し）。<br>Ctrl・Alt との組み合わせも使えます（Ctrl / Alt を押したまま割り当てたいキー）。<br>そのほか: スペース / Enter でめくる・← → で移動・4択は 1〜4・Ctrl+K でも検索・地図ではそのまま文字を打つと国の検索・入力欄では Esc でキー操作に戻る</p>
     </section>
     <p class="muted small set-note">設定はこの端末のブラウザに保存されます</p>
+    <p class="muted small set-note">GeoChecker ${APP_VERSION}（<button type="button" class="link-btn" id="set-changelog">更新履歴</button>）</p>
     <div class="modal-foot set-foot">
       <button class="btn btn-ghost" id="set-reset" type="button">初期設定に戻す</button>
       <span class="grow"></span>
       <button class="btn btn-primary" data-close type="button">閉じる</button>
     </div>
     </div></div>`, 'modal-settings');
+  $('#set-changelog')?.addEventListener('click', () => openChangelog());
   $('#set-logout')?.addEventListener('click', () => { closeModal(); doLogout(); });
   { // 左の目次: 見出しから作る。押すとその見出しへ動き、見ている位置を強調する（狭い画面では隠す）
     const m = $('#modal');
@@ -574,6 +577,7 @@ function bindGlobal() {
   const sp = $('#spotlight');
   sp.addEventListener('click', (e) => { if (e.target === sp) closeSpotlight(); });
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
+  $('#changelog-btn').title = `更新履歴（現在 ${APP_VERSION}）`;
   $('#changelog-btn').addEventListener('click', openChangelog);
   document.addEventListener('keydown', onKeydown);
   const modal = $('#modal');
