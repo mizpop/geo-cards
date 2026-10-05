@@ -264,7 +264,7 @@ export function mountBattle(host, ctx) {
     return [...ids].map((id) => ({ id, name: names.get(id) || '?', score: game?.scores.get(id) || 0 })).sort((a, b) => b.score - a.score);
   };
   const boardHtml = () => `<ol class="bt-board">${board().map((p, i) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${esc(p.name)}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`).join('')}</ol>`;
-  const head = (title) => `<div class="bt-head"><h2>👥 ${title}</h2><button type="button" class="btn btn-ghost btn-sm" id="bt-exit">${phase === 'entry' ? '← 戻る' : '退出'}</button></div>`;
+  const head = (title, extra = '') => `<div class="bt-head"><h2>👥 ${title}</h2><div class="bt-head-actions">${extra}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">${phase === 'entry' ? '← 戻る' : '退出'}</button></div></div>`;
   const bindExit = () => host.querySelector('#bt-exit')?.addEventListener('click', () => { leave(); onExit(); });
 
   function renderEntry() {
@@ -304,7 +304,7 @@ export function mountBattle(host, ctx) {
     const list = [...players.values()];
     if (!modesOf(cfg.kind).includes(cfg.mode)) cfg.mode = modesOf(cfg.kind)[0];
     const counts = isHost ? ctx.scopeCounts(cfg) : { regions: new Map(), cats: new Map() };
-    main.innerHTML = `${head(`部屋 <span class="bt-room">${esc(room)}</span>`)}
+    main.innerHTML = `${head(`部屋 <span class="bt-room">${esc(room)}</span>`, isHost ? `<button type="button" class="btn btn-sm ${cfg.public ? 'btn-primary' : ''}" id="bt-public" title="${cfg.public ? '今このサイトを開いている全員に、参加用のポップアップを出しています（押すと非公開）' : '押すと、このサイトを開いている全員に「参加する」ポップアップが出ます'}">${cfg.public ? '📢 公開中' : '📢 部屋を公開する'}</button>` : '')}
       <p class="muted small">このコードを友達に伝えてください。${isHost ? '全員そろったら「開始」を押します。' : 'ホストが開始するのを待っています。'}</p>
       <ul class="bt-players">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}">${p.host ? '👑 ' : ''}${esc(p.name)}</li>`).join('') || '<li class="muted">接続中…</li>'}</ul>
       ${isHost ? `<div class="bt-settings quiz-setup">
@@ -329,9 +329,6 @@ export function mountBattle(host, ctx) {
           ${cfg.kind === 'fact' ? '' : `<div class="setup-block"><div class="setup-label"><span>回答方式</span></div>${segHtml('bt-mode', modesOf(cfg.kind).map((m) => [m, MODES[m]]), cfg.mode)}</div>`}
           <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ, '秒')}</div>
         </div>
-        <div class="setup-block"><div class="setup-label"><span>部屋の公開</span></div>
-          <div class="bt-row"><button type="button" class="btn ${cfg.public ? 'btn-primary' : ''}" id="bt-public">${cfg.public ? '📢 公開中（押すと非公開に）' : '📢 部屋を公開する'}</button>
-          <span class="muted small">${cfg.public ? '今このサイトを開いている全員に、参加用のポップアップが出ています（満員になると出なくなります）' : '押すと、このサイトを開いている全員に「参加する」ポップアップが出ます'}</span></div></div>
         <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${list.length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${list.length} 人）`}</button></div>` : ''}`;
     bindExit();
     if (!isHost) return;
