@@ -12,7 +12,7 @@ import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSn
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
-import { mountBattle } from './battle.js';
+import { mountBattle, watchPublicRooms } from './battle.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
@@ -445,6 +445,16 @@ async function enterApp() {
   await reloadCards();
   route();
   startLive();
+  if (!lobbyWatching) { // 公開された対戦の部屋のお知らせ（ポップアップから参加できる）
+    lobbyWatching = true;
+    watchPublicRooms({ api, esc, busy: () => !!battle?.inRoom?.(), onJoin: (code) => {
+      pendingBattleRoom = code;
+      if (battle) { battle.leave(); battle = null; }
+      state.quiz.kind = 'battle';
+      state.quiz.phase = 'setup';
+      if (state.view === 'quiz') renderQuiz(); else location.hash = '#quiz';
+    } });
+  }
   // 学習記録の同期（引き継ぎコードを設定している場合）: 起動時と、記録が変わったあと自動で
   startAutoSync(api, {
     onMerged: () => { if ((!$('#modal').open || modalIsWindow()) && !(state.view === 'quiz' && state.quiz.phase === 'question')) { rebuildStudyDeck(true); renderView(); } toast('ほかの端末の学習記録を取り込みました'); },
@@ -2119,11 +2129,15 @@ function quizEligible(regions) {
 
 // ---- リアルタイム対戦（js/battle.js） ----
 let battle = null;
+let lobbyWatching = false;
+let pendingBattleRoom = ''; // 公開された部屋のポップアップから来たときのコード
 function renderBattle() {
   if (battle && $('#battle-root')?.isConnected) return; // 対戦中は、描き直さない（通信を保つ）
   if (battle) { battle.leave(); battle = null; }
   setFit('scroll');
   $('#view').innerHTML = '<section class="panel battle" id="battle-root"></section>';
+  const auto = pendingBattleRoom;
+  pendingBattleRoom = '';
   battle = mountBattle($('#battle-root'), {
     api, esc, play, toast, countryName, flagImg, flagUrl, cardById, frontHtml, answerHtml, cardInfoHtml, factPanelHtml,
     mountQuizMap, mountPinMap, distanceBetween, resolveCountryCode,
@@ -2143,6 +2157,8 @@ function renderBattle() {
       if (mode === 'map') { const g = given[0]; return { result: card.countries.includes(g) ? 'ok' : card.countries.some((c) => COUNTRY_INFO[c]?.nb.includes(g)) ? 'partial' : 'ng' }; }
       return { result: grade(card, given) };
     },
+    publish: (m) => watchPublicRooms.lobby?.send(m),
+    autoJoin: auto,
     onExit: () => { battle = null; svHide = false; state.quiz.kind = 'cards'; renderQuiz(); },
   });
 }
@@ -2813,7 +2829,7 @@ function renderQuestion() {
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
-    ${card.sv ? '<div class="sv-split">' : ''}
+    ${card.sv && a ? '<div class="sv-split">' : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
       ${a ? '' : `<p class="quiz-prompt">${card.sv ? 'この場所は、どこの国？（映像の中は動き回れます）' : 'この特徴が見られる国は？'}</p>`}
@@ -2830,7 +2846,7 @@ function renderQuestion() {
           ${cardInfoHtml(card)}
         </div>` : ''}
     </div>
-    ${card.sv ? '</div>' : ''}
+    ${card.sv && a ? '</div>' : ''}
   `;
 
   attachZoom($('.quiz-card .front-img'));

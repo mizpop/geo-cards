@@ -252,13 +252,20 @@ function createSupabaseApi(sb) {
       return () => sb.removeChannel(ch);
     },
 
+    // 公開された対戦の部屋のお知らせ用の共通チャンネル（全員が受信。Broadcast のみ）
+    async openLobby(on) {
+      const ch = sb.channel('battle-lobby', { config: { broadcast: { self: false } } });
+      ch.on('broadcast', { event: 'm' }, ({ payload }) => on(payload));
+      ch.subscribe();
+      return { send: (payload) => ch.send({ type: 'broadcast', event: 'm', payload }), leave: () => sb.removeChannel(ch) };
+    },
     // リアルタイム対戦の通信（Supabase Realtime の Broadcast / Presence。テーブルは使わない）。on.msg: メッセージ受信、on.presence: 今いる人の一覧
     async battleChannel(room, me, on) {
       const ch = sb.channel(`battle:${room}`, { config: { broadcast: { self: true }, presence: { key: me.id } } });
       ch.on('broadcast', { event: 'm' }, ({ payload }) => on.msg(payload));
       ch.on('presence', { event: 'sync' }, () => on.presence(Object.values(ch.presenceState()).map((a) => a[0]).filter(Boolean)));
       await new Promise((resolve, reject) => ch.subscribe((st) => { if (st === 'SUBSCRIBED') resolve(); else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') reject(new Error('対戦の通信に接続できませんでした')); }));
-      await ch.track({ id: me.id, name: me.name, host: !!me.host });
+      await ch.track({ ...me });
       return { send: (payload) => ch.send({ type: 'broadcast', event: 'm', payload }), setMe: (info) => ch.track(info), leave: () => sb.removeChannel(ch) };
     },
     // 国ごとのメモ: Map(code -> note)
@@ -462,6 +469,11 @@ function createDemoApi() {
       window.addEventListener('storage', onStorage);
       return () => window.removeEventListener('storage', onStorage);
     },
+    async openLobby(on) {
+      const bc = new BroadcastChannel('geo-battle-lobby');
+      bc.onmessage = (e) => on(e.data);
+      return { send: (m) => bc.postMessage(m), leave: () => bc.close() };
+    },
     // リアルタイム対戦の通信（デモモード: 同じブラウザの別タブどうし。BroadcastChannel で代用）
     async battleChannel(room, me, on) {
       const bc = new BroadcastChannel(`geo-battle-${room}`);
@@ -469,11 +481,11 @@ function createDemoApi() {
       let sig = '';
       const emit = () => { // 顔ぶれが変わったときだけ通知（毎秒描き直さないように）
         for (const [id, p] of peers) if (Date.now() - p.seen > 3500) peers.delete(id);
-        const list = [...peers.values()].map(({ id, name, host }) => ({ id, name, host }));
+        const list = [...peers.values()].map(({ seen, ...p }) => p);
         const s = JSON.stringify(list);
         if (s !== sig) { sig = s; on.presence(list); }
       };
-      const hello = () => bc.postMessage({ hello: { id: me.id, name: me.name, host: !!me.host } });
+      const hello = () => bc.postMessage({ hello: { ...me } });
       bc.onmessage = (e) => {
         if (e.data.hello) { const known = peers.has(e.data.hello.id); peers.set(e.data.hello.id, { ...e.data.hello, seen: Date.now() }); if (!known) hello(); emit(); }
         else if (e.data.bye) { peers.delete(e.data.bye); emit(); }

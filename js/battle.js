@@ -7,7 +7,7 @@ const newCode = () => Array.from({ length: 5 }, () => ROOM_CHARS[Math.floor(Math
 const newId = () => Math.random().toString(36).slice(2, 10);
 const NAME_KEY = 'geo-cards-battle-name';
 const SCOPE_KEY = 'geo-cards-battle-scope-v1';
-const REVEAL_MS = 6000; // 答え合わせを見せる時間
+const REVEAL_MS = 12000; // 答え合わせを見せる時間
 const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
 const KINDS = [['cards', '🃏 カード'], ['photo', '📷 参考写真'], ['fact', '🗺 国の特徴'], ['sv', '🧍 ストリートビュー']];
 const MODES = { choice: '4 択', input: '入力', map: '地図で選ぶ', pin: '場所をピン' };
@@ -28,7 +28,7 @@ export function mountBattle(host, ctx) {
   let tick = null;
   let timers = [];
   let building = false;
-  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
+  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, public: false, regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
   try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
   const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
   let hostId = '';
@@ -42,7 +42,7 @@ export function mountBattle(host, ctx) {
   const clearHostTimers = () => { timers.forEach(clearTimeout); timers = []; };
   const clearTimers = () => { clearInterval(tick); tick = null; clearHostTimers(); };
   const later = (ms, fn) => { timers.push(setTimeout(() => { if (alive()) fn(); }, ms)); };
-  function leave() { clearTimers(); chat.hidden = true; ctx.setSvHide(false); try { ch?.leave(); } catch { /* 無視 */ } ch = null; }
+  function leave() { cfg.public = false; if (pubTimer) stopPublic(); clearTimers(); chat.hidden = true; ctx.setSvHide(false); try { ch?.leave(); } catch { /* 無視 */ } ch = null; }
   const send = (m) => ch?.send(m);
 
   async function join(code, asHost) {
@@ -53,13 +53,14 @@ export function mountBattle(host, ctx) {
     hostId = asHost ? me.id : '';
     names.set(me.id, me.name);
     try {
-      ch = await api.battleChannel(room, { id: me.id, name: me.name, host: asHost }, {
+      me.at = Date.now();
+    ch = await api.battleChannel(room, meInfo(asHost), {
         msg: onMsg,
         presence: onPresence,
       });
     } catch (e) { toast(e.message || '接続できませんでした', 'error'); return; }
     phase = 'lobby';
-    chatOpen = true;
+    chatOpen = false; // 初めは閉じておく（画面を隠さない）。メッセージが来ると未読の数が出る
     chat.hidden = false;
     renderLobby();
     renderChat();
@@ -69,10 +70,26 @@ export function mountBattle(host, ctx) {
   }
 
   // ---- 参加者・ホスト ----
+  const meInfo = (h = isHost) => ({ id: me.id, name: me.name, host: h, at: me.at, max: cfg.max });
+  const announce = () => ctx.publish?.({ t: 'open', room, name: me.name, n: players.size, max: cfg.max, kind: (KINDS.find((k) => k[0] === cfg.kind) || [])[1] || '' });
+  // 部屋の公開: ロビーにいる間、定期的に「公開中」を全員に知らせる。閉じる・開始・退出で取り消す
+  let pubTimer = null;
+  function syncPublic() {
+    const want = isHost && cfg.public && phase === 'lobby' && !!ch;
+    if (want && !pubTimer) { announce(); pubTimer = setInterval(() => { if (!alive()) { stopPublic(); return; } announce(); }, 8000); }
+    else if (!want && pubTimer) stopPublic();
+  }
+  function stopPublic() { clearInterval(pubTimer); pubTimer = null; ctx.publish?.({ t: 'close', room }); }
   function onPresence(list) {
     players = new Map(list.map((p) => [p.id, p]));
     list.forEach((p) => names.set(p.id, p.name));
     if (!alive()) return;
+    const hp = list.find((p) => p.host);
+    if (!isHost && hp?.max && list.length > hp.max) { // 満員: 入った順で、最大人数に入れなかった人は退出
+      const order = [...list].sort((x, y) => (x.at || 0) - (y.at || 0) || (x.id < y.id ? -1 : 1));
+      if (order.findIndex((p) => p.id === me.id) >= hp.max) { toast('この部屋は満員です', 'error'); leave(); phase = 'entry'; renderEntry(); return; }
+    }
+    if (isHost && pubTimer) announce();
     if (!hostId) { const h = list.find((p) => p.host); if (h) hostId = h.id; }
     else if (!players.has(hostId) && players.has(me.id)) { // ホストが抜けたら、残った人の中で ID が一番小さい人が引き継ぐ
       const next = [...players.keys()].sort()[0];
@@ -87,9 +104,9 @@ export function mountBattle(host, ctx) {
     hostId = id;
     const was = isHost;
     isHost = id === me.id;
-    if (was && !isHost) { clearHostTimers(); ch?.setMe({ id: me.id, name: me.name, host: false }); }
+    if (was && !isHost) { clearHostTimers(); ch?.setMe(meInfo(false)); cfg.public = false; syncPublic(); }
     if (!was && isHost) {
-      ch?.setMe({ id: me.id, name: me.name, host: true });
+      ch?.setMe(meInfo(true));
       if (!silent) toast('あなたがホストになりました');
       if (game && phase === 'play') later(Math.max(500, game.perQ * 1000 + 1500 - (performance.now() - game.t0)), () => { if (phase === 'play') send({ t: 'reveal', i: game.i }); });
       else if (game && phase === 'reveal') hostRevealed(game.i);
@@ -146,6 +163,7 @@ export function mountBattle(host, ctx) {
     try {
       const questions = await ctx.buildQuestions(cfg);
       if (questions.length < 3) { toast('出題できる問題が足りません。地域やカテゴリーの条件を広げてください（クイズ設定）', 'error'); return; }
+      cfg.public = false; syncPublic();
       send({ t: 'start', perQ: cfg.perQ, questions });
       later(2000, () => send({ t: 'q', i: 0 }));
     } catch (e) { toast(`問題を作れませんでした（${e.message}）`, 'error'); } finally { building = false; if (phase === 'lobby') renderLobby(); }
@@ -287,15 +305,20 @@ export function mountBattle(host, ctx) {
           <div class="region-grid cat-grid">${ctx.categories.map((c) => `<label class="region-check cat-check ${counts.cats.get(c.key) ? '' : 'is-empty'}" style="${c.vars}"><input type="checkbox" data-cat="${esc(c.key)}" ${cfg.catsOff.has(c.key) ? '' : 'checked'}><span class="cat-dot"></span><span>${esc(c.name)}</span><span class="count">${counts.cats.get(c.key) || 0}</span></label>`).join('')}</div>
         </div>` : ''}
         <div class="setup-row">
+          <div class="setup-block"><div class="setup-label"><span>最大人数</span></div>${segHtml('bt-max', [2, 4, 6, 8, 12, 20].map((n) => [n, `${n}`]), cfg.max)}</div>
           <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${segHtml('bt-qn', [5, 10, 20, 50].map((n) => [n, `${n}`]), cfg.qn)}</div>
           ${cfg.kind === 'fact' ? '' : `<div class="setup-block"><div class="setup-label"><span>回答方式</span></div>${segHtml('bt-mode', modesOf(cfg.kind).map((m) => [m, MODES[m]]), cfg.mode)}</div>`}
           <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${segHtml('bt-pq', [10, 20, 30, 45, 60].map((n) => [n, `${n} 秒`]), cfg.perQ)}</div>
         </div>
+        <div class="setup-block"><div class="setup-label"><span>部屋の公開</span></div>
+          <div class="bt-row"><button type="button" class="btn ${cfg.public ? 'btn-primary' : ''}" id="bt-public">${cfg.public ? '📢 公開中（押すと非公開に）' : '📢 部屋を公開する'}</button>
+          <span class="muted small">${cfg.public ? '今このサイトを開いている全員に、参加用のポップアップが出ています（満員になると出なくなります）' : '押すと、このサイトを開いている全員に「参加する」ポップアップが出ます'}</span></div></div>
         <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${list.length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${list.length} 人）`}</button></div>` : ''}`;
     bindExit();
     if (!isHost) return;
-    const pick = (id, key, num) => main.querySelectorAll(`#${id} button`).forEach((x) => x.addEventListener('click', () => { cfg[key] = num ? Number(x.dataset.v) : x.dataset.v; renderLobby(); }));
-    pick('bt-kind', 'kind'); pick('bt-mode', 'mode'); pick('bt-topic', 'topic'); pick('bt-svsrc', 'svSource'); pick('bt-qn', 'qn', true); pick('bt-pq', 'perQ', true);
+    const pick = (id, key, num) => main.querySelectorAll(`#${id} button`).forEach((x) => x.addEventListener('click', () => { cfg[key] = num ? Number(x.dataset.v) : x.dataset.v; if (key === 'max') { ch?.setMe(meInfo()); if (pubTimer) announce(); } renderLobby(); }));
+    pick('bt-kind', 'kind'); pick('bt-mode', 'mode'); pick('bt-topic', 'topic'); pick('bt-svsrc', 'svSource'); pick('bt-qn', 'qn', true); pick('bt-max', 'max', true); pick('bt-pq', 'perQ', true);
+    main.querySelector('#bt-public')?.addEventListener('click', () => { cfg.public = !cfg.public; syncPublic(); renderLobby(); });
     const redo = () => { saveScope(); renderLobby(); };
     main.querySelectorAll('[data-region]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.regions.add(x.dataset.region); else cfg.regions.delete(x.dataset.region); redo(); }));
     main.querySelectorAll('[data-cat]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.catsOff.delete(x.dataset.cat); else cfg.catsOff.add(x.dataset.cat); redo(); }));
@@ -329,7 +352,7 @@ export function mountBattle(host, ctx) {
     if (!card) { main.innerHTML = `${top}<p class="muted">この問題のカードを読み込めませんでした。次の問題をお待ちください。</p>`; bindExit(); return; }
     const front = `<div class="quiz-card">${frontHtml(card, false, false)}</div>`;
     if (Q.mode === 'choice') {
-      main.innerHTML = `${top}${card.sv ? '<div class="sv-split">' : ''}${front}<div class="choices bt-choices">${Q.options.map((code, i) => `<button type="button" class="choice" data-code="${code}"><span class="key">${i + 1}</span>${flagImg(code)}<span>${esc(countryName(code))}</span></button>`).join('')}</div>${card.sv ? '</div>' : ''}`;
+      main.innerHTML = `${top}${front}<div class="choices bt-choices">${Q.options.map((code, i) => `<button type="button" class="choice" data-code="${code}"><span class="key">${i + 1}</span>${flagImg(code)}<span>${esc(countryName(code))}</span></button>`).join('')}</div>`;
       bindExit();
       host.querySelectorAll('.bt-choices .choice').forEach((b) => b.addEventListener('click', () => {
         const res = card.countries.includes(b.dataset.code) ? 'ok' : 'ng';
@@ -338,9 +361,9 @@ export function mountBattle(host, ctx) {
     } else if (Q.mode === 'input') {
       const need = card.countries.length;
       const draft = [];
-      main.innerHTML = `${top}${card.sv ? '<div class="sv-split">' : ''}${front}<div class="bt-input-row"><div class="bt-chips" id="bt-chips"></div>
+      main.innerHTML = `${top}${front}<div class="bt-input-row"><div class="bt-chips" id="bt-chips"></div>
         <input type="text" id="bt-input" class="input" list="country-list" placeholder="${need > 1 ? `国名を入力して Enter で追加（${need} か国）` : '国名を入力して Enter（例: ポーランド / Poland）'}" autocomplete="off">
-        <button type="button" class="btn btn-primary" id="bt-send">回答</button></div>${card.sv ? '</div>' : ''}`;
+        <button type="button" class="btn btn-primary" id="bt-send">回答</button></div>`;
       bindExit();
       const chips = () => { host.querySelector('#bt-chips').innerHTML = draft.map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join(''); };
       const finish = () => {
@@ -417,10 +440,15 @@ export function mountBattle(host, ctx) {
     }).join('');
     const rest = `${body}<h3 class="bt-sub">この問題の結果</h3><ul class="bt-board bt-results">${rows}</ul>
       <h3 class="bt-sub">現在の順位</h3>${boardHtml()}
-      <p class="muted small">${game.i + 1 < game.questions.length ? 'まもなく次の問題です…' : 'まもなく結果発表です…'}</p>`;
+      ${isHost ? `<div class="bt-row"><button type="button" class="btn btn-primary btn-lg" id="bt-next">${game.i + 1 < game.questions.length ? '▶ 次の問題へ' : '▶ 結果発表へ'}</button><span class="muted small">押さなくても、しばらくすると自動で進みます</span></div>` : `<p class="muted small">${game.i + 1 < game.questions.length ? 'ホストが進めるか、しばらくすると次の問題です…' : 'まもなく結果発表です…'}</p>`}`;
     // ストリートビューは右に大きく、答えと結果は左に
     main.innerHTML = `${head(`第 ${game.i + 1} 問 / ${game.questions.length} の答え`)}${sv ? `<div class="sv-split"><div class="bt-left">${rest}</div>${cardHtml}</div>` : `${cardHtml}${rest}`}`;
     bindExit();
+    main.querySelector('#bt-next')?.addEventListener('click', () => { // ホスト: 続けるボタンですぐに次へ
+      if (!isHost || phase !== 'reveal') return;
+      clearHostTimers();
+      send(game.i + 1 < game.questions.length ? { t: 'q', i: game.i + 1 } : { t: 'end' });
+    });
   }
   function renderFinal() {
     main.innerHTML = `${head('結果発表')}
@@ -431,5 +459,37 @@ export function mountBattle(host, ctx) {
   }
 
   renderEntry();
-  return { leave };
+  if (ctx.autoJoin) { // 公開された部屋のポップアップから来たとき: コードを入れておき、名前があればそのまま入る
+    const c = host.querySelector('#bt-code');
+    if (c) c.value = ctx.autoJoin;
+    if (me.name) join(ctx.autoJoin, false); else host.querySelector('#bt-name')?.focus();
+  }
+  return { leave, inRoom: () => phase !== 'entry' };
+}
+
+// 公開された対戦の部屋のお知らせ（アプリ全体で 1 つ。ポップアップから参加できる）
+export function watchPublicRooms({ api, esc, onJoin, busy }) {
+  if (!api.openLobby) return;
+  const rooms = new Map(); // コード → { name, n, max, kind, seen }
+  const shown = new Set(); // 一度出したもの（閉じたあとに出し直さない。公開が終わったら忘れる）
+  let box = null;
+  const ensureBox = () => {
+    if (box?.isConnected) return box;
+    box = document.createElement('div');
+    box.className = 'bt-popups';
+    document.body.appendChild(box);
+    return box;
+  };
+  const draw = () => {
+    const list = [...rooms].filter(([code, r]) => !r.dismissed && r.n < r.max && Date.now() - r.seen < 25000);
+    if (!list.length || busy()) { box?.remove(); box = null; return; }
+    ensureBox().innerHTML = list.map(([code, r]) => `<div class="bt-popup" role="alert"><div class="bt-popup-text">🎮 <b>${esc(r.name)}</b> さんが対戦の部屋を公開しました<div class="muted small">${esc(r.kind)} ・ ${r.n} / ${r.max} 人</div></div><button type="button" class="btn btn-primary btn-sm" data-join="${esc(code)}">参加する</button><button type="button" class="bt-popup-x" data-x="${esc(code)}" aria-label="閉じる">✕</button></div>`).join('');
+    box.querySelectorAll('[data-join]').forEach((b) => b.addEventListener('click', () => { const c = b.dataset.join; rooms.get(c).dismissed = true; draw(); onJoin(c); }));
+    box.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => { rooms.get(b.dataset.x).dismissed = true; draw(); }));
+  };
+  api.openLobby((m) => {
+    if (m?.t === 'open' && m.room) { const old = rooms.get(m.room); rooms.set(m.room, { name: m.name, n: m.n, max: m.max, kind: m.kind, seen: Date.now(), dismissed: old?.dismissed || false }); draw(); }
+    else if (m?.t === 'close') { rooms.delete(m.room); draw(); }
+  }).then((lobby) => { watchPublicRooms.lobby = lobby; }).catch(() => {});
+  setInterval(draw, 5000); // 公開が止まった部屋（応答がない）を消す
 }

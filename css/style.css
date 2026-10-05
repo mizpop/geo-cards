@@ -1980,3 +1980,17 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
 .sv-split > :not(.quiz-card) { max-height: min(76vh, 780px); overflow-y: auto; overscroll-behavior: contain; }
 .sv-split .feedback, .sv-split .quiz-bottom { max-height: none; }
 @media (max-width: 900px) { .sv-split > :not(.quiz-card) { max-height: none; overflow: visible; } }
+
+/* 公開された対戦の部屋のポップアップ */
+.bt-popups { position: fixed; top: 76px; right: 14px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 28px)); }
+.bt-popup { display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 14px; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); animation: bt-pop .25s ease; }
+.bt-popup-text { flex: 1; min-width: 0; font-size: 14px; }
+.bt-popup-x { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px; }
+@keyframes bt-pop { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* ストリートビューのクイズ（ソロ・対戦）: 映像を画面の左右いっぱいに拡げる */
+body:has(.sv-front) { overflow-x: clip; }
+.quiz-card:has(.sv-front):not(.sv-split > .quiz-card), .qm-layout:has(.sv-front), .sv-split {
+  position: relative; left: 50%; transform: translateX(-50%); width: calc(100vw - 24px); max-width: none; box-sizing: border-box;
+}
+.quiz-card:has(.sv-front):not(.sv-split > .quiz-card):not(.qm-layout .quiz-card), .battle .quiz-card:has(.sv-front):not(.sv-split > .quiz-card):not(.qm-layout .quiz-card) { height: min(76vh, 820px); min-height: 420px; }
+@media (max-width: 900px) { .quiz-card:has(.sv-front):not(.sv-split > .quiz-card), .qm-layout:has(.sv-front), .sv-split { width: 100%; left: 0; transform: none; } }
