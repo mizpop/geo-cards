@@ -261,10 +261,15 @@ export function mountBattle(host, ctx) {
 
   // ---- 回答 ----
   // res: ok / partial / ng、pts: 得点（正解は速いほど高い）、label: みんなに見せる答えの表示
-  function submit({ res, pts, label }) {
+  function submit({ res, pts, label, pick }) {
     const got = game?.answers.get(game.i);
     if (phase !== 'play' || got?.has(me.id)) return;
     host.querySelectorAll('.bt-choices .choice, #bt-send, #bt-guess, #bt-input').forEach((b) => { b.disabled = true; });
+    if (pick != null) { // 自分が選んだ選択肢を目立たせる（ほかの人が答えるのを待つ間）
+      const box = host.querySelector('.bt-choices');
+      box?.classList.add('answered');
+      box?.querySelectorAll('.choice').forEach((b) => b.classList.toggle('picked', (b.dataset.code ?? b.dataset.key) === pick));
+    }
     const el = host.querySelector('#bt-mine');
     if (el) el.textContent = '✔ 回答しました。ほかの人を待っています…';
     send({ t: 'ans', id: me.id, i: game.i, res, pts, label });
@@ -397,7 +402,7 @@ export function mountBattle(host, ctx) {
       bindExit();
       host.querySelectorAll('.bt-choices .choice').forEach((b) => b.addEventListener('click', () => {
         const res = b.dataset.key === item.answer ? 'ok' : 'ng';
-        submit({ res, pts: scoreOf(res), label: item.options.find((o) => o.key === b.dataset.key)?.label || '' });
+        submit({ res, pts: scoreOf(res), label: item.options.find((o) => o.key === b.dataset.key)?.label || '', pick: b.dataset.key });
       }));
       renderPlayStatus();
       bindForce();
@@ -411,7 +416,7 @@ export function mountBattle(host, ctx) {
       bindExit();
       host.querySelectorAll('.bt-choices .choice').forEach((b) => b.addEventListener('click', () => {
         const res = card.countries.includes(b.dataset.code) ? 'ok' : 'ng';
-        submit({ res, pts: scoreOf(res), label: countryName(b.dataset.code) });
+        submit({ res, pts: scoreOf(res), label: countryName(b.dataset.code), pick: b.dataset.code });
       }));
     } else if (Q.mode === 'input') {
       const need = card.countries.length;

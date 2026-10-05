@@ -2048,3 +2048,8 @@ body:has(.sv-front) { overflow-x: clip; }
 .cl-now { font-size: 11px; font-weight: 700; color: var(--accent-text); background: var(--accent); border-radius: 999px; padding: 2px 8px; vertical-align: middle; }
 .cl-group { margin: 10px 0 14px; }
 .cl-date { font-size: 14px; margin: 0 0 6px; color: var(--muted); }
+
+/* 対戦: 答えたあと、自分が選んだ選択肢を目立たせ、ほかは薄くする */
+.bt-choices.answered .choice { opacity: .5; }
+.bt-choices.answered .choice.picked { opacity: 1; outline: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--surface)); position: relative; }
+.bt-choices.answered .choice.picked::after { content: '✔ あなたの回答'; margin-left: auto; font-size: 12px; font-weight: 700; color: var(--accent); white-space: nowrap; }
