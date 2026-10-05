@@ -292,17 +292,8 @@ export function addBaseTiles(map, opts = {}) {
   // attribution は地図の帰属表示（右下）に自動で出る
   const layer = tileStyle === 'osm'
     ? L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', ...opts })
-    : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', ...opts });
+    : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 18, attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', ...opts });
   layer.addTo(map);
-  // 地名・道路名は別のタイル（英語表記・透明）にして、色で塗った地図や青い線の上に重ねる。OSM は地名が焼き込み済みで分けられない
-  if (tileStyle !== 'osm') {
-    const mk = (id, z) => { const p = map.getPane(id) || map.createPane(id); p.style.zIndex = z; p.style.pointerEvents = 'none'; };
-    mk('svRoads', 440); // 道路の線（Esri の道路タイルには線も含まれる）: 塗り（400）の上、青い線（450）・地名の下
-    mk('svLabels', 460); // 地名: 塗り・青い線・道路より上、マーカー（600）より下
-    for (const [name, pane] of [['Reference/World_Transportation', 'svRoads'], ['Reference/World_Boundaries_and_Places', 'svLabels']]) {
-      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`, { pane, maxZoom: 19, maxNativeZoom: 18, attribution: '', ...opts, keepBuffer: lean ? 2 : 4, updateWhenIdle: false, updateWhenZooming: true, updateInterval: 60 }).addTo(map); // 地名は軽い透明タイルなので、動かしている最中も先読みして早く出す
-    }
-  }
   return layer;
 }
 

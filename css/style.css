@@ -566,7 +566,7 @@ textarea { resize: vertical; line-height: 1.6; }
 .map-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 .map-thumbs-more { font-size: 11px; color: var(--muted); text-align: right; padding: 4px 2px 0; cursor: pointer; }
 .leaflet-container { font-family: inherit; }
-.map-dark .leaflet-tile-pane, .map-dark .leaflet-svRoads-pane, .map-dark .leaflet-svLabels-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
+.map-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
 
 @media (max-width: 760px) {
   .map-layout { grid-template-columns: 1fr; grid-template-rows: 58vh auto; height: auto; }
