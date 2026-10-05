@@ -48,8 +48,8 @@ let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 let svOn = false;
 let svPoint = null; // [lat, lng]
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
-const svEmbedUrl = (lat, lng) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,0,0,0,0&hl=ja&output=svembed`;
-const svOpenUrl = (lat, lng) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`;
+export const svEmbedUrl = (lat, lng, heading = 0) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,${Math.round(heading)},0,0,0&hl=ja&output=svembed`;
+export const svOpenUrl = (lat, lng) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`;
 // ストリートビューのある道路（青い線）のタイル。キー不要。クリックした地点の近くの線を探すのにも使う
 const SV_TILE = (x, y, z) => `https://mts1.google.com/vt?hl=ja&lyrs=svv&style=40,18&x=${x}&y=${y}&z=${z}`;
 const SV_SNAP_ZOOM = 13; // これより引いた縮尺では線が面になる（道路が区別できない）ので、寄せずにクリックした場所をそのまま開く
@@ -80,14 +80,14 @@ function svTileAlpha(x, y, z) {
   return svTiles.get(url);
 }
 // クリックした地点に一番近い「ストリートビューのある線」の地点。見つからなければ null、読み取れなければクリックした地点
-async function svSnap(lat, lng, zoom) {
-  if (zoom < SV_SNAP_ZOOM) return { lat, lng };
+async function svSnap(lat, lng, zoom, { R: Ropt = 0, force = false } = {}) {
+  if (zoom < SV_SNAP_ZOOM && !force) return { lat, lng };
   const z = Math.min(17, Math.round(zoom));
   const n = 256 * 2 ** z;
   const sin = Math.sin((lat * Math.PI) / 180);
   const px = Math.round(((lng + 180) / 360) * n);
   const py = Math.round((0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * n);
-  const R = zoom >= 16 ? 24 : 14; // クリックから何ピクセルまでの青い線を探すか（縮尺が小さいほど 1 ピクセルが広いので狭く）
+  const R = Ropt || (zoom >= 16 ? 24 : 14); // クリックから何ピクセルまでの青い線を探すか（縮尺が小さいほど 1 ピクセルが広いので狭く）
   const tx0 = Math.floor((px - R) / 256);
   const tx1 = Math.floor((px + R) / 256);
   const ty0 = Math.max(0, Math.floor((py - R) / 256));
@@ -112,7 +112,7 @@ async function svSnap(lat, lng, zoom) {
       }
     }
   }
-  if (!readable) return { lat, lng }; // タイルを読めなかった（通信できないなど）: そのまま開く
+  if (!readable) return force ? null : { lat, lng }; // タイルを読めなかった（通信できないなど）: そのまま開く
   if (!best) return null;
   return {
     lng: (best[0] / n) * 360 - 180,
@@ -133,6 +133,7 @@ function polyHas(poly, x, y) {
   return ringHas(poly[0], x, y) && !poly.slice(1).some((h) => ringHas(h, x, y)); // 外側の輪の中で、穴の外
 }
 export async function countryAt(lat, lng) {
+  await loadLibs(); // topojson（国境データの読み込みに必要）
   const w = await loadWorld('50m');
   for (const f of w.fc.features) {
     const code = f.properties.code;
@@ -141,6 +142,47 @@ export async function countryAt(lat, lng) {
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
     // 日付変更線をまたぐ国は経度が連続するように直してあるので、360 度ずらした位置も調べる
     if (polys.some((poly) => [0, 360, -360].some((d) => polyHas(poly, lng + d, lat)))) return code;
+  }
+  return null;
+}
+// 指定した国の中の、ストリートビューのある地点をランダムに 1 つ（練習モード用）。見つからなければ null
+// 国の中のランダムな点から、青い線の「いちばん近い所」へ、縮尺を上げながら（粗い → 細かい）寄せていく
+const wrapLng = (x) => ((((x + 180) % 360) + 360) % 360) - 180;
+export async function randomSvPoint(code, attempts = 8) {
+  await loadLibs(); // topojson（国境データの読み込みに必要）
+  const w = await loadWorld('50m');
+  const polys = [];
+  for (const f of w.fc.features) {
+    if (f.properties.code !== code || !f.geometry) continue;
+    const g = f.geometry;
+    for (const poly of g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []) {
+      const xs = poly[0].map((p) => p[0]);
+      const ys = poly[0].map((p) => p[1]);
+      const box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      polys.push({ poly, box, area: Math.max(1e-6, (box[2] - box[0]) * (box[3] - box[1])) });
+    }
+  }
+  if (!polys.length) return null;
+  const total = polys.reduce((n, p) => n + p.area, 0);
+  const pickPoly = () => { let r = Math.random() * total; for (const p of polys) { r -= p.area; if (r <= 0) return p; } return polys[0]; };
+  for (let k = 0; k < attempts; k++) {
+    const { poly, box } = pickPoly();
+    let pt = null;
+    for (let i = 0; i < 80 && !pt; i++) {
+      const x = box[0] + Math.random() * (box[2] - box[0]);
+      const y = box[1] + Math.random() * (box[3] - box[1]);
+      if (polyHas(poly, x, y)) pt = [x, y];
+    }
+    if (!pt) continue;
+    let cur = { lat: pt[1], lng: wrapLng(pt[0]) };
+    for (const [z, R] of [[8, 60], [10, 40], [12, 30], [14, 24], [16, 24]]) { // 縮尺ごとに「何ピクセル以内の線へ寄せるか」
+      const hit = await svSnap(cur.lat, cur.lng, z, { R, force: true });
+      if (!hit) { cur = null; break; }
+      cur = hit;
+    }
+    if (!cur) continue;
+    if ((await countryAt(cur.lat, cur.lng)) !== code) continue; // 寄せているうちに隣の国へ出た
+    return cur;
   }
   return null;
 }

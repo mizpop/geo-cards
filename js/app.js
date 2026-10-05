@@ -4,7 +4,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, removeSvPanel, countryAt } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, removeSvPanel, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
@@ -56,7 +56,7 @@ function flagImg(code, cls = 'flag') {
 const countryName = (code) => COUNTRY_BY_CODE.get(code)?.ja ?? code;
 // カテゴリー
 const UNCAT = { id: 'none', name: '未分類', color: '#8a96a3' };
-const catOf = (card) => (card.photo ? { id: `ref-${card.topic}`, name: `参考写真: ${modeDef(card.topic).name}`, color: '#868e96' } : (card.category_id && state.categories.find((c) => c.id === card.category_id)) || UNCAT);
+const catOf = (card) => (card.sv ? { id: 'sv', name: 'ストリートビュー', color: '#1c7ed6' } : card.photo ? { id: `ref-${card.topic}`, name: `参考写真: ${modeDef(card.topic).name}`, color: '#868e96' } : (card.category_id && state.categories.find((c) => c.id === card.category_id)) || UNCAT);
 const catKey = (card) => catOf(card).id;
 // 背景色に対して読みやすい文字色（白 / 黒）
 function textOn(hex) {
@@ -110,7 +110,8 @@ function refCard(id) {
   if (refInfoLoaded()) refCards.set(id, card); // 座標などの情報を読み込む前に作った分は覚えない（あとで座標つきで作り直す）
   return card;
 }
-const cardById = (id) => state.cards.find((c) => c.id === id) || (String(id).startsWith('ref|') ? refCard(id) : undefined);
+const svCards = new Map(); // ストリートビューの練習で作ったその場限りの問題（id: sv|…）
+const cardById = (id) => state.cards.find((c) => c.id === id) || (String(id).startsWith('ref|') ? refCard(id) : String(id).startsWith('sv|') ? svCards.get(id) : undefined);
 // クイズに出せる参考写真（選んだ種類・地域。「撮影地点を当てる」では座標のあるものだけ）
 function photoPool(q) {
   const out = [];
@@ -757,7 +758,7 @@ function onKeydown(e) {
       if (e.key === 'Enter' || act === 'next') { e.preventDefault(); nextQuestion(); }
       else if (act === 'country' && card) { e.preventDefault(); openCountryInfo(card.countries[0], $('.quiz-card')); }
       else if (act === 'flip') { e.preventDefault(); $('#q-view')?.click(); } // 解答後はカード詳細を開く
-      else if (act === 'edit' && card && !card.photo && state.user.isEditor) { e.preventDefault(); openEditor(card); }
+      else if (act === 'edit' && card && !card.photo && !card.sv && state.user.isEditor) { e.preventDefault(); openEditor(card); }
     } else if ((q.mode === 'choice' || q.kind === 'fact') && digit && Number(digit) <= 4) {
       e.preventDefault();
       $$('.choice')[Number(digit) - 1]?.click();
@@ -767,7 +768,15 @@ function onKeydown(e) {
 
 /* ================= カード表示部品 ================= */
 // withBack: 裏面だけの書き込み（ヒントの印）を画像に重ねる（答えが見えている場面用）
+// ストリートビューの練習の問題: 映像を埋め込む。左上に出る場所の名前（答えのヒント）は、答えるまで隠す
+function svFrontHtml(card) {
+  const hide = state.view === 'quiz' && state.quiz.phase === 'question' && !state.quiz.answered;
+  return `<div class="front-img sv-front">${catBadge(card, 'cat-on-img')}<iframe class="sv-quiz-frame" title="ストリートビュー" src="${esc(svEmbedUrl(card.lat, card.lng, card.heading))}" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>${hide ? '<div class="sv-cover" aria-hidden="true"><span>？</span></div>' : ''}</div>`;
+}
+const svInfoHtml = (card) => `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
+const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
+  if (card.sv) return svFrontHtml(card);
   const back = withBack && backUrl(card);
   return `
     <div class="front-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img src="${esc(imgUrl(card))}" alt="カード画像">${back ? `<img class="layer-back" src="${esc(back)}" alt="" aria-hidden="true"><button type="button" class="layer-toggle" title="裏面の印（ヒントの場所）の表示を切り替え">🔁 印</button>` : ''}` : '<div class="img-missing">画像なし</div>'}</div>
@@ -1151,7 +1160,7 @@ function renderCardModal(card, entry = {}) {
         ${cardDatesHtml(card)}
       </div>
     </div>
-    ${state.user.isEditor && !card.photo ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
+    ${state.user.isEditor && !card.photo && !card.sv ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
   `, 'modal-wide', true);
   // カード詳細の背景もカテゴリーの色を薄く
   $('#modal').classList.add('modal-card');
@@ -1764,7 +1773,7 @@ function renderStudy() {
               <div class="back-answer">${answerHtml(card)}</div>
               <div class="srs-row">${levelHtml(card.id)}</div>
               ${notesHtml(card)}
-              ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : ''}
+              ${cardInfoHtml(card)}
               ${relatedHtml(card)}
             </div>
             ${cardFactsHtml(card, true)}
@@ -1956,18 +1965,22 @@ function renderQuiz() {
   if (q.phase === 'result') return renderQuizResult();
 
   const counts = new Map(REGIONS.map((r) => [r.id, 0]));
-  for (const c of state.cards) for (const r of cardRegions(c)) counts.set(r, counts.get(r) + 1);
+  if (q.kind === 'sv') for (const r of REGIONS) counts.set(r.id, r.countries.filter((c) => isPlayable(c.code)).length); // ストリートビューは、出題される国の数
+  else for (const c of state.cards) for (const r of cardRegions(c)) counts.set(r, counts.get(r) + 1);
   const catCounts = new Map(allCats().map((c) => [c.id, 0]));
   for (const c of state.cards) catCounts.set(catKey(c), catCounts.get(catKey(c)) + 1);
   const eligible = quizEligible(q.regions).length;
 
   const isFact = q.kind === 'fact';
   const isPhoto = q.kind === 'photo';
-  if (!isPhoto && q.mode === 'pin') q.mode = 'choice';
+  const isSv = q.kind === 'sv';
+  if (!isPhoto && !isSv && q.mode === 'pin') q.mode = 'choice';
+  if (isSv) { q.timeLimit = 0; if (![5, 10, 20].includes(q.count)) q.count = 10; } // 練習は問題数を決めて 1 問ずつ
   const factEligible = isFact ? factQuizPool(q.factTopic, q.regions).length : 0;
   const photoEligible = isPhoto ? photoPool(q).length : 0;
+  const svCodes = isSv ? REGIONS.filter((r) => q.regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable) : [];
   $('#view').innerHTML = `
-    <section class="panel quiz-setup ${isFact ? 'is-fact' : ''} ${isPhoto ? 'is-photo' : ''}">
+    <section class="panel quiz-setup ${isFact ? 'is-fact' : ''} ${isPhoto ? 'is-photo' : ''} ${isSv ? 'is-sv' : ''}">
       <h2>クイズ設定</h2>
       <div class="setup-block">
         <div class="setup-label"><span>出題内容</span></div>
@@ -1975,6 +1988,7 @@ function renderQuiz() {
           <button class="${q.kind === 'cards' ? 'on' : ''}" data-kind="cards">🃏 カード（画像から国を当てる）</button>
           <button class="${isPhoto ? 'on' : ''}" data-kind="photo">📷 参考写真（GeoHints の写真から国を当てる）</button>
           <button class="${isFact ? 'on' : ''}" data-kind="fact">🗺 国の特徴・基本データ</button>
+          <button class="${isSv ? 'on' : ''}" data-kind="sv">🧍 ストリートビュー（実際の道路から当てる）</button>
         </div>
       </div>
       ${isPhoto ? `
@@ -1991,6 +2005,7 @@ function renderQuiz() {
           <button type="button" class="btn btn-ghost btn-sm" id="q-og">書き出す</button>
         </div>
       </div>` : ''}
+      ${isSv ? '<p class="muted small sv-setup-note">選んだ地域の国からランダムな道路を選んで、その場所のストリートビューを出します（映像は Google マップから読み込みます）。映像の中は動き回れます。答えるまで、場所の名前の表示は隠します。出題は毎回違い、覚え具合の記録には入りません</p>' : ''}
       ${isFact ? `
       <div class="setup-block">
         <div class="setup-label"><span>答える特徴</span></div>
@@ -2044,7 +2059,7 @@ function renderQuiz() {
         <div class="setup-block">
           <div class="setup-label"><span>問題数</span></div>
           <div class="seg" id="q-count">
-            ${[10, 20, 50, 0].map((n) => `<button class="${q.count === n ? 'on' : ''}" data-n="${n}">${n || '全部'}</button>`).join('')}
+            ${(isSv ? [5, 10, 20] : [10, 20, 50, 0]).map((n) => `<button class="${q.count === n ? 'on' : ''}" data-n="${n}">${n || '全部'}</button>`).join('')}
           </div>
         </div>
         <div class="setup-block not-fact">
@@ -2053,10 +2068,10 @@ function renderQuiz() {
             <button class="${q.mode === 'choice' ? 'on' : ''}" data-mode="choice">4択</button>
             <button class="${q.mode === 'input' ? 'on' : ''}" data-mode="input">国名を入力</button>
             <button class="${q.mode === 'map' ? 'on' : ''}" data-mode="map">🗺 地図で答える</button>
-            ${isPhoto ? `<button class="${q.mode === 'pin' ? 'on' : ''}" data-mode="pin" title="写真の撮影地点を地図でクリック。近いほど高得点">📍 撮影地点を当てる</button>` : ''}
+            ${isPhoto || isSv ? `<button class="${q.mode === 'pin' ? 'on' : ''}" data-mode="pin" title="撮影地点を地図でクリック。近いほど高得点">📍 ${isSv ? '場所を当てる' : '撮影地点を当てる'}</button>` : ''}
           </div>
         </div>
-        <div class="setup-block">
+        <div class="setup-block not-sv">
           <div class="setup-label"><span>制限時間（タイムアタック）</span></div>
           <div class="seg" id="q-time">
             ${[0, 60, 120].map((n) => `<button class="${q.timeLimit === n ? 'on' : ''}" data-t="${n}">${n ? `${n} 秒` : 'なし'}</button>`).join('')}
@@ -2071,8 +2086,8 @@ function renderQuiz() {
         </div>
       </div>
       <div class="setup-foot">
-        <span class="muted">${isFact ? `対象の国: <strong>${factEligible}</strong> か国` : isPhoto ? `対象の写真: <strong>${photoEligible}</strong> 枚` : `対象カード: <strong>${eligible}</strong> 枚`}${q.timeLimit ? `・⏱ ${q.timeLimit} 秒で何問解けるか（問題数は無制限）` : ''}</span>
-        <button class="btn btn-primary btn-lg" id="q-start" ${(isFact ? factEligible : isPhoto ? photoEligible : eligible) ? '' : 'disabled'}>スタート</button>
+        <span class="muted">${isSv ? `出題する国: <strong>${svCodes.length}</strong> か国から ${q.count} 問` : isFact ? `対象の国: <strong>${factEligible}</strong> か国` : isPhoto ? `対象の写真: <strong>${photoEligible}</strong> 枚` : `対象カード: <strong>${eligible}</strong> 枚`}${q.timeLimit ? `・⏱ ${q.timeLimit} 秒で何問解けるか（問題数は無制限）` : ''}</span>
+        <button class="btn btn-primary btn-lg" id="q-start" ${(isSv ? svCodes.length : isFact ? factEligible : isPhoto ? photoEligible : eligible) ? '' : 'disabled'}>スタート</button>
       </div>
     </section>`;
 
@@ -2105,7 +2120,8 @@ function renderQuiz() {
     exportOpenGuessr(pool, `GeoChecker 参考写真（${[...q.photoTopics].map((t) => modeDef(t).name).join('・')}）`);
   });
   $$('#q-time button').forEach((b) => b.addEventListener('click', () => { q.timeLimit = Number(b.dataset.t); renderQuiz(); }));
-  $('#q-start').addEventListener('click', async () => {
+  $('#q-start').addEventListener('click', async (e) => {
+    if (isSv) { startSvQuiz(svCodes, e.currentTarget); return; }
     if (isPhoto) await ensureRefInfo().catch(() => {}); // 撮影地点を当てる問題に必要な座標
     if (isFact) startFactQuiz(factQuizPool(q.factTopic, q.regions));
     else startQuiz(isPhoto ? photoPool(q) : quizEligible(q.regions));
@@ -2333,6 +2349,38 @@ function startQuiz(pool) {
   renderQuiz();
 }
 
+// ストリートビューの練習: 選んだ地域の国から、ストリートビューのあるランダムな地点を作って出題する
+async function startSvQuiz(codes, btn) {
+  const q = state.quiz;
+  const n = q.count || 10;
+  const label = btn.textContent;
+  btn.disabled = true;
+  const cards = [];
+  const used = new Set();
+  let tries = 0;
+  const worker = async () => {
+    while (cards.length < n && tries < n * 8) {
+      tries++;
+      const fresh = codes.filter((c) => !used.has(c));
+      const code = pick(fresh.length ? fresh : codes); // まだ出していない国を優先
+      const p = await randomSvPoint(code).catch(() => null);
+      if (!p || cards.length >= n) continue;
+      used.add(code);
+      const card = { id: `sv|${Date.now()}|${cards.length}`, countries: [code], sv: true, lat: p.lat, lng: p.lng, heading: Math.floor(Math.random() * 360), description: '', area: '', notes: '', category_id: null, created_at: '' };
+      svCards.set(card.id, card);
+      cards.push(card);
+      btn.textContent = `問題を作成中… ${cards.length} / ${n}`;
+    }
+  };
+  btn.textContent = '問題を作成中…';
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  btn.textContent = label;
+  btn.disabled = false;
+  if (cards.length < Math.min(n, 3)) { toast('ストリートビューの地点を作れませんでした。地域を広げるか、通信を確認してもう一度試してください', 'error'); return; }
+  q.timeLimit = 0;
+  startQuiz(cards);
+}
+
 // 正解1つ + 紛らわしい不正解3つ（できるだけ同じ地域から）
 function makeOptions(card, regions) {
   const inSel = card.countries.filter((c) => regions.has(COUNTRY_BY_CODE.get(c)?.region));
@@ -2415,7 +2463,7 @@ function renderQuestion() {
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card)}</div>
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
-      ${a ? '' : '<p class="quiz-prompt">この特徴が見られる国は？</p>'}
+      ${a ? '' : `<p class="quiz-prompt">${card.sv ? 'この場所は、どこの国？（映像の中は動き回れます）' : 'この特徴が見られる国は？'}</p>`}
       ${answerUi}
       ${a ? `
         <div class="feedback fb-${a.result}">
@@ -2426,7 +2474,7 @@ function renderQuestion() {
           </div>
           ${q.mode === 'choice' || a.result !== 'ok' ? answerHtml(card, 'sm') : ''}
           ${notesHtml(card)}
-          ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : ''}
+          ${cardInfoHtml(card)}
         </div>` : ''}
     </div>
   `;
@@ -2563,8 +2611,8 @@ function renderPinQuestion(card) {
               <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${answerHtml(card, 'sm')}
-            ${photoInfoHtml(card.topic, card.src, card.countries[0])}
-          </div>` : '<p class="quiz-prompt">この写真の撮影地点を、地図でクリック（近いほど高得点）</p>'}
+            ${cardInfoHtml(card)}
+          </div>` : `<p class="quiz-prompt">${card.sv ? 'このストリートビューの場所を' : 'この写真の撮影地点を'}、地図でクリック（近いほど高得点）</p>`}
       </div>
     </div>`;
   attachZoom($('.quiz-card .front-img'));
@@ -2582,7 +2630,7 @@ function renderPinQuestion(card) {
       const result = km <= 150 ? 'ok' : km <= 750 ? 'partial' : 'ng';
       q.answered = { given: [], guess, km, points, result };
       q.answers.push({ cardId: card.id, given: [], result, km, points });
-      record(card.id, result);
+      if (!card.sv) record(card.id, result);
       logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
       play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
       renderPinQuestion(card);
@@ -2627,8 +2675,8 @@ function renderMapQuestion(card) {
             ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
             ${answerHtml(card, 'sm')}
             ${notesHtml(card)}
-            ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : ''}
-          </div>` : '<p class="quiz-prompt">この特徴が見られる国を、地図でクリック</p>'}
+            ${cardInfoHtml(card)}
+          </div>` : `<p class="quiz-prompt">${card.sv ? 'この場所がある国を、地図でクリック（映像の中は動き回れます）' : 'この特徴が見られる国を、地図でクリック'}</p>`}
       </div>
     </div>`;
   attachZoom($('.quiz-card .front-img'));
@@ -2662,7 +2710,7 @@ function submitAnswer(card, given) {
     result = card.countries.includes(g) ? 'ok' : card.countries.some((c) => COUNTRY_INFO[c]?.nb.includes(g)) ? 'partial' : 'ng';
     if (result !== 'ok') km = nearestKm(g, card.countries);
   } else result = q.mode === 'choice' ? (card.countries.includes(given[0]) ? 'ok' : 'ng') : grade(card, given);
-  record(card.id, result); // 覚え具合（暗記カードの復習にも反映）
+  if (!card.sv) record(card.id, result); // 覚え具合（暗記カードの復習にも反映。ストリートビューの問題はその場限りなので記録しない）
   // よく間違える組み合わせ（正解の国と答えた国）
   if (result !== 'ok') for (const g of given) if (!card.countries.includes(g)) logConfusion(card.countries[0], g);
   logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
@@ -2747,7 +2795,10 @@ function renderQuizResult() {
     $('#q-again').addEventListener('click', () => startFactQuiz(factQuizPool(q.factTopic, q.regions)));
   } else {
     if (retry) retry.addEventListener('click', () => startQuiz(wrong.map((w) => cardById(w.cardId)).filter(Boolean)));
-    $('#q-again').addEventListener('click', () => startQuiz(q.kind === 'photo' ? photoPool(q) : quizEligible(q.regions)));
+    $('#q-again').addEventListener('click', (e) => {
+      if (q.kind === 'sv') startSvQuiz(REGIONS.filter((r) => q.regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable), e.currentTarget);
+      else startQuiz(q.kind === 'photo' ? photoPool(q) : quizEligible(q.regions));
+    });
   }
   $('#q-setup').addEventListener('click', () => { q.phase = 'setup'; renderQuiz(); setTimeout(flushLive, 0); });
 }

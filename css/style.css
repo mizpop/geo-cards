@@ -1614,6 +1614,7 @@ textarea { resize: vertical; line-height: 1.6; }
 
 /* クイズ: 参考写真・タイムアタック */
 .quiz-setup.is-fact .not-fact, .quiz-setup.is-photo .cards-only { display: none; }
+.quiz-setup.is-sv .cards-only, .quiz-setup.is-sv .not-sv { display: none; }
 .qt-counter b { font-variant-numeric: tabular-nums; }
 .qt-counter.is-hurry { color: var(--ng); }
 .ta-best { margin: 6px 0 12px; font-weight: 800; color: var(--accent); }
@@ -1785,3 +1786,14 @@ textarea { resize: vertical; line-height: 1.6; }
 .sync-msg { margin-top: 8px; }
 .sync-msg.is-error { color: var(--danger, #e03131); }
 .sync-msg.is-ok { color: var(--accent); }
+
+/* ストリートビューの練習 */
+.sv-setup-note { margin: 0 0 10px; }
+.front-img.sv-front { background: #0b0f12; }
+.sv-quiz-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.sv-cover {
+  position: absolute; left: 0; top: 0; width: min(380px, 80%); height: 84px; z-index: 2; display: grid; place-items: center;
+  background: linear-gradient(135deg, #1f2933 60%, rgba(31, 41, 51, .85)); color: #adb5bd; font-size: 28px; font-weight: 800;
+  border-bottom-right-radius: 14px;
+}
+.sv-front .cat-on-img { z-index: 3; top: 92px; }
