@@ -7,7 +7,6 @@ const newCode = () => Array.from({ length: 5 }, () => ROOM_CHARS[Math.floor(Math
 const newId = () => Math.random().toString(36).slice(2, 10);
 const NAME_KEY = 'geo-cards-battle-name';
 const SCOPE_KEY = 'geo-cards-battle-scope-v1';
-const REVEAL_MS = 12000; // 答え合わせを見せる時間
 const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
 const KINDS = [['cards', '🃏 カード'], ['photo', '📷 参考写真'], ['fact', '🗺 国の特徴'], ['sv', '🧍 ストリートビュー']];
 const MODES = { choice: '4 択', input: '入力', map: '地図で選ぶ', pin: '場所をピン' };
@@ -116,7 +115,6 @@ export function mountBattle(host, ctx) {
       ch?.setMe(meInfo(true));
       if (!silent) toast('あなたがホストになりました');
       if (game && phase === 'play') later(Math.max(500, game.perQ * 1000 + 1500 - (performance.now() - game.t0)), () => { if (phase === 'play') send({ t: 'reveal', i: game.i }); });
-      else if (game && phase === 'reveal') hostRevealed(game.i);
     }
     if (phase === 'lobby') renderLobby(); else if (phase === 'final') renderFinal();
     renderChatKeep();
@@ -176,7 +174,6 @@ export function mountBattle(host, ctx) {
     } catch (e) { toast(`問題を作れませんでした（${e.message}）`, 'error'); } finally { building = false; if (phase === 'lobby') renderLobby(); }
   }
   const hostOpened = (i) => later(game.perQ * 1000 + 1500, () => { if (game && game.i === i && phase === 'play') send({ t: 'reveal', i }); });
-  const hostRevealed = (i) => later(REVEAL_MS, () => { if (game && game.i === i) send(i + 1 < game.questions.length ? { t: 'q', i: i + 1 } : { t: 'end' }); });
   function checkAllAnswered() {
     if (!isHost || !game || phase !== 'play') return;
     const got = game.answers.get(game.i);
@@ -221,7 +218,6 @@ export function mountBattle(host, ctx) {
       const mine = got.get(me.id);
       play?.(mine?.res === 'ok' ? 'correct' : mine?.res === 'partial' ? 'partial' : 'wrong');
       renderReveal();
-      if (isHost) hostRevealed(m.i);
     } else if (m.t === 'end' && game) {
       clearTimers();
       phase = 'final';
@@ -478,7 +474,7 @@ export function mountBattle(host, ctx) {
           ${isHost ? `<button type="button" class="btn btn-primary" id="bt-next">${last ? '結果発表へ' : '次の問題へ'}</button>` : ''}</div>
         <h3 class="bt-sub">現在の順位（今回の得点つき）</h3><ul class="bt-board bt-results">${rows}</ul>
         ${info}
-        <p class="muted small">${isHost ? '押さなくても、しばらくすると自動で進みます' : last ? 'まもなく結果発表です…' : 'ホストが進めるか、しばらくすると次の問題です…'}</p>
+        <p class="muted small">${isHost ? `準備ができたら「${last ? '結果発表へ' : '次の問題へ'}」を押してください` : `ホストが「${last ? '結果発表へ' : '次の問題へ'}」を押すのを待っています…`}</p>
       </div></div>`;
     // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）
     main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${cardHtml}</div>` : `${cardHtml}${bottom}`}`;
