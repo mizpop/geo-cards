@@ -3034,7 +3034,7 @@ function renderMapQuestion(card) {
             ${answerHtml(card, 'sm', true)}
             ${notesHtml(card)}
             ${cardInfoHtml(card)}
-          </div>` : `<p class="quiz-prompt">${card.sv ? 'この場所がある国を、地図でクリック（映像の中は動き回れます）' : 'この特徴が見られる国を、地図でクリック'}</p>`}
+          </div>` : ''}
       </div>
     </div>`;
   attachZoom($('.quiz-card .front-img'));
