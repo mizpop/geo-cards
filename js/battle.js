@@ -87,9 +87,18 @@ export function mountBattle(host, ctx) {
   }
   function stopPublic() { clearInterval(pubTimer); pubTimer = null; ctx.publish?.({ t: 'close', room }); }
   function onPresence(list) {
+    const prev = players;
     players = new Map(list.map((p) => [p.id, p]));
     list.forEach((p) => names.set(p.id, p.name));
     if (!alive()) return;
+    if (phase !== 'entry' && players.has(me.id)) { // 部屋にいた人が抜けたら、部屋の全員に知らせる
+      for (const id of prev.keys()) {
+        if (players.has(id) || id === me.id || kicked.has(id)) continue;
+        const nm = names.get(id) || '参加者';
+        toast(`${nm} さんが退出しました`);
+        sys(`${nm}さんが退出しました`);
+      }
+    }
     const hp = list.find((p) => p.host);
     if (!isHost && hp?.max && list.length > hp.max) { // 満員: 入った順で、最大人数に入れなかった人は退出
       const order = [...list].sort((x, y) => (x.at || 0) - (y.at || 0) || (x.id < y.id ? -1 : 1));
@@ -99,21 +108,23 @@ export function mountBattle(host, ctx) {
     if (!hostId) { const h = list.find((p) => p.host); if (h) hostId = h.id; }
     else if (!players.has(hostId) && players.has(me.id)) { // ホストが抜けたら、残った人の中で ID が一番小さい人が引き継ぐ
       const next = [...players.keys()].sort()[0];
-      sys(`${names.get(hostId) || 'ホスト'}が退出しました`);
-      setHost(next, true);
+      setHost(next);
     }
     if (phase === 'lobby') renderLobby(); else if (phase === 'play') renderPlayStatus();
     renderChatKeep();
   }
   // ホストを id にする。引き継ぐ側（自分）は、進行の役割（次の問題・答え合わせ）も受け持つ
   function setHost(id, silent = false) {
+    if (!silent && id !== hostId) { // 新しいホストを全員に知らせる
+      const nm = names.get(id) || '参加者';
+      if (id === me.id) { toast('あなたがホストになりました'); sys('あなたがホストになりました'); } else { toast(`${nm} さんがホストになりました`); sys(`${nm}さんがホストになりました`); }
+    }
     hostId = id;
     const was = isHost;
     isHost = id === me.id;
     if (was && !isHost) { clearHostTimers(); ch?.setMe(meInfo(false)); cfg.public = false; syncPublic(); }
     if (!was && isHost) {
       ch?.setMe(meInfo(true));
-      if (!silent) toast('あなたがホストになりました');
       if (game && phase === 'play') later(Math.max(500, game.perQ * 1000 + 1500 - (performance.now() - game.t0)), () => { if (phase === 'play') send({ t: 'reveal', i: game.i }); });
       else if (game && phase === 'reveal') hostRevealed(game.i);
     }
@@ -121,6 +132,7 @@ export function mountBattle(host, ctx) {
     renderChatKeep();
   }
   const sys = (text) => { chatLog.push({ sys: true, text }); };
+  const kicked = new Set(); // キックされた人（退出の通知を重ねない）
   function kick(id) { if (isHost && id !== me.id) send({ t: 'kick', from: me.id, id }); }
   function transfer(id) { if (isHost && id !== me.id) send({ t: 'host', from: me.id, id }); }
 
@@ -234,10 +246,9 @@ export function mountBattle(host, ctx) {
       renderChatKeep();
     } else if (m.t === 'kick') {
       if (m.from !== hostId) return;
-      if (m.id === me.id) { toast('ホストにより、部屋から退出させられました', 'error'); leave(); phase = 'entry'; chat.hidden = true; renderEntry(); } else { sys(`${names.get(m.id) || '参加者'}が退出させられました`); renderChatKeep(); }
+      if (m.id === me.id) { toast('ホストにより、部屋から退出させられました', 'error'); leave(); phase = 'entry'; chat.hidden = true; renderEntry(); } else { kicked.add(m.id); sys(`${names.get(m.id) || '参加者'}さんが退出させられました`); renderChatKeep(); }
     } else if (m.t === 'host') {
       if (m.from !== hostId) return;
-      sys(`ホストが ${names.get(m.id) || '参加者'} に替わりました`);
       setHost(m.id);
     } else if (m.t === 'lobby') {
       clearTimers();
@@ -268,7 +279,16 @@ export function mountBattle(host, ctx) {
   };
   const boardHtml = () => `<ol class="bt-board">${board().map((p, i) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${esc(p.name)}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`).join('')}</ol>`;
   const head = (title, extra = '') => `<div class="bt-head"><h2>👥 ${title}</h2><div class="bt-head-actions">${extra}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">${phase === 'entry' ? '← 戻る' : '退出'}</button></div></div>`;
-  const bindExit = () => host.querySelector('#bt-exit')?.addEventListener('click', () => { leave(); onExit(); });
+  // 退出: ホストが抜けるときは、先に別の人へホストを渡してから抜ける
+  const bindExit = () => host.querySelector('#bt-exit')?.addEventListener('click', async () => {
+    if (isHost && ch && players.size > 1) {
+      const next = [...players.keys()].filter((id) => id !== me.id).sort()[0];
+      send({ t: 'host', from: me.id, id: next });
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    leave();
+    onExit();
+  });
 
   function renderEntry() {
     if (!alive()) return;
