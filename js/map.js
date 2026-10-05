@@ -296,12 +296,11 @@ export function addBaseTiles(map, opts = {}) {
   layer.addTo(map);
   // 地名・道路名は別のタイル（英語表記・透明）にして、色で塗った地図や青い線の上に重ねる。OSM は地名が焼き込み済みで分けられない
   if (tileStyle !== 'osm') {
-    const pane = map.getPane('svLabels') || map.createPane('svLabels');
-    pane.style.zIndex = 460; // 塗り（400）・青い線（450）より上、マーカー（600）より下
-    pane.style.pointerEvents = 'none';
-    const lopt = { pane: 'svLabels', maxZoom: 19, maxNativeZoom: 18, keepBuffer: lean ? 1 : 2, updateWhenIdle: lean, attribution: '', ...opts };
-    for (const name of ['Reference/World_Transportation', 'Reference/World_Boundaries_and_Places']) { // 道路名を下、地名を上に
-      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`, lopt).addTo(map);
+    const mk = (id, z) => { const p = map.getPane(id) || map.createPane(id); p.style.zIndex = z; p.style.pointerEvents = 'none'; };
+    mk('svRoads', 440); // 道路の線（Esri の道路タイルには線も含まれる）: 塗り（400）の上、青い線（450）・地名の下
+    mk('svLabels', 460); // 地名: 塗り・青い線・道路より上、マーカー（600）より下
+    for (const [name, pane] of [['Reference/World_Transportation', 'svRoads'], ['Reference/World_Boundaries_and_Places', 'svLabels']]) {
+      L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`, { pane, maxZoom: 19, maxNativeZoom: 18, keepBuffer: lean ? 1 : 2, updateWhenIdle: lean, attribution: '', ...opts }).addTo(map);
     }
   }
   return layer;
