@@ -1,5 +1,5 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
-import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, releaseSnap } from './floatz.js';
+import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
 import { REF_IMAGES, REF_BASE, REF_PAGES } from './refimages.js';
@@ -674,6 +674,9 @@ export async function renderMap(view, ctx) {
   // ---- ストリートビュー: ボタンでモードに入り、地図の青い線（ストリートビューのある道路）の近くをクリックして映像を表示
   // 映像のパネルは画面に固定（position: fixed）して、地図の外側まで動かせるようにする
   const mobileSv = () => window.matchMedia('(max-width: 760px)').matches;
+  // 地図を描き直す（タブを移って戻る・表示を切り替える）ときは、前のパネルの分割・縮小・拡大を引き継ぐ
+  const oldPanel = document.getElementById('sv-panel');
+  const carry = oldPanel ? { side: snappedSide(oldPanel), min: oldPanel.classList.contains('is-min'), max: oldPanel.classList.contains('is-max'), style: oldPanel.getAttribute('style') || '', open: !oldPanel.hidden } : null;
   removeSvPanel();
   const svPanel = document.createElement('div');
   svPanel.className = 'sv-panel';
@@ -883,7 +886,14 @@ export async function renderMap(view, ctx) {
     if ('ResizeObserver' in window) new ResizeObserver(() => { if (!svPanel.hidden) saveRect(); }).observe(svPanel);
   }
   if (svOn) setSv(true, true); // 地図を描き直したときも、モードと開いていた地点を引き継ぐ
-  if (svPoint) openSv(svPoint[0], svPoint[1]);
+  if (svPoint) {
+    openSv(svPoint[0], svPoint[1]);
+    if (carry?.open && !mobileSv()) {
+      if (carry.side) snapWindow(svPanel, carry.side, () => { svPanel.classList.remove('is-snap'); placePanel(); });
+      else if (carry.max) svPanel.classList.add('is-max');
+      else if (carry.min) setMin(true);
+    }
+  }
   escHandler = () => { if (svPoint) closeSv(); else if (svOn) setSv(false); else clearFocus(); };
   notesHandler = () => renderInfo();
   const isVisible = (code, view) => {

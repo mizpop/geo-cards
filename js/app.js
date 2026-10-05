@@ -4,7 +4,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, removeSvPanel, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
@@ -601,7 +601,6 @@ function render() {
 function renderView() {
   const v = state.view;
   if ($('#spotlight').open) renderSearchResults();
-  if (v !== 'map') removeSvPanel(); // 地図を離れたらストリートビューのパネルも閉じる
   if (v === 'study') renderStudy();
   else if (v === 'quiz') renderQuiz();
   else if (v === 'map') { setFit(true); renderMap($('#view'), mapCtx); }
@@ -676,7 +675,7 @@ function onKeydown(e) {
   }
   // タブへ直接移動（初期設定は Ctrl+1〜4）: 組み合わせキーなら入力中でも
   const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare', tab6: 'lang' }[act];
-  if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !dialogOpen()) {
+  if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !blockingDialogOpen()) {
     e.preventDefault();
     goTab(tabTo);
     return;
@@ -1577,6 +1576,8 @@ const saveWinRect = () => { try { if (winRect) localStorage.setItem('geo-cards-w
 // ウィンドウが開いているが操作の対象はページ側（ウィンドウの外をクリックした）
 const winBackground = () => modalIsWindow() && $('#modal').open && !winFocused;
 // キー操作を止めるべきダイアログが開いているか（浮かぶウィンドウは、フォーカスが外にあるときは数えない）
+// 本物のダイアログ（モーダル）だけ。浮かぶウィンドウは含めない（ウィンドウを開いていても、タブの移動などは効くように）
+const blockingDialogOpen = () => Array.from(document.querySelectorAll('dialog[open]')).some((d) => !(d.id === 'modal' && d.classList.contains('is-window')));
 const dialogOpen = () => Array.from(document.querySelectorAll('dialog[open]')).some((d) => !(d.id === 'modal' && d.classList.contains('is-window') && !winFocused));
 
 function setupWindow(m) {
