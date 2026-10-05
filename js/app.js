@@ -2343,7 +2343,7 @@ function renderReverseQuestion() {
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
-    <div class="qm-layout">
+    <div class="qm-layout ${a ? '' : 'qm-float'}">
       <div class="quiz-card fact-card rev-card">
         <div class="muted">${esc(m.icon)} ${esc(m.name)}</div>
         <div class="rev-swatch">${item.swatch}</div>
@@ -2772,7 +2772,7 @@ function renderPinQuestion(card) {
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
-    <div class="qm-layout">
+    <div class="qm-layout ${a ? '' : 'qm-float'}">
       <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
       <div class="qm-side">
         <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
@@ -2833,7 +2833,7 @@ function renderMapQuestion(card) {
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
-    <div class="qm-layout">
+    <div class="qm-layout ${a ? '' : 'qm-float'}">
       <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
       <div class="qm-side">
         <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>

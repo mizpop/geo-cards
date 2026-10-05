@@ -1877,3 +1877,15 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
 .sv-ref-answer { margin: 0 0 10px; }
 .sv-ref-answer img { display: block; max-width: 100%; max-height: min(42vh, 380px); margin: 0 auto; border-radius: 10px; border: 1px solid var(--border); }
 .sv-ref-answer figcaption { text-align: center; margin-top: 4px; }
+
+/* 地図で答えるとき（PC）: GeoGuessr のように、右下に小さな地図を重ね、カーソルを合わせると広がる。答えたあとは、いつもの大きな表示 */
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+  .qm-layout.qm-float { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .qm-layout.qm-float .quiz-card { min-height: min(64vh, 600px); }
+  .view-fit .qm-layout.qm-float .quiz-card { min-height: 0; }
+  .qm-layout.qm-float .qm-side { position: absolute; right: 14px; bottom: 14px; z-index: 5; width: min(320px, 38%); align-items: stretch; pointer-events: none; transition: width .18s ease; }
+  .qm-layout.qm-float .qm-side:hover, .qm-layout.qm-float .qm-side:focus-within { width: min(780px, 92%); }
+  .qm-layout.qm-float .quiz-map { flex: none; height: 210px; min-height: 0; pointer-events: auto; box-shadow: 0 6px 24px rgba(0,0,0,.5); opacity: .92; transition: height .18s ease, opacity .18s; }
+  .qm-layout.qm-float .qm-side:hover .quiz-map, .qm-layout.qm-float .qm-side:focus-within .quiz-map { height: min(520px, calc(100vh - 260px)); opacity: 1; }
+  .qm-layout.qm-float .qm-side .quiz-prompt { order: 2; margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; text-align: center; pointer-events: auto; }
+}

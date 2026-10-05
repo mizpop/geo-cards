@@ -86,6 +86,7 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
     }
   }
   setTimeout(() => map.invalidateSize(), 50);
+  new ResizeObserver(() => map.invalidateSize()).observe(el); // 地図の大きさが変わったとき（右下の小さい地図が広がるとき）に合わせる
   return map;
 }
 
@@ -121,6 +122,7 @@ export async function mountPinMap(el, { answer, guess, onPick, animate = true, q
     });
   }
   setTimeout(() => map.invalidateSize(), 50);
+  new ResizeObserver(() => map.invalidateSize()).observe(el); // 地図の大きさが変わったとき（右下の小さい地図が広がるとき）に合わせる
   return map;
 }
 export function distanceBetween(a, b) {
