@@ -800,7 +800,6 @@ export async function renderMap(view, ctx) {
         if (!map.getPane('svCoverage')) { const pane = map.createPane('svCoverage'); pane.style.zIndex = 450; pane.style.pointerEvents = 'none'; }
         // crossOrigin: 画素を読み取る処理（svTileAlpha）と同じ読み込み方にする（違うと、ブラウザのキャッシュのせいで読み取りに失敗することがある）
         const common = { pane: 'svCoverage', maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '', crossOrigin: 'anonymous' };
-        // 縮小しているときも細く見せるため、全ての縮尺で 1 段細かいタイルを半分の大きさで表示する
         const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
         const thin = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, minZoom: SV_THIN_ZOOM, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 }).addTo(map);
         svCoverage = L.layerGroup([normal, thin]); // まとめて外せるように
