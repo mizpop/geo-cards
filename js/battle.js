@@ -34,6 +34,7 @@ export function mountBattle(host, ctx) {
   let tick = null;
   let timers = [];
   let building = false;
+  let svCollapsed = false; // 答え合わせで、ストリートビューを閉じているか
   const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
   try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
   const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
@@ -517,7 +518,7 @@ export function mountBattle(host, ctx) {
     const mediaHtml = showMap ? `<div class="bt-media">${cardHtml}<div class="quiz-map bt-rmap" id="bt-rmap"><div class="map-loading">地図を読み込み中…</div></div></div>` : cardHtml;
     const last = game.i + 1 >= game.questions.length;
     const title = mine ? { ok: '○ 正解！', partial: '△ 惜しい', ng: '✗ 不正解' }[mine.res] : '⏱ 未回答';
-    const toolbar = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length} の答え</span><span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
+    const toolbar = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length} の答え</span><span class="grow"></span>${card0?.sv ? `<button type="button" class="btn btn-sm" id="bt-svtoggle">🧍 ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}</button>` : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
       <div class="progress"><div class="progress-bar" style="width:${((game.i + 1) / game.questions.length) * 100}%"></div></div>`;
     const bottom = `<div class="quiz-bottom is-answered">${choices}
       <div class="feedback fb-${mine?.res || 'ng'}">
@@ -530,6 +531,13 @@ export function mountBattle(host, ctx) {
     // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）
     main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${mediaHtml}</div>` : `${cardHtml}${bottom}`}`;
     bindExit();
+    const tg = main.querySelector('#bt-svtoggle');
+    if (tg) { // ストリートビューの開閉ボタン
+      const box = main.querySelector('.sv-split');
+      const apply = () => { box?.classList.toggle('sv-collapsed', svCollapsed); tg.textContent = `🧍 ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}`; };
+      apply();
+      tg.addEventListener('click', () => { svCollapsed = !svCollapsed; apply(); });
+    }
     ctx.attachZoom(host.querySelector('.quiz-card .front-img'));
     if (showMap) {
       const el = host.querySelector('#bt-rmap');

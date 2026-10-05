@@ -2059,3 +2059,8 @@ body:has(.sv-front) { overflow-x: clip; }
 .bt-media > .quiz-card, .sv-split > .bt-media > .quiz-card:has(.sv-front), .battle .sv-split > .bt-media > .quiz-card:has(.sv-front) { height: min(46vh, 480px) !important; min-height: 240px; order: 0; }
 .bt-media > .bt-rmap { flex: none; height: min(34vh, 360px); min-height: 220px; }
 .bt-media > .quiz-card { flex: none !important; }
+
+/* 答えの表示: ストリートビューの開閉 */
+.sv-split.sv-collapsed { grid-template-columns: minmax(0, 1fr); }
+.sv-split.sv-collapsed .quiz-card:has(.sv-front), .qm-layout.sv-collapsed .quiz-card:has(.sv-front) { display: none; }
+.qm-layout.sv-collapsed { grid-template-columns: minmax(0, 1fr); }

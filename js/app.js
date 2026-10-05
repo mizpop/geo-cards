@@ -826,6 +826,16 @@ function onKeydown(e) {
 /* ================= カード表示部品 ================= */
 // withBack: 裏面だけの書き込み（ヒントの印）を画像に重ねる（答えが見えている場面用）
 // ストリートビューの練習の問題: 映像を埋め込む。左上に出る場所の名前（答えのヒント）は、答えるまで隠す
+let svCollapsed = false; // 答えの表示で、ストリートビューを閉じているか（開閉ボタン）
+const svToggleHtml = (card) => (card.sv ? `<button class="btn btn-ghost btn-sm" id="q-svtoggle" type="button" title="ストリートビューの表示を開閉">🧍<span class="tab-long"> ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}</span></button>` : '');
+function bindSvToggle(card) {
+  const btn = $('#q-svtoggle');
+  if (!btn || !card.sv) return;
+  const box = btn.closest('.sv-split, .qm-layout, .view') && $('.sv-split, .qm-layout');
+  const apply = () => { box?.classList.toggle('sv-collapsed', svCollapsed); const t = btn.querySelector('.tab-long'); if (t) t.textContent = ` ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}`; };
+  apply();
+  btn.addEventListener('click', () => { svCollapsed = !svCollapsed; apply(); });
+}
 let svHide = false; // 対戦で、答えが出るまで場所の名前を隠す
 function svFrontHtml(card) {
   const hide = svHide || (state.view === 'quiz' && state.quiz.phase === 'question' && !state.quiz.answered);
@@ -2857,6 +2867,7 @@ function renderQuestion() {
         <div class="feedback fb-${a.result}">
           <div class="feedback-head">
             <div class="feedback-title">${RESULT_LABEL[a.result]}${a.result === 'partial' ? ` <small>（${a.given.filter((g) => card.countries.includes(g)).length} / ${card.countries.length}）</small>` : ''}</div>
+            ${svToggleHtml(card)}
             <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
             <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
           </div>
@@ -2877,6 +2888,7 @@ function renderQuestion() {
   if (a) {
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
+    bindSvToggle(card);
     $('#q-next').focus({ preventScroll: true });
     return;
   }
@@ -2997,6 +3009,7 @@ function renderPinQuestion(card) {
           <div class="feedback fb-${a.result}">
             <div class="feedback-head">
               <div class="feedback-title">${a.timeout ? '⏱ 時間切れ' : `📍 約 ${Math.round(a.km).toLocaleString()} km ・ <b>${a.points.toLocaleString()}</b> 点`}</div>
+              ${svToggleHtml(card)}
               <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${answerHtml(card, 'sm', true)}
@@ -3034,6 +3047,7 @@ function renderPinQuestion(card) {
   });
   $('#q-guess')?.addEventListener('click', () => { if (pending) submit(pending); });
   if (a) {
+    bindSvToggle(card);
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-next').focus({ preventScroll: true });
   }
@@ -3062,7 +3076,8 @@ function renderMapQuestion(card) {
           <div class="feedback fb-${a.result}">
             <div class="feedback-head">
               <div class="feedback-title">${label}</div>
-              <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
+              ${svToggleHtml(card)}
+            <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
               <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
@@ -3088,6 +3103,7 @@ function renderMapQuestion(card) {
   if (a) {
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
+    bindSvToggle(card);
     $('#q-next').focus({ preventScroll: true });
   }
 }
