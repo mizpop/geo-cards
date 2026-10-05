@@ -292,7 +292,7 @@ export function addBaseTiles(map, opts = {}) {
   // attribution は地図の帰属表示（右下）に自動で出る
   const layer = tileStyle === 'osm'
     ? L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', ...opts })
-    : L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png', { maxZoom: 19, subdomains: 'abcd', attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; OpenStreetMap contributors / 地名: Esri', ...opts });
+    : L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', ...opts });
   layer.addTo(map);
   // 地名・道路名は別のタイル（英語表記・透明）にして、色で塗った地図や青い線の上に重ねる。OSM は地名が焼き込み済みで分けられない
   if (tileStyle !== 'osm') {
