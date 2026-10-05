@@ -2633,7 +2633,7 @@ function renderQuestion() {
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
-    <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card)}</div>
+    <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
       ${a ? '' : `<p class="quiz-prompt">${card.sv ? 'この場所は、どこの国？（映像の中は動き回れます）' : 'この特徴が見られる国は？'}</p>`}
       ${answerUi}
@@ -2773,7 +2773,7 @@ function renderPinQuestion(card) {
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
     <div class="qm-layout">
-      <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card)}</div>
+      <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
       <div class="qm-side">
         <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
         ${a ? `
@@ -2834,7 +2834,7 @@ function renderMapQuestion(card) {
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
     <div class="qm-layout">
-      <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card)}</div>
+      <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
       <div class="qm-side">
         <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
         ${a ? `
