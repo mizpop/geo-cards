@@ -2,6 +2,7 @@
 // 出題内容: カード / 参考写真 / 国の特徴 / ストリートビュー。回答方式: 4 択・入力・地図・ピン（出題内容によって使えるもの）
 // 通信は Supabase Realtime の Broadcast / Presence（テーブルは使わない）。デモモードでは同じブラウザの別タブどうしで試せる
 // ホストが問題を出す合図（q）と答え合わせ（reveal）を送り、得点は各自が出して（ans）全員で足し合わせる
+import { placeSvBubble } from './svbubble.js';
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({ length: 5 }, () => ROOM_CHARS[Math.floor(Math.random() * ROOM_CHARS.length)]).join('');
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -34,7 +35,6 @@ export function mountBattle(host, ctx) {
   let tick = null;
   let timers = [];
   let building = false;
-  let svCollapsed = false; // 答え合わせで、ストリートビューを閉じているか
   const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
   try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
   const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
@@ -514,11 +514,12 @@ export function mountBattle(host, ctx) {
     }).join('');
     // 地図で答える問題: 自分の答えと正解がわかる地図を、画像・ストリートビューの下に出す
     const card0 = Q.k === 'card' ? ctx.cardFor(Q) : null;
-    const showMap = !!card0 && ((Q.mode === 'map') || (Q.mode === 'pin' && card0.lat != null));
-    const mediaHtml = showMap ? `<div class="bt-media">${cardHtml}<div class="quiz-map bt-rmap" id="bt-rmap"><div class="map-loading">地図を読み込み中…</div></div></div>` : cardHtml;
+    const showMap = !!card0 && (card0.sv || (Q.mode === 'map') || (Q.mode === 'pin' && card0.lat != null));
+    // ストリートビューの問題: 映像があった所に地図を出し、映像は地図の上の吹き出し（初めは閉じている）。それ以外は、画像の下に地図
+    const mediaHtml = card0?.sv ? `<div class="bt-media"><div class="bt-stash" hidden>${cardHtml}</div><div class="quiz-map bt-rmap bt-rmap-big" id="bt-rmap"><div class="map-loading">地図を読み込み中…</div></div></div>` : showMap ? `<div class="bt-media">${cardHtml}<div class="quiz-map bt-rmap" id="bt-rmap"><div class="map-loading">地図を読み込み中…</div></div></div>` : cardHtml;
     const last = game.i + 1 >= game.questions.length;
     const title = mine ? { ok: '○ 正解！', partial: '△ 惜しい', ng: '✗ 不正解' }[mine.res] : '⏱ 未回答';
-    const toolbar = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length} の答え</span><span class="grow"></span>${card0?.sv ? `<button type="button" class="btn btn-sm" id="bt-svtoggle">🧍 ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}</button>` : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
+    const toolbar = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length} の答え</span><span class="grow"></span>${card0?.sv ? '<button type="button" class="btn btn-sm" id="bt-svtoggle">🧍 ストリートビューを開く</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
       <div class="progress"><div class="progress-bar" style="width:${((game.i + 1) / game.questions.length) * 100}%"></div></div>`;
     const bottom = `<div class="quiz-bottom is-answered">${choices}
       <div class="feedback fb-${mine?.res || 'ng'}">
@@ -531,19 +532,20 @@ export function mountBattle(host, ctx) {
     // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）
     main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${mediaHtml}</div>` : `${cardHtml}${bottom}`}`;
     bindExit();
-    const tg = main.querySelector('#bt-svtoggle');
-    if (tg) { // ストリートビューの開閉ボタン
-      const box = main.querySelector('.sv-split');
-      const apply = () => { box?.classList.toggle('sv-collapsed', svCollapsed); tg.textContent = `🧍 ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}`; };
-      apply();
-      tg.addEventListener('click', () => { svCollapsed = !svCollapsed; apply(); });
-    }
     ctx.attachZoom(host.querySelector('.quiz-card .front-img'));
     if (showMap) {
       const el = host.querySelector('#bt-rmap');
       const my = game.mine[game.i];
       const at = game.i;
-      const done = () => { if (game.i === at) host.querySelector('#bt-rmap .map-loading')?.remove(); };
+      const done = () => {
+        if (game.i !== at) return;
+        host.querySelector('#bt-rmap .map-loading')?.remove();
+        if (card0.sv) { // 映像を地図の上の吹き出しに移す
+          const cardEl = host.querySelector('.bt-stash .quiz-card');
+          placeSvBubble(cardEl, el, host.querySelector('#bt-svtoggle'));
+          host.querySelector('.bt-stash')?.remove();
+        }
+      };
       if (Q.mode === 'map') ctx.mountQuizMap(el, { answers: card0.countries, answered: { given: my?.code ? [my.code] : [] }, qid: `br${at}`, animate: false, onPick: () => {} }).then(done).catch(() => {});
       else ctx.mountPinMap(el, { answer: [card0.lat, card0.lng], guess: my?.guess, reveal: !my?.guess, qid: `br${at}`, animate: false }).then(done).catch(() => {});
     }

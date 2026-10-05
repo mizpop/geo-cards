@@ -2064,3 +2064,19 @@ body:has(.sv-front) { overflow-x: clip; }
 .sv-split.sv-collapsed { grid-template-columns: minmax(0, 1fr); }
 .sv-split.sv-collapsed .quiz-card:has(.sv-front), .qm-layout.sv-collapsed .quiz-card:has(.sv-front) { display: none; }
 .qm-layout.sv-collapsed { grid-template-columns: minmax(0, 1fr); }
+
+/* 答えの表示: ストリートビューは、地図の上の吹き出し（初めは閉じている） */
+.bt-rmap-big { height: min(72vh, 740px) !important; }
+.quiz-map:has(> .sv-bubble) { position: relative; }
+.sv-bubble { position: absolute; left: 3%; right: 3%; top: 2.5%; height: 60%; z-index: 1200; filter: drop-shadow(0 10px 26px rgba(0, 0, 0, .55)); }
+.sv-bubble[hidden] { display: none; }
+.sv-bubble-inner { position: absolute; inset: 0; border-radius: 16px; overflow: hidden; border: 2px solid var(--accent); background: #0b0f12; }
+.sv-bubble-inner > .quiz-card { position: absolute !important; inset: 0; left: 0 !important; transform: none !important; width: 100% !important; height: 100% !important; min-height: 0 !important; max-height: none !important; margin: 0 !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; background: transparent !important; box-shadow: none !important; }
+.sv-bubble-inner .front-img { height: 100%; border-radius: 0; }
+.sv-bubble-tail { position: absolute; left: 50%; bottom: -13px; width: 26px; height: 26px; margin-left: -13px; transform: rotate(45deg); background: #0b0f12; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); }
+.sv-bubble-x { position: absolute; top: 8px; right: 8px; z-index: 3; width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .6); color: #fff; cursor: pointer; }
+.qm-layout.sv-no-card { grid-template-columns: minmax(0, 1fr); }
+.qm-layout.sv-no-card .qm-side .quiz-map { min-height: min(60vh, 560px); }
+.sv-bubble-x { top: -12px; right: -12px; border: 2px solid var(--accent); background: #0b0f12; }
+.sv-split .feedback-head { flex-wrap: wrap; row-gap: 8px; }
+.sv-split .feedback-title { white-space: nowrap; }

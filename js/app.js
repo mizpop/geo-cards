@@ -14,6 +14,7 @@ import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, leve
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
 import { mountBattle, watchPublicRooms } from './battle.js';
 import { APP_VERSION } from './changelog.js';
+import { placeSvBubble } from './svbubble.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
@@ -826,15 +827,13 @@ function onKeydown(e) {
 /* ================= カード表示部品 ================= */
 // withBack: 裏面だけの書き込み（ヒントの印）を画像に重ねる（答えが見えている場面用）
 // ストリートビューの練習の問題: 映像を埋め込む。左上に出る場所の名前（答えのヒント）は、答えるまで隠す
-let svCollapsed = false; // 答えの表示で、ストリートビューを閉じているか（開閉ボタン）
-const svToggleHtml = (card) => (card.sv ? `<button class="btn btn-ghost btn-sm" id="q-svtoggle" type="button" title="ストリートビューの表示を開閉">🧍<span class="tab-long"> ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}</span></button>` : '');
-function bindSvToggle(card) {
-  const btn = $('#q-svtoggle');
-  if (!btn || !card.sv) return;
-  const box = btn.closest('.sv-split, .qm-layout, .view') && $('.sv-split, .qm-layout');
-  const apply = () => { box?.classList.toggle('sv-collapsed', svCollapsed); const t = btn.querySelector('.tab-long'); if (t) t.textContent = ` ${svCollapsed ? 'ストリートビューを開く' : 'ストリートビューを閉じる'}`; };
-  apply();
-  btn.addEventListener('click', () => { svCollapsed = !svCollapsed; apply(); });
+const svToggleHtml = (card) => (card.sv ? '<button class="btn btn-ghost btn-sm" id="q-svtoggle" type="button" title="ストリートビューを、地図の上の吹き出しで開閉">🧍 ストリートビューを開く</button>' : '');
+// 答えの表示（ストリートビューの問題）: 映像を地図の上の吹き出しに移す（初めは閉じている）
+function svBubbleAfter(card, mapSel) {
+  if (!card.sv) return;
+  const cardEl = $('.quiz-card:has(.sv-front)');
+  placeSvBubble(cardEl, $(mapSel), $('#q-svtoggle'));
+  $('.qm-layout')?.classList.add('sv-no-card');
 }
 let svHide = false; // 対戦で、答えが出るまで場所の名前を隠す
 function svFrontHtml(card) {
@@ -2876,6 +2875,7 @@ function renderQuestion() {
           ${cardInfoHtml(card)}
         </div>` : ''}
     </div>
+    ${card.sv && a ? '<div class="bt-media"><div class="quiz-map bt-rmap bt-rmap-big" id="sv-ans-map"><div class="map-loading">地図を読み込み中…</div></div></div>' : ''}
     ${card.sv ? '</div>' : ''}
   `;
 
@@ -2888,7 +2888,11 @@ function renderQuestion() {
   if (a) {
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
-    bindSvToggle(card);
+    if (card.sv) { // ストリートビューの問題: 今まで映像があった所に、正解の場所の地図。映像は地図の上の吹き出し（初めは閉じている）
+      const at = q.i;
+      mountPinMap($('#sv-ans-map'), { answer: [card.lat, card.lng], reveal: true, qid: `sva${at}`, animate: false })
+        .then(() => { $('#sv-ans-map .map-loading')?.remove(); if (q.i === at) svBubbleAfter(card, '#sv-ans-map'); }).catch(() => {});
+    }
     $('#q-next').focus({ preventScroll: true });
     return;
   }
@@ -3041,13 +3045,12 @@ function renderPinQuestion(card) {
     animate: settings.animations,
     qid: q.questions[q.i],
     onPlace: (g) => { pending = g; const b = $('#q-guess'); if (b) b.disabled = false; },
-  }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
+  }).then(() => { $('#quiz-map .map-loading')?.remove(); if (a) svBubbleAfter(card, '#quiz-map'); }).catch((ex) => {
     const el = $('#quiz-map .map-loading');
     if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`;
   });
   $('#q-guess')?.addEventListener('click', () => { if (pending) submit(pending); });
   if (a) {
-    bindSvToggle(card);
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-next').focus({ preventScroll: true });
   }
@@ -3096,14 +3099,13 @@ function renderMapQuestion(card) {
     animate: settings.animations,
     qid: q.questions[q.i],
     onPick: (code) => { if (!q.answered && q.i === at && state.view === 'quiz') submitAnswer(card, [code]); },
-  }).then(() => $('#quiz-map .map-loading')?.remove()).catch((ex) => {
+  }).then(() => { $('#quiz-map .map-loading')?.remove(); if (a) svBubbleAfter(card, '#quiz-map'); }).catch((ex) => {
     const el = $('#quiz-map .map-loading');
     if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`;
   });
   if (a) {
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
-    bindSvToggle(card);
     $('#q-next').focus({ preventScroll: true });
   }
 }
