@@ -2036,3 +2036,7 @@ body:has(.sv-front) { overflow-x: clip; }
 .bt-slider { display: flex; align-items: center; gap: 12px; }
 .bt-slider input[type="range"] { flex: 1; min-width: 160px; accent-color: var(--accent); }
 .bt-slider output { min-width: 4.2em; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.cl-group { margin: 6px 0 18px; }
+.cl-date { font-size: 15px; margin: 0 0 8px; }
+.cl-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; line-height: 1.7; }

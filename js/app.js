@@ -171,6 +171,21 @@ function saveSettings() {
 }
 applySettings();
 
+async function doLogout() {
+  await api.logout();
+  teardownChat();
+  stopLive();
+  state.user = null;
+  state.cards = [];
+  showLogin();
+}
+// 更新履歴（js/changelog.js）
+async function openChangelog() {
+  const { CHANGELOG } = await import('./changelog.js');
+  openModal(`
+    <div class="modal-head"><h2>🕘 更新履歴</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    ${CHANGELOG.map((g) => `<section class="cl-group"><h3 class="cl-date">${esc(g.date)} <span class="muted">${esc(g.title)}</span></h3><ul class="cl-list">${g.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>`).join('')}`, 'modal-settings');
+}
 function openSettings() {
   const seg = (key, opts) => `<div class="seg" data-key="${key}">${opts.map(([v, label]) => `<button type="button" class="${settings[key] === v ? 'on' : ''}" data-v="${v}">${label}</button>`).join('')}</div>`;
   const sw = (key) => `<label class="switch"><input type="checkbox" data-key="${key}" ${settings[key] ? 'checked' : ''}><span class="switch-track"><span class="switch-thumb"></span></span></label>`;
@@ -203,6 +218,10 @@ function openSettings() {
     </section>
     <h3 class="set-group-title">🔄 学習記録の同期</h3>
     <section class="set-group" id="sync-box"></section>
+    <h3 class="set-group-title">👤 アカウント</h3>
+    <section class="set-group">
+      ${item('ログイン中', esc($('#user-label')?.textContent || ''), api.mode === 'demo' ? '<span class="muted small">デモモード</span>' : '<button type="button" class="btn btn-sm" id="set-logout">ログアウト</button>')}
+    </section>
     ${canDownloadApp() ? `<h3 class="set-group-title">💻 デスクトップ版（Windows）</h3>
     <section class="set-group">
       ${item('Windows 版アプリ（exe）', 'インストール不要で、ダブルクリックで起動できます。中身はこのサイトなので、サイトの更新は自動で反映されます（インターネット接続が必要）。初めて開くとき Windows の警告が出たら、「詳細情報」→「実行」で開けます。', `<a class="btn btn-primary btn-sm" href="${esc(DESKTOP_DOWNLOAD_URL)}" target="_blank" rel="noopener">ダウンロード（約 74MB）</a>`)}
@@ -227,6 +246,7 @@ function openSettings() {
       <button class="btn btn-primary" data-close type="button">閉じる</button>
     </div>
     </div></div>`, 'modal-settings');
+  $('#set-logout')?.addEventListener('click', () => { closeModal(); doLogout(); });
   { // 左の目次: 見出しから作る。押すとその見出しへ動き、見ている位置を強調する（狭い画面では隠す）
     const m = $('#modal');
     const titles = $$('.set-group-title', m);
@@ -439,7 +459,6 @@ async function enterApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
   $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? `編集者: ${state.user.email}` : '閲覧のみ';
-  $('#logout-btn').hidden = api.mode === 'demo';
   $('#view').innerHTML = '<p class="empty">読み込み中…</p>';
   initChat({ api, user: state.user, toast });
   await reloadCards();
@@ -555,14 +574,7 @@ function bindGlobal() {
   const sp = $('#spotlight');
   sp.addEventListener('click', (e) => { if (e.target === sp) closeSpotlight(); });
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
-  $('#logout-btn').addEventListener('click', async () => {
-    await api.logout();
-    teardownChat();
-    stopLive();
-    state.user = null;
-    state.cards = [];
-    showLogin();
-  });
+  $('#changelog-btn').addEventListener('click', openChangelog);
   document.addEventListener('keydown', onKeydown);
   const modal = $('#modal');
   modal.addEventListener('click', (e) => { if (e.target === modal && !modalIsWindow()) closeModal(); });
