@@ -8,6 +8,7 @@ import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTi
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
+import { bringFront } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
@@ -418,7 +419,7 @@ async function enterApp() {
   startLive();
   // 学習記録の同期（引き継ぎコードを設定している場合）: 起動時と、記録が変わったあと自動で
   startAutoSync(api, {
-    onMerged: () => { if (!$('#modal').open && !(state.view === 'quiz' && state.quiz.phase === 'question')) { rebuildStudyDeck(true); renderView(); } toast('ほかの端末の学習記録を取り込みました'); },
+    onMerged: () => { if ((!$('#modal').open || modalIsWindow()) && !(state.view === 'quiz' && state.quiz.phase === 'question')) { rebuildStudyDeck(true); renderView(); } toast('ほかの端末の学習記録を取り込みました'); },
     onError: (e) => console.warn('学習記録の同期に失敗しました', e),
   });
 }
@@ -526,7 +527,7 @@ function bindGlobal() {
   });
   document.addEventListener('keydown', onKeydown);
   const modal = $('#modal');
-  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+  modal.addEventListener('click', (e) => { if (e.target === modal && !modalIsWindow()) closeModal(); });
   // カード詳細・国の詳細では、右クリックで前のカード / 国に戻る（履歴がなければ閉じる）
   // 右ボタンを押し始めた場所を記録（地図で右ボタンを押したまま Alt+クリックで詳細を開き、
   // その後に右ボタンを離したときの contextmenu で詳細が閉じないように）
@@ -545,9 +546,10 @@ function bindGlobal() {
   // close イベントは非同期に届くため、閉じた直後に別の画面（編集など）を開いた場合は片付けない
   modal.addEventListener('close', () => {
     if (modal.open) return;
-    modal.innerHTML = ''; modal.className = 'modal'; modalPasteHandler = null; modalStack = []; modalCurrent = null;
+    modal.innerHTML = ''; modal.className = 'modal'; modal.removeAttribute('style'); delete modal.dataset.winFront; winFocused = false; modalPasteHandler = null; modalStack = []; modalCurrent = null;
   });
   document.addEventListener('paste', (e) => { if (modalPasteHandler) modalPasteHandler(e); });
+  document.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('#modal')) winFocused = false; }, true); // ウィンドウの外をクリックしたら、キー操作はページ側へ
 }
 
 function fillDatalists() {
@@ -674,7 +676,7 @@ function onKeydown(e) {
   }
   // タブへ直接移動（初期設定は Ctrl+1〜4）: 組み合わせキーなら入力中でも
   const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare', tab6: 'lang' }[act];
-  if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !$('dialog[open]')) {
+  if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !dialogOpen()) {
     e.preventDefault();
     goTab(tabTo);
     return;
@@ -682,7 +684,7 @@ function onKeydown(e) {
   if (mod && !act) return; // 割り当てのない Ctrl / Alt の組み合わせはブラウザの標準動作のまま（入力欄の Ctrl+A なども）
   const tag = (e.target.tagName || '').toLowerCase();
   if (['input', 'textarea', 'select'].includes(tag)) {
-    if (e.key === 'Escape' && tag !== 'select' && !$('dialog[open]')) e.target.blur(); // Esc で入力欄から抜けてキー操作へ
+    if (e.key === 'Escape' && tag !== 'select' && !dialogOpen()) e.target.blur(); // Esc で入力欄から抜けてキー操作へ
     return;
   }
   const digit = /^(Digit|Numpad)([1-9])$/.exec(e.code)?.[2];
@@ -692,15 +694,17 @@ function onKeydown(e) {
   if (viewer) { if (act === 'back') { e.preventDefault(); viewer.close(); } return; }
 
   // Ctrl+K / ⌘+K / 「/」でも検索を開く
-  if ((e.key === '/' && !$('dialog[open]')) ) { e.preventDefault(); openSpotlight(); return; }
+  if ((e.key === '/' && !dialogOpen()) ) { e.preventDefault(); openSpotlight(); return; }
 
   // 検索パネル（カード・国の詳細や編集の手前に開いているとき）
   if ($('#spotlight').open && spotOnTop()) {
     if (act === 'back' || act === 'search') { e.preventDefault(); closeSpotlight(); }
     return;
   }
+  // 浮かぶウィンドウ: Esc で閉じる（モーダルのように自動では閉じないので）
+  if (modalIsWindow() && $('#modal').open && winFocused && e.key === 'Escape') { e.preventDefault(); if (!returnToEditor()) closeModal(); return; }
   // カード詳細・国の詳細
-  if ($('#modal').open) {
+  if ($('#modal').open && !winBackground()) {
     if (!modalCurrent || modalCurrent.kind === 'editor') return; // 編集・設定などの画面では無効
     const card = modalCurrent.kind === 'card' ? cardById(modalCurrent.id) : null;
     if (act === 'back') { e.preventDefault(); if (modalStack.length) modalBack(); else closeModal(); }
@@ -718,7 +722,7 @@ function onKeydown(e) {
     if (act === 'back' || act === 'search') { e.preventDefault(); closeSpotlight(); }
     return;
   }
-  if ($('dialog[open]')) return;
+  if (dialogOpen()) return;
   if (act === 'search') { e.preventDefault(); openSpotlight(); return; }
   if (state.view === 'manage' && e.key === 'Escape' && state.manage.sel.size) { e.preventDefault(); clearSel(); return; }
 
@@ -869,7 +873,7 @@ let modalCurrent = null;
 function navModal(entry) {
   const m = $('#modal');
   // 検索パネルを詳細・編集の手前に開いていたら、閉じてから詳細を表示（奥の画面に描くため）
-  if ($('#spotlight').open && m.open && spotOverModal) $('#spotlight').close();
+  if ($('#spotlight').open && ((m.open && spotOverModal) || (canWindow() && entry.kind !== 'editor'))) $('#spotlight').close(); // 浮かぶウィンドウは、モーダルの検索の後ろに隠れてしまうので検索を閉じる
   // モーダルでカード詳細・国情報・編集を表示中なら履歴に積む。それ以外は新しく開く
   if (m.open && modalCurrent) {
     // 編集中の画面は、入力内容ごと（DOM のまま）取っておいて「戻る」で元に戻す
@@ -881,7 +885,8 @@ function navModal(entry) {
 function showNav(entry) {
   if (entry.kind === 'editor') {
     const m = $('#modal');
-    m.className = entry.cls;
+    if (m.classList.contains('is-window')) { m.close(); m.removeAttribute('style'); delete m.dataset.winFront; m.className = entry.cls; m.showModal(); } // 編集はモーダルで開き直す
+    else m.className = entry.cls;
     m.style.removeProperty('--cat');
     m.replaceChildren(entry.node);
     modalPasteHandler = entry.paste;
@@ -930,7 +935,7 @@ function openCardModal(card, src = null, list = null) {
 // 要素 src の位置・大きさから el を拡大して表示するアニメーション
 // src は要素、または画面上の点 { x, y }（地図の Alt+クリックなど）
 function popFrom(el, src) {
-  if (!settings.animations || !el.animate) return;
+  if (!settings.animations || !el.animate || el.classList.contains('is-window')) return;
   const r1 = src.getBoundingClientRect ? src.getBoundingClientRect() : { left: src.x - 30, top: src.y - 20, width: 60, height: 40 };
   const r2 = el.getBoundingClientRect();
   if (!r1.width || !r2.width) return;
@@ -1552,16 +1557,121 @@ function openFactEditor(topic, code) {
 
 /* ================= モーダル ================= */
 let modalPasteHandler = null;
+
+/* ---- カード・国・写真の詳細は、PC ではストリートビューと同じ「浮かぶウィンドウ」で開く ----
+   モーダルではないので、後ろの地図や一覧もそのまま操作できる。ヘッダーのドラッグで動かし、角で大きさを変え、
+   ダブルクリックで拡大、「—」でヘッダーだけに縮小。位置と大きさは覚える。スマホなど狭い画面では今までどおりのモーダル */
+const winMq = window.matchMedia('(min-width: 900px) and (pointer: fine)');
+const canWindow = () => winMq.matches;
+const modalIsWindow = () => $('#modal').classList.contains('is-window');
+let winFocused = false; // キーボード操作がウィンドウの側か（ページをクリックしたら false）
+let winRect = (() => { try { return JSON.parse(localStorage.getItem('geo-cards-win-rect-v1')); } catch { return null; } })();
+const saveWinRect = () => { try { if (winRect) localStorage.setItem('geo-cards-win-rect-v1', JSON.stringify(winRect)); } catch { /* 無視 */ } };
+// ウィンドウが開いているが操作の対象はページ側（ウィンドウの外をクリックした）
+const winBackground = () => modalIsWindow() && $('#modal').open && !winFocused;
+// キー操作を止めるべきダイアログが開いているか（浮かぶウィンドウは、フォーカスが外にあるときは数えない）
+const dialogOpen = () => Array.from(document.querySelectorAll('dialog[open]')).some((d) => !(d.id === 'modal' && d.classList.contains('is-window') && !winFocused));
+
+function setupWindow(m) {
+  const head = $('.modal-inner > .modal-head:first-child', m);
+  const place = () => {
+    if (!winRect) {
+      const w = 720;
+      const h = Math.min(820, window.innerHeight - 100);
+      winRect = { left: Math.max(12, window.innerWidth - w - 28), top: 84, width: w, height: h };
+    }
+    const r = winRect;
+    Object.assign(m.style, {
+      position: 'fixed', inset: 'auto', margin: '0', maxHeight: 'none',
+      left: `${Math.max(0, Math.min(window.innerWidth - 120, r.left))}px`, top: `${Math.max(0, Math.min(window.innerHeight - 50, r.top))}px`,
+      width: `${Math.min(r.width, window.innerWidth)}px`, height: `${Math.min(r.height, window.innerHeight)}px`,
+    });
+  };
+  const remember = () => {
+    if (!m.open || m.classList.contains('is-max') || m.classList.contains('is-min')) return;
+    const r = m.getBoundingClientRect();
+    winRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+    saveWinRect();
+  };
+  if (!m.dataset.winBound) { // 同じ要素なので、最初の 1 回だけ
+    m.dataset.winBound = '1';
+    m.addEventListener('pointerdown', () => { winFocused = true; bringFront(m); }, true);
+    if ('ResizeObserver' in window) new ResizeObserver(() => { if (modalIsWindow()) remember(); }).observe(m);
+    m.__remember = remember;
+  }
+  if (!m.classList.contains('is-max') && !m.classList.contains('is-min')) place();
+  if (!m.style.zIndex || !m.dataset.winFront) { bringFront(m); m.dataset.winFront = '1'; }
+  if (!head) return;
+  // 縮小・拡大のボタンを、閉じるボタンの手前に
+  const closeBtn = $('[data-close]', head);
+  const mk = (id, label, text, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'icon-btn win-btn';
+    b.id = id;
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    head.insertBefore(b, closeBtn || null);
+  };
+  const setMin = (on) => {
+    if (on) { remember(); m.classList.remove('is-max'); }
+    m.classList.toggle('is-min', on);
+    const b = $('#win-min', m);
+    if (b) { b.textContent = on ? '□' : '—'; b.title = on ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）'; }
+    if (!on) place();
+  };
+  const toggleMax = () => { setMin(false); remember(); m.classList.toggle('is-max'); if (!m.classList.contains('is-max')) place(); };
+  mk('win-min', m.classList.contains('is-min') ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）', m.classList.contains('is-min') ? '□' : '—', () => setMin(!m.classList.contains('is-min')));
+  mk('win-max', '大きく / 元の大きさ（ヘッダーのダブルクリックでも）', '⤢', toggleMax);
+  // ヘッダーのドラッグで動かす（少し動かしてから動かし始める。ダブルクリックで拡大）
+  let drag = null;
+  head.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, a, input, select')) return;
+    const r = m.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, sx: e.clientX, sy: e.clientY, w: r.width, started: false };
+    head.setPointerCapture(e.pointerId);
+  });
+  head.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    if (!drag.started) {
+      if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+      drag.started = true;
+      if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.dx = Math.min(drag.dx, winRect.width - 40); drag.w = winRect.width; }
+    }
+    m.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`;
+    m.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy))}px`;
+  });
+  const end = () => { if (drag?.started) remember(); drag = null; };
+  head.addEventListener('pointerup', end);
+  head.addEventListener('pointercancel', end);
+  head.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button, a, input, select')) return;
+    if (m.classList.contains('is-min')) { setMin(false); return; }
+    toggleMax();
+  });
+}
+
 function openModal(html, cls = '', nav = false) {
   const m = $('#modal');
+  const asWindow = nav && canWindow();
+  const wasWindow = m.classList.contains('is-window');
+  const keep = asWindow && wasWindow ? ['is-max', 'is-min'].filter((c) => m.classList.contains(c)) : []; // ウィンドウの中で移るときは、拡大・縮小の状態を保つ
   if (!nav) { modalStack = []; modalCurrent = null; }
-  m.className = `modal ${cls}`;
+  if (m.open && wasWindow !== asWindow) m.close(); // モーダルとウィンドウを行き来するときは開き直す
+  m.className = `modal ${cls}${asWindow ? ' is-window' : ''}${keep.length ? ` ${keep.join(' ')}` : ''}`;
+  if (!asWindow) { m.removeAttribute('style'); delete m.dataset.winFront; }
   m.style.removeProperty('--cat');
   if (!m.open) play('open'); // 詳細の中で移るとき（戻る・国へ）はタップ音だけ
   m.innerHTML = `<div class="modal-inner">${html}</div>`;
   modalPasteHandler = null;
   $$('[data-close]', m).forEach((b) => b.addEventListener('click', closeModal));
-  if (!m.open) { m.showModal(); spotOverModal = false; }
+  if (!m.open) {
+    if (asWindow) { m.show(); winFocused = true; } else m.showModal();
+    spotOverModal = false;
+  }
+  if (asWindow) setupWindow(m);
   raiseChat(); // メモのボタン・欄をモーダルの手前に
 }
 function closeModal() {
@@ -3470,9 +3580,7 @@ function openEditor(card, preset = {}) {
   };
   $('#ed-annot').addEventListener('click', () => runImageEdit());
   // 参考写真などから作るときの初期値
-  if (preset.blob) setImage(preset.blob).then(() => { if (preset.cropFirst) { const c = preset.cropFirst; runImageEdit({ tool: 'crop', crop: c.w > 8 && c.h > 8 ? c : null }); } });
-  // クリップボードに画像（スクリーンショット）があれば自動で入れる（許可を求められることがあります。なければ何もしない）
-  if (preset.autoPaste) readClipboardImage().then(async (b) => { if (b && !ed.blob) { await setImage(b); if (preset.cropFirst) runImageEdit({ tool: 'crop' }); } }).catch(() => {});
+  if (preset.blob) setImage(preset.blob);
   if (preset.description) $('#ed-desc').value = preset.description;
   if (preset.notes) $('#ed-notes').value = preset.notes;
   if (preset.area) $('#ed-area').value = preset.area;
@@ -3934,9 +4042,8 @@ function countrySummaryHtml(code) {
 const EXT_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>';
 
 /* ================= 地図 ================= */
-// ストリートビューで見つけた場所からカードを作る: 撮影して貼り付けた画像（blob）を、切り抜きの画面で開き、
-// 国・場所の名前・Google マップのリンクを入れた作成画面にする（画面共有は使わないので、ブラウザの確認は出ない）
-async function cardFromSv({ lat, lng, codePromise, blob }) {
+// ストリートビューで見つけた場所からカードを作る: 国・場所の名前・Google マップのリンクを入れた作成画面を開く（画像は作成画面で選ぶ）
+async function cardFromSv({ lat, lng, codePromise }) {
   const code = await Promise.resolve(codePromise).catch(() => null);
   let area = '';
   try { // 場所の名前（県・市など）を OpenStreetMap で調べる。調べられなくても作成は続ける
@@ -3952,8 +4059,6 @@ async function cardFromSv({ lat, lng, codePromise, blob }) {
   openEditor(null, {
     countries: code ? [code] : [], area,
     notes: `ストリートビュー: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`,
-    blob, // 撮影した画像
-    cropFirst: {}, // すぐ切り抜きの画面を開く（範囲は自分で選ぶ）
   });
 }
 const mapCtx = {

@@ -1,4 +1,5 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
+import { bringFront } from './floatz.js';
 import { COUNTRY_BY_CODE } from './countries.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
 import { REF_IMAGES, REF_BASE, REF_PAGES } from './refimages.js';
@@ -691,6 +692,7 @@ export async function renderMap(view, ctx) {
     <iframe id="sv-frame" title="Google ストリートビュー" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
     <p class="sv-note muted small">ヘッダーをドラッグすると、画面のどこにでも動かせます。</p>`;
   document.body.appendChild(svPanel);
+  svPanel.addEventListener('pointerdown', () => bringFront(svPanel), true); // 触ったウィンドウを手前に
   const svFrame = svPanel.querySelector('#sv-frame');
   const svBanner = $id('sv-banner');
   let svMarker = null;
@@ -725,7 +727,6 @@ export async function renderMap(view, ctx) {
     svRect = { left: r.left, top: r.top, width: r.width, height: r.height };
   };
   function closeSv() {
-    endCapture();
     svPoint = null;
     setMin(false);
     svPanel.hidden = true;
@@ -735,7 +736,7 @@ export async function renderMap(view, ctx) {
   function openSv(lat, lng) {
     svPoint = [lat, lng];
     setMin(false); // 縮小していても、新しい場所を開いたら戻す
-    if (svPanel.hidden) { svPanel.hidden = false; placePanel(); }
+    if (svPanel.hidden) { svPanel.hidden = false; placePanel(); bringFront(svPanel); }
     svFrame.src = svEmbedUrl(lat, lng);
     svPanel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     svPanel.querySelector('#sv-ext').href = svOpenUrl(lat, lng);
@@ -769,54 +770,12 @@ export async function renderMap(view, ctx) {
   $id('map-sv').addEventListener('click', () => setSv(!svOn));
   $id('sv-exit').addEventListener('click', () => setSv(false));
   svPanel.querySelector('#sv-close').addEventListener('click', closeSv);
-  // 「📍 この場所でカードを作る」: 映像を最大にして、画面を撮影してもらう（ブラウザの画面共有は使わない）。
-  // 撮影した画像を貼り付け（Ctrl+V）かボタンで取り込んだら、元の大きさに戻して、切り抜きの画面つきのカード作成を開く
-  let capture = null; // { bar, onPaste, wasMax }
-  function endCapture() {
-    if (!capture) return;
-    document.removeEventListener('paste', capture.onPaste);
-    capture.bar.remove();
-    if (!capture.wasMax) svPanel.classList.remove('is-max');
-    capture = null;
-  }
-  function beginCapture() {
-    if (!svPoint || capture) return;
+  // 「📍 この場所でカードを作る」: 国・場所の名前・Google マップのリンクを入れた作成画面を開く（画像は作成画面で選ぶ）
+  svPanel.querySelector('#sv-card')?.addEventListener('click', () => {
+    if (!svPoint) return;
     const [lat, lng] = svPoint;
-    const codePromise = countryAt(lat, lng);
-    const wasMax = svPanel.classList.contains('is-max');
-    setMin(false);
-    svPanel.classList.add('is-max'); // 映像を最大にしてから撮影する
-    const bar = document.createElement('div');
-    bar.className = 'sv-capture';
-    bar.innerHTML = `<b>📸 この映像を撮影してください</b>
-      <span>Windows は Win+Shift+S、Mac は ⌘+Shift+4 で範囲を選んでコピーし、<kbd>Ctrl</kbd>+<kbd>V</kbd> で貼り付けてください（切り抜きは次の画面でもできます）</span>
-      <button type="button" class="btn btn-sm btn-primary" id="sv-cap-read">コピーした画像を取り込む</button>
-      <button type="button" class="btn btn-sm btn-ghost" id="sv-cap-cancel">キャンセル</button>`;
-    svPanel.insertBefore(bar, svFrame); // 映像の上ではなく、ヘッダーのすぐ下の専用の行に（撮影に写り込まないように）
-    const done = (blob) => { endCapture(); ctx.createCardFromSv({ lat, lng, codePromise, blob }); };
-    const onPaste = (e) => {
-      const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith('image/'));
-      if (!item) return; // 文字の貼り付けは無視
-      e.preventDefault();
-      done(item.getAsFile());
-    };
-    capture = { bar, onPaste, wasMax };
-    document.addEventListener('paste', onPaste);
-    bar.querySelector('#sv-cap-cancel').addEventListener('click', endCapture);
-    bar.querySelector('#sv-cap-read').addEventListener('click', async () => {
-      try {
-        for (const it of await navigator.clipboard.read()) {
-          const type = it.types.find((t) => t.startsWith('image/'));
-          if (type) { done(await it.getType(type)); return; }
-        }
-        ctx.toast('クリップボードに画像がありません。先に撮影してコピーしてください', 'error');
-      } catch { ctx.toast('クリップボードを読めませんでした。Ctrl+V で貼り付けてください', 'error'); }
-    });
-    // 映像の中にフォーカスがあると貼り付けが映像の側に届かないので、ボタンへフォーカスを移す
-    window.focus();
-    bar.querySelector('#sv-cap-read').focus();
-  }
-  svPanel.querySelector('#sv-card')?.addEventListener('click', beginCapture);
+    ctx.createCardFromSv({ lat, lng, codePromise: countryAt(lat, lng) });
+  });
   svPanel.querySelector('#sv-max').addEventListener('click', () => { setMin(false); saveRect(); svPanel.classList.toggle('is-max'); });
   // 一時的な縮小: ヘッダーだけにして、地図を見やすくする（もう一度押す・新しい場所を開くと戻る）
   function setMin(on) {
@@ -913,7 +872,7 @@ export async function renderMap(view, ctx) {
   }
   if (svOn) setSv(true, true); // 地図を描き直したときも、モードと開いていた地点を引き継ぐ
   if (svPoint) openSv(svPoint[0], svPoint[1]);
-  escHandler = () => { if (capture) endCapture(); else if (svPoint) closeSv(); else if (svOn) setSv(false); else clearFocus(); };
+  escHandler = () => { if (svPoint) closeSv(); else if (svOn) setSv(false); else clearFocus(); };
   notesHandler = () => renderInfo();
   const isVisible = (code, view) => {
     const parts = partBounds.get(code);

@@ -87,7 +87,7 @@ export function teardownChat() {
 function topHost() {
   for (const sel of ['dialog.viewer', '#modal', '#spotlight']) {
     const d = document.querySelector(sel);
-    if (d?.open && !d.classList.contains('closing')) return d;
+    if (d?.open && !d.classList.contains('closing') && !d.classList.contains('is-window')) return d; // 浮かぶウィンドウは手前に出さなくてよい（メモのボタンはページ側に）
   }
   return document.body;
 }
