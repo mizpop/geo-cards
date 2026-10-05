@@ -776,7 +776,7 @@ function svFrontHtml(card) {
   const hide = state.view === 'quiz' && state.quiz.phase === 'question' && !state.quiz.answered;
   return `<div class="front-img sv-front">${catBadge(card, 'cat-on-img')}<iframe class="sv-quiz-frame" title="ストリートビュー" src="${esc(svEmbedUrl(card.lat, card.lng, card.heading))}" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>${hide ? '<div class="sv-cover" aria-hidden="true"><span>？</span></div>' : ''}</div>`;
 }
-const svInfoHtml = (card) => `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
+const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
   if (card.sv) return svFrontHtml(card);
@@ -2502,7 +2502,7 @@ async function startSvRefQuiz(codes, btn) {
       if (!allowed.has(code)) continue;
       for (const rel of rels) {
         const i = refInfo(topic, rel);
-        if (i && i.lat != null && i.lng != null) { if (!byCountry.has(code)) byCountry.set(code, []); byCountry.get(code).push({ code, lat: i.lat, lng: i.lng, heading: i.heading || 0 }); }
+        if (i && i.lat != null && i.lng != null) { if (!byCountry.has(code)) byCountry.set(code, []); byCountry.get(code).push({ code, lat: i.lat, lng: i.lng, heading: i.heading || 0, topic, rel }); }
       }
     }
   }
@@ -2515,7 +2515,7 @@ async function startSvRefQuiz(codes, btn) {
   }
   if (picks.length < Math.min(n, 3)) { toast('選んだ地域に、写真の地点がほとんどありません。地域を広げてください', 'error'); return; }
   const cards = shuffle(picks).map((p, k) => {
-    const card = { id: `sv|${Date.now()}|${k}`, countries: [p.code], sv: true, lat: p.lat, lng: p.lng, heading: Math.round(p.heading), description: '', area: '', notes: '', category_id: null, created_at: '' };
+    const card = { id: `sv|${Date.now()}|${k}`, countries: [p.code], sv: true, lat: p.lat, lng: p.lng, heading: Math.round(p.heading), refTopic: p.topic, refSrc: REF_BASE + p.rel, description: '', area: '', notes: '', category_id: null, created_at: '' };
     svCards.set(card.id, card);
     return card;
   });

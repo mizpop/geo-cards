@@ -1872,3 +1872,8 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
 .map-layout.panel-hidden { grid-template-columns: minmax(0, 1fr); }
 .map-layout.panel-hidden .vsplit, .map-layout.panel-hidden .map-panel { display: none; }
 @media (max-width: 760px) { .map-layout.panel-hidden { grid-template-rows: minmax(0, 1fr); } .view-fit .map-layout.panel-hidden { grid-template-rows: minmax(0, 1fr); } }
+
+/* ストリートビュー練習（写真の地点）の答え: その地点の参考写真 */
+.sv-ref-answer { margin: 0 0 10px; }
+.sv-ref-answer img { display: block; max-width: 100%; max-height: min(42vh, 380px); margin: 0 auto; border-radius: 10px; border: 1px solid var(--border); }
+.sv-ref-answer figcaption { text-align: center; margin-top: 4px; }
