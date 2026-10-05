@@ -14,6 +14,13 @@ const MODES = { choice: '4 択', input: '入力', map: '地図で選ぶ', pin: '
 const modesOf = (kind) => (kind === 'cards' ? ['choice', 'input', 'map'] : kind === 'fact' ? ['choice'] : ['choice', 'input', 'map', 'pin']);
 const bonus = (ms, limit) => 1 - Math.min(1, ms / (limit * 1000)); // 速いほど 1 に近い
 
+// 公開中の部屋（アプリ全体で共有。ポップアップと、対戦の入口の一覧の両方が使う）
+const roomsStore = new Map(); // コード → { name, n, max, kind, seen, popped, dismissed }
+const roomListeners = new Set();
+const FRESH_MS = 25000;
+export const publicRooms = () => [...roomsStore].filter(([, r]) => r.n < r.max && Date.now() - r.seen < FRESH_MS).map(([code, r]) => ({ code, ...r }));
+const notifyRooms = () => roomListeners.forEach((f) => f());
+
 export function mountBattle(host, ctx) {
   const { api, esc, play, toast, countryName, flagImg, cardById, frontHtml, onExit } = ctx;
   const me = { id: newId(), name: '' };
@@ -272,13 +279,25 @@ export function mountBattle(host, ctx) {
         <label class="bt-label">あなたの名前<input id="bt-name" class="input" maxlength="16" value="${esc(me.name)}" placeholder="例: たろう"></label>
         <div class="bt-row"><button type="button" class="btn btn-primary" id="bt-create">🆕 部屋を作る</button></div>
         <div class="bt-row"><input id="bt-code" class="input bt-code" maxlength="5" placeholder="部屋のコード（5 文字）" autocapitalize="characters"><button type="button" class="btn" id="bt-join">入る</button></div>
-      </div>`;
+      </div>
+      <h3 class="bt-sub">📢 公開中の部屋</h3><div id="bt-pubrooms"></div>`;
+    drawPublic();
     bindExit();
     host.querySelector('#bt-create').addEventListener('click', () => join(newCode(), true));
     const go = () => { const c = host.querySelector('#bt-code').value.trim().toUpperCase(); if (c.length < 5) { toast('部屋のコード（5 文字）を入力してください', 'error'); return; } join(c, false); };
     host.querySelector('#bt-join').addEventListener('click', go);
     host.querySelector('#bt-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   }
+  // 入口に、公開中の部屋の一覧（ポップアップは一度しか出ないので、あとはここから入れる）
+  function drawPublic() {
+    const box = main.querySelector('#bt-pubrooms');
+    if (!box) return;
+    const list = publicRooms();
+    box.innerHTML = list.length ? list.map((r) => `<div class="bt-pubroom"><div><b>${esc(r.name)}</b> さんの部屋 <span class="bt-room small">${esc(r.code)}</span><div class="muted small">${esc(r.kind)} ・ ${r.n} / ${r.max} 人</div></div><button type="button" class="btn btn-primary btn-sm" data-code="${esc(r.code)}">参加する</button></div>`).join('') : '<p class="muted small">公開中の部屋はありません。ホストが「部屋を公開する」を押すと、ここに出ます。</p>';
+    box.querySelectorAll('[data-code]').forEach((x) => x.addEventListener('click', () => join(x.dataset.code, false)));
+  }
+  let unwatch = () => {};
+  unwatch = (() => { const f = () => { if (!alive()) { unwatch(); return; } if (phase === 'entry') drawPublic(); }; roomListeners.add(f); const t = setInterval(f, 5000); return () => { roomListeners.delete(f); clearInterval(t); }; })();
   const segHtml = (id, opts, cur) => `<div class="seg ${opts.length > 4 ? 'seg-wrap' : ''}" id="${id}">${opts.map(([v, label]) => `<button type="button" class="${cur === v ? 'on' : ''}" data-v="${v}">${label}</button>`).join('')}</div>`;
   function renderLobby() {
     if (!alive()) return;
@@ -467,29 +486,33 @@ export function mountBattle(host, ctx) {
   return { leave, inRoom: () => phase !== 'entry' };
 }
 
-// 公開された対戦の部屋のお知らせ（アプリ全体で 1 つ。ポップアップから参加できる）
+// 公開された対戦の部屋のお知らせ（アプリ全体で 1 つ）。ポップアップは部屋ごとに一度だけ（数秒で消える）。あとは対戦の入口の一覧から入れる
 export function watchPublicRooms({ api, esc, onJoin, busy }) {
   if (!api.openLobby) return;
-  const rooms = new Map(); // コード → { name, n, max, kind, seen }
-  const shown = new Set(); // 一度出したもの（閉じたあとに出し直さない。公開が終わったら忘れる）
   let box = null;
-  const ensureBox = () => {
-    if (box?.isConnected) return box;
-    box = document.createElement('div');
-    box.className = 'bt-popups';
-    document.body.appendChild(box);
-    return box;
-  };
+  const POP_MS = 12000;
   const draw = () => {
-    const list = [...rooms].filter(([code, r]) => !r.dismissed && r.n < r.max && Date.now() - r.seen < 25000);
+    const list = [...roomsStore].filter(([, r]) => r.popped && !r.dismissed && r.n < r.max && Date.now() - r.seen < FRESH_MS);
     if (!list.length || busy()) { box?.remove(); box = null; return; }
-    ensureBox().innerHTML = list.map(([code, r]) => `<div class="bt-popup" role="alert"><div class="bt-popup-text">🎮 <b>${esc(r.name)}</b> さんが対戦の部屋を公開しました<div class="muted small">${esc(r.kind)} ・ ${r.n} / ${r.max} 人</div></div><button type="button" class="btn btn-primary btn-sm" data-join="${esc(code)}">参加する</button><button type="button" class="bt-popup-x" data-x="${esc(code)}" aria-label="閉じる">✕</button></div>`).join('');
-    box.querySelectorAll('[data-join]').forEach((b) => b.addEventListener('click', () => { const c = b.dataset.join; rooms.get(c).dismissed = true; draw(); onJoin(c); }));
-    box.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => { rooms.get(b.dataset.x).dismissed = true; draw(); }));
+    if (!box?.isConnected) { box = document.createElement('div'); box.className = 'bt-popups'; document.body.appendChild(box); }
+    box.innerHTML = list.map(([code, r]) => `<div class="bt-popup" role="alert"><div class="bt-popup-text">🎮 <b>${esc(r.name)}</b> さんが対戦の部屋を公開しました<div class="muted small">${esc(r.kind)} ・ ${r.n} / ${r.max} 人 ・ あとから「リアルタイム対戦」でも入れます</div></div><button type="button" class="btn btn-primary btn-sm" data-join="${esc(code)}">参加する</button><button type="button" class="bt-popup-x" data-x="${esc(code)}" aria-label="閉じる">✕</button></div>`).join('');
+    box.querySelectorAll('[data-join]').forEach((x) => x.addEventListener('click', () => { const r = roomsStore.get(x.dataset.join); if (r) r.dismissed = true; draw(); onJoin(x.dataset.join); }));
+    box.querySelectorAll('[data-x]').forEach((x) => x.addEventListener('click', () => { const r = roomsStore.get(x.dataset.x); if (r) r.dismissed = true; draw(); }));
   };
   api.openLobby((m) => {
-    if (m?.t === 'open' && m.room) { const old = rooms.get(m.room); rooms.set(m.room, { name: m.name, n: m.n, max: m.max, kind: m.kind, seen: Date.now(), dismissed: old?.dismissed || false }); draw(); }
-    else if (m?.t === 'close') { rooms.delete(m.room); draw(); }
+    if (m?.t === 'open' && m.room) {
+      const old = roomsStore.get(m.room);
+      const r = old || { popped: false, dismissed: false };
+      Object.assign(r, { name: m.name, n: m.n, max: m.max, kind: m.kind, seen: Date.now() });
+      roomsStore.set(m.room, r);
+      if (!old && !busy()) { // 初めて見た部屋: ポップアップを一度だけ出して、数秒後に自動で消す
+        r.popped = true;
+        setTimeout(() => { r.dismissed = true; draw(); }, POP_MS);
+      } else if (!old) r.dismissed = true;
+      draw();
+    } else if (m?.t === 'close') roomsStore.delete(m.room);
+    else return;
+    notifyRooms();
   }).then((lobby) => { watchPublicRooms.lobby = lobby; }).catch(() => {});
-  setInterval(draw, 5000); // 公開が止まった部屋（応答がない）を消す
+  setInterval(() => { for (const [c, r] of roomsStore) if (Date.now() - r.seen > FRESH_MS) roomsStore.delete(c); draw(); notifyRooms(); }, 5000); // 応答が途絶えた部屋を消す
 }

@@ -1994,3 +1994,13 @@ body:has(.sv-front) { overflow-x: clip; }
 }
 .quiz-card:has(.sv-front):not(.sv-split > .quiz-card):not(.qm-layout .quiz-card), .battle .quiz-card:has(.sv-front):not(.sv-split > .quiz-card):not(.qm-layout .quiz-card) { height: min(76vh, 820px); min-height: 420px; }
 @media (max-width: 900px) { .quiz-card:has(.sv-front):not(.sv-split > .quiz-card), .qm-layout:has(.sv-front), .sv-split { width: 100%; left: 0; transform: none; } }
+
+.bt-pubroom { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 10px 12px; margin: 6px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.bt-pubroom .bt-room { font-size: 12px; }
+/* 対戦: ストリートビューのときは、枠（パネル）ごと画面の左右いっぱいに拡げ、中の映像は枠いっぱいにする（枠からはみ出さない） */
+.battle:has(.sv-front) { max-width: none; width: calc(100vw - 24px); position: relative; left: 50%; transform: translateX(-50%); box-sizing: border-box; }
+.battle .quiz-card:has(.sv-front):not(.sv-split > .quiz-card), .battle .qm-layout:has(.sv-front), .battle .sv-split { left: 0; transform: none; width: 100%; }
+@media (max-width: 900px) { .battle:has(.sv-front) { width: 100%; left: 0; transform: none; } }
+/* 上の「はみ出し」方式をやめ、ストリートビューのあるときは画面（#view）そのものを左右いっぱいにする */
+.view:has(.sv-front) { max-width: none; }
+.quiz-card:has(.sv-front), .qm-layout:has(.sv-front), .sv-split, .battle:has(.sv-front) { left: 0 !important; transform: none !important; width: 100% !important; }
