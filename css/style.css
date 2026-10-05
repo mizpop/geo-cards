@@ -515,7 +515,7 @@ textarea { resize: vertical; line-height: 1.6; }
 
 /* ---------- 地図 ---------- */
 .map-hint { margin-left: auto; }
-.map-layout { display: grid; grid-template-columns: 1fr 360px; gap: 14px; height: calc(100vh - 170px); height: calc(100dvh - 170px); min-height: 460px; }
+.map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 14px minmax(240px, min(var(--panel-w, 360px), 70%)); gap: 0; height: calc(100vh - 170px); height: calc(100dvh - 170px); min-height: 460px; }
 .map-box { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: var(--surface-2); }
 .map { position: absolute; inset: 0; }
 /* タイルの読み込み前に見える背景を海の色に（白く抜けて見えないように） */
@@ -1850,3 +1850,16 @@ body[data-split] .view { margin: 0 0 0 calc(var(--split-l, 0) * 100vw); width: c
 /* 分割中の（狭くなった）ページ側 */
 body[data-split] .map-hint { display: none; }
 body[data-split] .view { padding-left: 14px; padding-right: 14px; }
+
+/* 地図と右パネルの境界線（ドラッグで幅を変える） */
+.vsplit { position: relative; cursor: col-resize; touch-action: none; z-index: 2; }
+.vsplit::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 0; border-left: 1px solid transparent; }
+.vsplit::after { content: ''; position: absolute; left: 50%; top: 50%; width: 5px; height: 44px; margin: -22px 0 0 -2.5px; border-radius: 3px; background: var(--border); opacity: .9; transition: background .12s, height .12s; }
+.vsplit:hover::after, .vsplit:focus-visible::after, .vsplit.is-dragging::after { background: var(--accent); height: 64px; margin-top: -32px; }
+.vsplit:hover::before, .vsplit.is-dragging::before { border-left-color: var(--accent); }
+.vsplit:focus-visible { outline: none; }
+@media (max-width: 760px) { .vsplit { display: none; } }
+
+/* 隣接国などが 3 行以上のときの折りたたみ */
+.nb-fold.is-folded { overflow: hidden; }
+.fold-toggle { font-size: 12px; margin: 0 0 3px; }

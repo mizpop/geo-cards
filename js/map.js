@@ -403,6 +403,7 @@ export async function renderMap(view, ctx) {
 
         ${mode === 'cards' ? '' : `<div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend"><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeDef(mode).icon} ${modeDef(mode).name}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${modeDef(mode).desc}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
       </div>
+      <div class="vsplit" id="vsplit" role="separator" aria-orientation="vertical" aria-label="地図と右のパネルの幅を調整" tabindex="0" title="ドラッグで幅を調整（ダブルクリックで元に戻す・← → キーでも）"></div>
       <aside class="map-panel" id="map-panel" style="--pinfo-h:${(ctx.panelSplit() * 100).toFixed(1)}%">
         <section class="pinfo" id="pinfo"></section>
         <div class="psplit" id="psplit" role="separator" aria-orientation="horizontal" aria-label="上下の高さを調整" tabindex="0" title="ドラッグで上下の高さを調整（ダブルクリックで元に戻す）"></div>
@@ -637,6 +638,11 @@ export async function renderMap(view, ctx) {
         const card = list.find((c) => c.id === id);
         if (card?.photo) ctx.openPhoto(mode, code, list.map((c) => c.src), list.indexOf(card), e.originalEvent.target.closest('[data-card]')); // 参考写真はカードと同じ画面で
         else if (card) ctx.openCard(card, e.originalEvent.target.closest('[data-card]'), list.map((c) => c.id)); // ← → でこの国のカードを順に
+      } else if (markers.get(code) && !markers.get(code).revealed) {
+        // 枚数の数字だけが出ているとき: クリックでサムネイルを出す（カーソルがサムネイルから外れるまで）。国の情報も出す（地図は動かさない）
+        startPeek(code, e.originalEvent);
+        setFocused(code);
+        renderPanel();
       } else {
         toggleFocus(code);
       }
@@ -1082,6 +1088,37 @@ export async function renderMap(view, ctx) {
       }
     }
   }
+  // 数字だけの表示のとき、数字をクリックしたらサムネイルを出す。カーソルが（数字をクリックした場所とサムネイルの）近くから外れたら閉じる
+  let peekWatch = null;
+  function stopPeek() {
+    let any = false;
+    for (const m of markers.values()) if (m.peek) { m.peek = false; any = true; }
+    if (peekWatch) { document.removeEventListener('mousemove', peekWatch.fn, true); clearTimeout(peekWatch.timer); peekWatch = null; }
+    if (any && map) update();
+  }
+  function startPeek(code, ev) {
+    const m = markers.get(code);
+    if (!m || m.revealed) return;
+    stopPeek(); // 同時に出すのは 1 つの国だけ
+    m.peek = true;
+    update();
+    const watch = { timer: null, fn: null, origin: ev ? { x: ev.clientX, y: ev.clientY } : null };
+    watch.fn = (e) => {
+      const cur = [...markers.values()].find((x) => x.peek);
+      if (!cur) { stopPeek(); return; }
+      let inside = !!watch.origin && Math.hypot(e.clientX - watch.origin.x, e.clientY - watch.origin.y) < 30; // クリックした数字の近く
+      for (const mk of cur.markers) {
+        const el = mk.getElement()?.querySelector('.map-thumbs');
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (e.clientX >= r.left - 14 && e.clientX <= r.right + 14 && e.clientY >= r.top - 14 && e.clientY <= r.bottom + 14) inside = true;
+      }
+      if (inside) { clearTimeout(watch.timer); watch.timer = null; } else if (!watch.timer) watch.timer = setTimeout(stopPeek, 250); // すぐ戻ってきたら閉じない
+    };
+    document.addEventListener('mousemove', watch.fn, true);
+    peekWatch = watch;
+  }
+  map.on('movestart zoomstart', stopPeek); // 動かしたり拡大したりしたら閉じる（指で操作しているときの閉じ方でもある）
   // 開閉は要素を作り直さず中身だけ入れ替える（作り直すと大きさのアニメーションが最初からになり、一瞬消えて見える）
   function toggleExpand(code) {
     const m = markers.get(code);
@@ -1110,7 +1147,7 @@ export async function renderMap(view, ctx) {
     const view = map.getBounds().pad(0.1);
     for (const [code, m] of markers) {
       const rz = revealZoom(code);
-      const rev = z >= rz;
+      const rev = z >= rz || !!m.peek; // 数字をクリックして一時的に出している間も、サムネイルを出す
       if (rev !== m.revealed) {
         m.revealed = rev;
         if (!rev) m.expanded = false;
@@ -1161,6 +1198,7 @@ export async function renderMap(view, ctx) {
     el.innerHTML = (!factMode ? '' : `<div class="pfact">${factPanelHtml(mode, code)}${modeDef(mode).editable && ctx.isEditor() ? `<button type="button" class="btn btn-sm pfact-edit" data-edit-fact>✏️ 編集</button>` : ''}</div>`)
       + ctx.countrySummaryHtml(code)
       + '<button type="button" class="icon-btn pinfo-close" title="選択を解除（Esc）" aria-label="選択を解除">✕</button>';
+    ctx.foldChips?.(el); // 隣接国が 3 行以上なら折りたたむ
     el.querySelector('[data-edit-fact]')?.addEventListener('click', () => ctx.editFact(mode, code));
     // 参考写真（スイッチがオンのとき）
     if (photoOn) {
@@ -1404,6 +1442,47 @@ export async function renderMap(view, ctx) {
     ms.dispatchEvent(new Event('input'));
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
+  // 地図と右パネルの間の境界線: ドラッグで右パネルの幅を変える（ダブルクリックで元に戻す）
+  {
+    const layoutEl = view.querySelector('.map-layout');
+    const bar = $id('vsplit');
+    const DEFAULT = 360;
+    const MIN_PANEL = 240; // 右パネルの最小の幅
+    const MIN_MAP = 280; // 地図の最小の幅
+    const clamp = (w) => Math.max(MIN_PANEL, Math.min(layoutEl.getBoundingClientRect().width - 14 - MIN_MAP, w));
+    const apply = (w) => layoutEl.style.setProperty('--panel-w', `${Math.round(w)}px`);
+    let width = ctx.panelWidth();
+    apply(width);
+    let dragging = false;
+    let lastDown = 0;
+    const settle = () => { if (map) map.invalidateSize(); };
+    bar.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      // 2 回続けて押したら元の幅に戻す（pointerdown を止めると dblclick が来ないため自前で判定）
+      if (Date.now() - lastDown < 350) { lastDown = 0; width = DEFAULT; apply(width); ctx.setPanelWidth(width); settle(); return; }
+      lastDown = Date.now();
+      dragging = true;
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add('is-dragging');
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const r = layoutEl.getBoundingClientRect();
+      width = clamp(r.right - e.clientX - 7); // 境界線の太さの半分
+      apply(width);
+    });
+    const end = () => { if (!dragging) return; dragging = false; bar.classList.remove('is-dragging'); ctx.setPanelWidth(width); settle(); renderPanel(); }; // 一覧は幅に合わせて数を決めるので描き直す
+    bar.addEventListener('pointerup', end);
+    bar.addEventListener('pointercancel', end);
+    bar.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      width = clamp(width + (e.key === 'ArrowLeft' ? 24 : -24)); // ← で右パネルを広く
+      apply(width);
+      ctx.setPanelWidth(width);
+      settle();
+    });
+  }
   // 右パネルの上（国の情報）と下（カード・一覧）の高さの割合をドラッグで変える
   {
     const panel = $id('map-panel');

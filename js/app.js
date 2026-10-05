@@ -1604,7 +1604,8 @@ function setupWindow(m) {
   if (!m.dataset.winBound) { // 同じ要素なので、最初の 1 回だけ
     m.dataset.winBound = '1';
     m.addEventListener('pointerdown', () => { winFocused = true; bringFront(m); }, true);
-    if ('ResizeObserver' in window) new ResizeObserver(() => { if (modalIsWindow()) remember(); }).observe(m);
+    let foldTimer = null;
+    if ('ResizeObserver' in window) new ResizeObserver(() => { if (modalIsWindow()) { remember(); clearTimeout(foldTimer); foldTimer = setTimeout(() => foldChipRows(m), 120); } }).observe(m); // 幅が変わると行数も変わる
     m.__remember = remember;
   }
   if (!m.classList.contains('is-max') && !m.classList.contains('is-min') && !isSnapped(m)) place();
@@ -1690,6 +1691,7 @@ function openModal(html, cls = '', nav = false) {
     spotOverModal = false;
   }
   if (asWindow) setupWindow(m);
+  foldChipRows(m); // 隣接国が 3 行以上なら折りたたむ
   raiseChat(); // メモのボタン・欄をモーダルの手前に
 }
 function closeModal() {
@@ -3903,7 +3905,7 @@ function renderCountryModal(entry) {
       ${row('国際電話番号', info.tel ? `<code>${esc(info.tel)}</code>` : '')}
       ${row('首都', esc(info.cap.join('、')))}
       ${row('通貨', info.cur.map(([k, n, sym]) => `${esc(k)}${sym ? ` <b>${esc(sym)}</b>` : ''} <span class="muted">(${esc(n)})</span>`).join('<br>'))}
-      ${row('隣接国', info.nb.map((n) => `<button type="button" class="chip chip-btn nb-btn" data-info="${n}">${flagImg(n)}${esc(countryName(n))}</button>`).join(' '))}
+      ${row('隣接国', `<div class="nb-fold">${info.nb.map((n) => `<button type="button" class="chip chip-btn nb-btn" data-info="${n}">${flagImg(n)}${esc(countryName(n))}</button>`).join(' ')}</div>`)}
     </dl>
     ${countryFactsHtml(code)}
 
@@ -4028,6 +4030,33 @@ function renderCountryModal(entry) {
 
 // 地図の右パネル用: 国の基本情報のコンパクト版
 // 言語は data-lang（クリックで国の詳細をその言語の見分け方つきで開く）、隣接国は data-focus（地図をその国へ）
+// 隣接国のチップが 3 行以上になるときは、2 行までに折りたたんで、「他 N か国 ▾」で開閉する（root の中の .nb-fold が対象）
+function foldChipRows(root) {
+  root.querySelectorAll('.nb-fold').forEach((box) => {
+    if (box.nextElementSibling?.classList.contains('fold-toggle')) box.nextElementSibling.remove();
+    const was = box.classList.contains('is-folded') || !box.dataset.foldInit; // 開いたままの状態は引き継ぐ
+    box.dataset.foldInit = '1';
+    box.classList.remove('is-folded');
+    box.style.maxHeight = '';
+    const chips = [...box.children];
+    const tops = [...new Set(chips.map((c) => c.offsetTop))].sort((a, b) => a - b);
+    if (tops.length < 3) return; // 2 行以下ならそのまま
+    const limit = tops[2] - tops[0] - 3; // 3 行目の手前まで（2 行分の高さ）
+    const hidden = chips.filter((c) => c.offsetTop >= tops[2]).length;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'link-btn fold-toggle';
+    const apply = (fold) => {
+      box.classList.toggle('is-folded', fold);
+      box.style.maxHeight = fold ? `${limit}px` : '';
+      btn.textContent = fold ? `他 ${hidden} か国 ▾` : '閉じる ▴';
+      btn.setAttribute('aria-expanded', String(!fold));
+    };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); apply(!box.classList.contains('is-folded')); });
+    box.after(btn);
+    apply(was);
+  });
+}
 function countrySummaryHtml(code) {
   const c = COUNTRY_BY_CODE.get(code);
   const info = COUNTRY_INFO[code];
@@ -4053,7 +4082,7 @@ function countrySummaryHtml(code) {
       ${row('首都', esc(info.cap.join('、')))}
       ${row('通貨', info.cur.map(([k, , sym]) => `${esc(k)}${sym ? ` <b>${esc(sym)}</b>` : ''}`).join('・'))}
       ${row('言語', langs.map((l) => `<button type="button" class="chip chip-btn sum-lang" data-lang="${l}">${esc(LANGS[l]?.ja || LANG_EN[l] || l)}</button>`).join(' '))}
-      ${row('隣接国', info.nb.map((n) => `<button type="button" class="chip chip-btn sum-nb" data-focus="${n}">${flagImg(n)}${esc(countryName(n))}</button>`).join(' '))}
+      ${row('隣接国', `<div class="nb-fold">${info.nb.map((n) => `<button type="button" class="chip chip-btn sum-nb" data-focus="${n}">${flagImg(n)}${esc(countryName(n))}</button>`).join(' ')}</div>`)}
     </dl>
     ${state.countryNotes.get(code) ? `<div class="sum-memo">📝 ${nl2br(state.countryNotes.get(code))}</div>` : ''}`;
 }
@@ -4082,6 +4111,7 @@ async function cardFromSv({ lat, lng, codePromise }) {
 const mapCtx = {
   createCardFromSv: (p) => cardFromSv(p),
   countrySummaryHtml: (code) => countrySummaryHtml(code),
+  foldChips: (root) => foldChipRows(root),
   openCountry: (code, src, lang) => openCountryInfo(code, src, lang),
   attachComplete: (input, opts) => attachInlineComplete(input, opts),
   findCountry: (text) => findCountry(text),
@@ -4094,6 +4124,8 @@ const mapCtx = {
   liveSearch: () => settings.liveSearch,
   mapMode: () => settings.mapMode || 'cards',
   mapPhotos: () => settings.mapPhotos !== false,
+  panelWidth: () => Number(settings.mapPanelWidth) || 360, // 地図の右のパネルの幅（px）
+  setPanelWidth: (w) => { settings.mapPanelWidth = Math.round(w); saveSettings(); },
   panelSplit: () => Number(settings.mapPanelSplit) || 0.36,
   setPanelSplit: (r) => { settings.mapPanelSplit = Math.round(r * 1000) / 1000; saveSettings(); },
   openPhoto: (topic, code, srcs, i, src) => openPhotoModal(topic, code, srcs, i, src),
