@@ -90,7 +90,7 @@ const state = {
   urlsAt: 0,
   view: 'study',
   study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, review: false, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
-  quiz: { photoTopics: new Set(['bollard', 'pole', 'chevron', 'plate']), timeLimit: 0, kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, svSource: 'random', catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
+  quiz: { photoTopics: new Set(['bollard', 'pole', 'chevron', 'plate']), timeLimit: 0, perQ: 0, kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, svSource: 'random', catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
   mapMatch: {}, // 地図の「条件で絞り込み」の条件 { topic: key }
   compare: { codes: [], closed: new Set() }, // 比較タブで並べる国・閉じている項目
@@ -2091,7 +2091,7 @@ function quizEligible(regions) {
 function renderQuiz() {
   const q = state.quiz;
   setFit(q.phase === 'question' ? true : 'scroll');
-  if (q.phase === 'question') return renderQuestion();
+  if (q.phase === 'question') { armQuestionTimer(q); return renderQuestion(); }
   if (q.phase === 'result') return renderQuizResult();
 
   const counts = new Map(REGIONS.map((r) => [r.id, 0]));
@@ -2213,6 +2213,13 @@ function renderQuiz() {
             ${[0, 60, 120].map((n) => `<button class="${q.timeLimit === n ? 'on' : ''}" data-t="${n}">${n ? `${n} 秒` : 'なし'}</button>`).join('')}
           </div>
         </div>
+        <div class="setup-block">
+          <div class="setup-label"><span>1 問ごとの制限時間</span></div>
+          <div class="seg" id="q-perq">
+            ${[0, 10, 20, 30, 60].map((n) => `<button class="${q.perQ === n ? 'on' : ''}" data-pq="${n}">${n ? `${n} 秒` : 'なし'}</button>`).join('')}
+          </div>
+          <p class="muted small">時間内に答えられなかった問題は、不正解として答えを表示します</p>
+        </div>
         <div class="setup-block cards-only">
           <div class="setup-label"><span>出題の順番</span></div>
           <div class="seg" id="q-order">
@@ -2256,6 +2263,7 @@ function renderQuiz() {
     const pool = photoPool({ ...q, mode: 'pin' });
     exportOpenGuessr(pool, `GeoChecker 参考写真（${[...q.photoTopics].map((t) => modeDef(t).name).join('・')}）`);
   });
+  $$('#q-perq button').forEach((b) => b.addEventListener('click', () => { q.perQ = Number(b.dataset.pq); renderQuiz(); }));
   $$('#q-time button').forEach((b) => b.addEventListener('click', () => { q.timeLimit = Number(b.dataset.t); renderQuiz(); }));
   $('#q-start').addEventListener('click', async (e) => {
     if (isSv) { (q.svSource === 'ref' ? startSvRefQuiz : startSvQuiz)(svCodes, e.currentTarget); return; }
@@ -2273,6 +2281,7 @@ function startQuizClock(q) {
   clearInterval(quizTimer);
   q.deadline = q.timeLimit ? Date.now() + q.timeLimit * 1000 : 0;
   q.bestSaved = false;
+  q.qKey = null; // 1 問ごとの制限時間は、問題が変わったときに数え直す
   if (!q.deadline) return;
   quizTimer = setInterval(() => {
     const left = Math.max(0, q.deadline - Date.now());
@@ -2280,6 +2289,49 @@ function startQuizClock(q) {
     if (el) { el.textContent = (left / 1000).toFixed(1); el.closest('.counter')?.classList.toggle('is-hurry', left < 10000); }
     if (!left && q.phase === 'question') { endQuizByTime(); }
   }, 100);
+}
+// ---- 1 問ごとの制限時間 ----
+let perQTimer = null;
+function armQuestionTimer(q) {
+  if (!q.perQ) return;
+  if (q.qKey !== q.i) { q.qKey = q.i; q.qDeadline = Date.now() + q.perQ * 1000; }
+  if (perQTimer) return;
+  perQTimer = setInterval(() => {
+    if (q.phase !== 'question' || !q.perQ) { clearInterval(perQTimer); perQTimer = null; return; }
+    if (state.view !== 'quiz' || q.answered) return;
+    const left = q.qDeadline - Date.now();
+    const el = $('#qq-timer');
+    if (el) { el.textContent = Math.max(0, Math.ceil(left / 1000)); el.closest('.counter')?.classList.toggle('is-hurry', left < 5000); }
+    if (left <= 0) questionTimeout(q);
+  }, 200);
+}
+// 時間切れ: 答えが入っていれば（入力式の途中など）それで採点し、なければ不正解にして答えを見せる
+function questionTimeout(q) {
+  q.qDeadline = Infinity;
+  toast('⏱ 時間切れ', 'error');
+  if (q.kind === 'fact') {
+    const item = q.questions[q.i];
+    q.answered = { given: null, result: 'ng', timeout: true };
+    q.answers.push({ code: item.code, given: '', givenLabel: '時間切れ', result: 'ng' });
+    play('wrong');
+    logActivity(false, COUNTRY_BY_CODE.get(item.code)?.region);
+    renderFactQuestion();
+    afterAnswer('ng');
+    return;
+  }
+  const card = cardById(q.questions[q.i].cardId);
+  if (!card) { nextQuestion(); return; }
+  if (q.mode === 'pin' && card.lat != null) {
+    q.answered = { given: [], guess: null, km: null, points: 0, result: 'ng', timeout: true };
+    q.answers.push({ cardId: card.id, given: [], result: 'ng', km: null, points: 0 });
+    if (!card.sv) record(card.id, 'ng');
+    logActivity(false, COUNTRY_BY_CODE.get(card.countries[0])?.region);
+    play('wrong');
+    renderPinQuestion(card);
+    afterAnswer('ng');
+    return;
+  }
+  submitAnswer(card, q.mode === 'input' ? [...(q.draft || [])] : [], true);
 }
 function endQuizByTime() {
   const q = state.quiz;
@@ -2295,7 +2347,8 @@ function stretchPool(list) {
   while (out.length < 300) out.push(...shuffle(list));
   return out;
 }
-const quizCounterHtml = (q) => (q.deadline
+const perQHtml = (q) => (q.perQ && !q.answered ? ` <span class="counter qq-counter" title="この問題の残り時間">⏳ <b id="qq-timer">${Math.max(0, Math.ceil(((q.qDeadline || Date.now() + q.perQ * 1000) - Date.now()) / 1000))}</b> 秒</span>` : '');
+const quizCounterHtml = (q) => perQHtml(q) + (q.deadline
   ? `<span class="counter qt-counter">⏱ <b id="qt-timer">${(Math.max(0, q.deadline - Date.now()) / 1000).toFixed(1)}</b> 秒・${q.i + 1} 問目</span>`
   : `<span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>`);
 // 答えたあと: タイムアタックはすぐ次へ、そうでなければ設定の「正解したら自動で次へ」
@@ -2779,7 +2832,7 @@ function renderPinQuestion(card) {
         ${a ? `
           <div class="feedback fb-${a.result}">
             <div class="feedback-head">
-              <div class="feedback-title">📍 約 ${Math.round(a.km).toLocaleString()} km ・ <b>${a.points.toLocaleString()}</b> 点</div>
+              <div class="feedback-title">${a.timeout ? '⏱ 時間切れ' : `📍 約 ${Math.round(a.km).toLocaleString()} km ・ <b>${a.points.toLocaleString()}</b> 点`}</div>
               <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${answerHtml(card, 'sm', true)}
@@ -2807,6 +2860,7 @@ function renderPinQuestion(card) {
   mountPinMap($('#quiz-map'), {
     answer: [card.lat, card.lng],
     guess: a?.guess,
+    reveal: !!a?.timeout,
     animate: settings.animations,
     qid: q.questions[q.i],
     onPlace: (g) => { pending = g; const b = $('#q-guess'); if (b) b.disabled = false; },
@@ -2874,7 +2928,7 @@ function renderMapQuestion(card) {
   }
 }
 
-function submitAnswer(card, given) {
+function submitAnswer(card, given, timeout = false) {
   const q = state.quiz;
   // 4択は正解を1つ選べば正解。入力式は全部そろって正解、一部なら部分正解
   // 地図で答える: 正解の国をクリックで正解、隣の国なら惜しい（△）。外れたら正解までの距離を出す
@@ -2889,7 +2943,7 @@ function submitAnswer(card, given) {
   // よく間違える組み合わせ（正解の国と答えた国）
   if (result !== 'ok') for (const g of given) if (!card.countries.includes(g)) logConfusion(card.countries[0], g);
   logActivity(result === 'ok', COUNTRY_BY_CODE.get(card.countries[0])?.region);
-  q.answered = { given: [...given], result, km };
+  q.answered = { given: [...given], result, km, timeout };
   q.answers.push({ cardId: card.id, given: [...given], result, correct: result === 'ok' });
   play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
   q.draft = [];
