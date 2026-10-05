@@ -84,10 +84,10 @@ function placeBar(side) {
   const w = widthFor(side);
   const top = headerH();
   const bar = bars[side];
-  bar.style.left = side === 'left' ? `calc(${w * 100}vw - 5px)` : `calc(${(1 - w) * 100}vw - 5px)`;
+  bar.style.left = side === 'left' ? `calc(${w * 100}vw)` : `calc(${(1 - w) * 100}vw - 10px)`; // 窓の外側（ページ側）に置く
   bar.style.top = `${top}px`;
   bar.style.height = `calc(100vh - ${top}px)`;
-  bar.style.zIndex = String(z + 5);
+  bar.style.zIndex = '2399'; // 窓（2400〜）より奥: 窓を重ねたり動かしたりしたとき、棒が窓の前に出ないように
 }
 
 function layout(silent = false) {
