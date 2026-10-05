@@ -50,6 +50,79 @@ let svPoint = null; // [lat, lng]
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
 const svEmbedUrl = (lat, lng) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,0,0,0,0&hl=ja&output=svembed`;
 const svOpenUrl = (lat, lng) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`;
+// ストリートビューのある道路（青い線）のタイル。キー不要。クリックした地点の近くの線を探すのにも使う
+const SV_TILE = (x, y, z) => `https://mts1.google.com/vt?hl=ja&lyrs=svv&style=40,18&x=${x}&y=${y}&z=${z}`;
+const SV_SNAP_ZOOM = 13; // これより引いた縮尺では線が面になる（道路が区別できない）ので、寄せずにクリックした場所をそのまま開く
+const SV_LINE_ZOOM = 14; // 道路ごとの青い線として見える縮尺
+const SV_MAX_ZOOM = 18; // ストリートビューのモードの間だけ、道路が選べる縮尺まで拡大できるようにする（ふだんは 12）
+const svTiles = new Map(); // url -> Promise<Uint8ClampedArray | null>（画素の透明度の読み取り用）
+function svTileAlpha(x, y, z) {
+  const n = 2 ** z;
+  const url = SV_TILE(((x % n) + n) % n, y, z);
+  if (!svTiles.has(url)) {
+    svTiles.set(url, new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = c.height = 256;
+          const g = c.getContext('2d');
+          g.drawImage(img, 0, 0);
+          resolve(g.getImageData(0, 0, 256, 256).data);
+        } catch { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    }));
+    if (svTiles.size > 60) svTiles.delete(svTiles.keys().next().value); // 古いものから手放す
+  }
+  return svTiles.get(url);
+}
+// クリックした地点に一番近い「ストリートビューのある線」の地点。見つからなければ null、読み取れなければクリックした地点
+async function svSnap(lat, lng, zoom) {
+  if (zoom < SV_SNAP_ZOOM) return { lat, lng };
+  const z = Math.min(17, Math.round(zoom));
+  const n = 256 * 2 ** z;
+  const sin = Math.sin((lat * Math.PI) / 180);
+  const px = Math.round(((lng + 180) / 360) * n);
+  const py = Math.round((0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * n);
+  const R = zoom >= 16 ? 24 : 14; // クリックから何ピクセルまでの青い線を探すか（縮尺が小さいほど 1 ピクセルが広いので狭く）
+  const tx0 = Math.floor((px - R) / 256);
+  const tx1 = Math.floor((px + R) / 256);
+  const ty0 = Math.max(0, Math.floor((py - R) / 256));
+  const ty1 = Math.min(2 ** z - 1, Math.floor((py + R) / 256));
+  const tiles = [];
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) tiles.push([tx, ty, svTileAlpha(tx, ty, z)]);
+  let best = null;
+  let bestD = Infinity;
+  let readable = false;
+  for (const [tx, ty, pr] of tiles) {
+    const d = await pr;
+    if (!d) continue;
+    readable = true;
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const dd = dx * dx + dy * dy;
+        if (dd >= bestD || dd > R * R) continue;
+        const gx = px + dx - tx * 256;
+        const gy = py + dy - ty * 256;
+        if (gx < 0 || gx > 255 || gy < 0 || gy > 255) continue;
+        if (d[(gy * 256 + gx) * 4 + 3] > 40) { best = [px + dx, py + dy]; bestD = dd; }
+      }
+    }
+  }
+  if (!readable) return { lat, lng }; // タイルを読めなかった（通信できないなど）: そのまま開く
+  if (!best) return null;
+  return {
+    lng: (best[0] / n) * 360 - 180,
+    lat: (Math.atan(Math.sinh(Math.PI * (1 - (2 * best[1]) / n))) * 180) / Math.PI,
+  };
+}
+// パネルの位置と大きさ（画面全体の中で動かせる。開き直しても引き継ぐ）
+let svRect = null; // { left, top, width, height }
+export function removeSvPanel() { document.getElementById('sv-panel')?.remove(); }
+
 const SV_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><path d="M12 9v6M8 11l4-2 4 2M9.5 21l2.5-6 2.5 6"/></svg>';
 let legendOpenPref = null; // 凡例の開閉（未操作なら、広い画面は開く・スマホは閉じる）
 let currentFocus = null; // 選んでいる国（データ更新で描き直すときに引き継ぐ）
@@ -239,18 +312,8 @@ export async function renderMap(view, ctx) {
           <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動（設定でオフにできます） ／ Enter: 確定して入力を終える ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
         </div>
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
-        <div class="sv-banner" id="sv-banner" hidden>${SV_ICON}<span>道路などをクリックすると、その場所のストリートビューを表示します</span><button type="button" class="link-btn" id="sv-exit">終了（Esc）</button></div>
-        <div class="sv-panel" id="sv-panel" hidden>
-          <div class="sv-head" id="sv-head">
-            <span class="sv-title">${SV_ICON} ストリートビュー</span>
-            <span class="sv-coord muted small" id="sv-coord"></span>
-            <a class="icon-btn sv-btn" id="sv-ext" target="_blank" rel="noopener" title="Google マップで開く" aria-label="Google マップで開く">↗</a>
-            <button type="button" class="icon-btn sv-btn" id="sv-max" title="大きく / 元の大きさ" aria-label="大きく表示">⤢</button>
-            <button type="button" class="icon-btn sv-btn" id="sv-close" title="閉じる（Esc）" aria-label="閉じる">✕</button>
-          </div>
-          <iframe id="sv-frame" title="Google ストリートビュー" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-          <p class="sv-note muted small">ストリートビューのない場所では、近くの道路の映像が表示されるか、何も出ません。</p>
-        </div>
+        <div class="sv-banner" id="sv-banner" hidden>${SV_ICON}<span id="sv-banner-text">青い線がストリートビューのある道路です。その近くをクリックしてください</span><button type="button" class="link-btn" id="sv-exit">終了（Esc）</button></div>
+
         ${mode === 'cards' ? '' : `<div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend"><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeDef(mode).icon} ${modeDef(mode).name}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${modeDef(mode).desc}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
       </div>
       <aside class="map-panel" id="map-panel" style="--pinfo-h:${(ctx.panelSplit() * 100).toFixed(1)}%">
@@ -521,11 +584,58 @@ export async function renderMap(view, ctx) {
     if (clickedCountry) { clickedCountry = false; return; }
     clearFocus();
   });
-  // ---- ストリートビュー: ボタンでモードに入り、地図をクリックした地点の映像を重ねて表示
-  const svPanel = $id('sv-panel');
-  const svFrame = $id('sv-frame');
+  // ---- ストリートビュー: ボタンでモードに入り、地図の青い線（ストリートビューのある道路）の近くをクリックして映像を表示
+  // 映像のパネルは画面に固定（position: fixed）して、地図の外側まで動かせるようにする
+  const mobileSv = () => window.matchMedia('(max-width: 760px)').matches;
+  removeSvPanel();
+  const svPanel = document.createElement('div');
+  svPanel.className = 'sv-panel';
+  svPanel.id = 'sv-panel';
+  svPanel.hidden = true;
+  svPanel.innerHTML = `
+    <div class="sv-head" id="sv-head">
+      <span class="sv-title">${SV_ICON} ストリートビュー</span>
+      <span class="sv-coord muted small" id="sv-coord"></span>
+      <a class="icon-btn sv-btn" id="sv-ext" target="_blank" rel="noopener" title="Google マップで開く" aria-label="Google マップで開く">↗</a>
+      <button type="button" class="icon-btn sv-btn" id="sv-max" title="大きく / 元の大きさ" aria-label="大きく表示">⤢</button>
+      <button type="button" class="icon-btn sv-btn" id="sv-close" title="閉じる（Esc）" aria-label="閉じる">✕</button>
+    </div>
+    <iframe id="sv-frame" title="Google ストリートビュー" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <p class="sv-note muted small">ヘッダーをドラッグすると、画面のどこにでも動かせます。</p>`;
+  document.body.appendChild(svPanel);
+  const svFrame = svPanel.querySelector('#sv-frame');
+  const svBanner = $id('sv-banner');
   let svMarker = null;
+  let svCoverage = null;
+  let bannerTimer = null;
   const svPin = () => L.divIcon({ className: 'sv-pin', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] });
+  const SV_HELP = '青い線がストリートビューのある道路です。その近くをクリックしてください';
+  const SV_HELP_FAR = 'もっと拡大すると、ストリートビューのある道路が青い線で見えます（クリックした場所を開きます）';
+  const helpText = () => (map.getZoom() >= SV_LINE_ZOOM ? SV_HELP : SV_HELP_FAR);
+  const bannerNote = (msg) => {
+    $id('sv-banner-text').textContent = msg;
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => { bannerTimer = null; const b = $id('sv-banner-text'); if (b) b.textContent = helpText(); }, 3500);
+  };
+  const placePanel = () => {
+    if (mobileSv()) { svPanel.style.cssText = ''; return; }
+    if (!svRect) { // 最初は地図の左下に
+      const br = $id('map').getBoundingClientRect();
+      const w = Math.min(520, br.width - 24);
+      const h = Math.min(400, br.height * 0.65);
+      svRect = { left: br.left + 12, top: br.bottom - h - 12, width: w, height: h };
+    }
+    const r = svRect;
+    Object.assign(svPanel.style, {
+      left: `${Math.max(0, Math.min(window.innerWidth - 120, r.left))}px`, top: `${Math.max(0, Math.min(window.innerHeight - 60, r.top))}px`,
+      width: `${r.width}px`, height: `${r.height}px`, right: 'auto', bottom: 'auto',
+    });
+  };
+  const saveRect = () => {
+    if (mobileSv() || svPanel.hidden || svPanel.classList.contains('is-max')) return;
+    const r = svPanel.getBoundingClientRect();
+    svRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+  };
   function closeSv() {
     svPoint = null;
     svPanel.hidden = true;
@@ -534,10 +644,10 @@ export async function renderMap(view, ctx) {
   }
   function openSv(lat, lng) {
     svPoint = [lat, lng];
-    svPanel.hidden = false;
+    if (svPanel.hidden) { svPanel.hidden = false; placePanel(); }
     svFrame.src = svEmbedUrl(lat, lng);
-    $id('sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-    $id('sv-ext').href = svOpenUrl(lat, lng);
+    svPanel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    svPanel.querySelector('#sv-ext').href = svOpenUrl(lat, lng);
     if (svMarker) svMarker.setLatLng([lat, lng]);
     else svMarker = L.marker([lat, lng], { icon: svPin(), interactive: false, keyboard: false, zIndexOffset: 5000 }).addTo(map);
   }
@@ -545,47 +655,71 @@ export async function renderMap(view, ctx) {
     svOn = on;
     $id('map-sv').classList.toggle('btn-on', on);
     $id('map-sv').setAttribute('aria-pressed', String(on));
-    $id('sv-banner').hidden = !on;
+    svBanner.hidden = !on;
     $id('map').classList.toggle('sv-on', on);
-    if (on && !init) { clearFocus(); hideBubble(); }
+    if (on) {
+      map.setMaxZoom(SV_MAX_ZOOM);
+      $id('sv-banner-text').textContent = helpText();
+      if (!svCoverage) { // 青い線（ストリートビューのある道路）を地図に重ねる
+        if (!map.getPane('svCoverage')) { const pane = map.createPane('svCoverage'); pane.style.zIndex = 450; pane.style.pointerEvents = 'none'; }
+        svCoverage = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { pane: 'svCoverage', maxNativeZoom: 17, maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '' }).addTo(map);
+      }
+      if (!init) { clearFocus(); hideBubble(); }
+    } else {
+      if (svCoverage) { svCoverage.remove(); svCoverage = null; }
+      map.setMaxZoom(12); // ふだんの上限に戻す（これより拡大していたら自動で戻る）
+    }
   }
+  map.on('zoomend', () => { if (svOn && !bannerTimer) $id('sv-banner-text').textContent = helpText(); });
   $id('map-sv').addEventListener('click', () => setSv(!svOn));
   $id('sv-exit').addEventListener('click', () => setSv(false));
-  $id('sv-close').addEventListener('click', closeSv);
-  $id('sv-max').addEventListener('click', () => svPanel.classList.toggle('is-max'));
-  // 地図のクリックを横取りして（国の選択などは動かさない）、地点を求める。ドラッグで動かしただけのときは開かない
+  svPanel.querySelector('#sv-close').addEventListener('click', closeSv);
+  svPanel.querySelector('#sv-max').addEventListener('click', () => { saveRect(); svPanel.classList.toggle('is-max'); });
+  // 地図のクリックを横取りして（国の選択などは動かさない）、近くの青い線の地点を求める。ドラッグで動かしただけのときは開かない
   let svDown = null;
+  let svBusy = false;
   const mapEl = map.getContainer();
   mapEl.addEventListener('mousedown', (e) => { svDown = [e.clientX, e.clientY]; }, true);
-  mapEl.addEventListener('click', (e) => {
+  mapEl.addEventListener('click', async (e) => {
     if (!svOn || e.target.closest('.leaflet-control')) return;
     e.stopPropagation();
     e.preventDefault();
     if (svDown && Math.hypot(e.clientX - svDown[0], e.clientY - svDown[1]) > 5) return;
+    if (svBusy) return;
     const ll = map.mouseEventToLatLng(e).wrap();
-    openSv(ll.lat, ll.lng);
+    svBusy = true;
+    try {
+      const hit = await svSnap(ll.lat, ll.lng, map.getZoom());
+      if (hit) openSv(hit.lat, hit.lng);
+      else bannerNote('この近くにはストリートビューがありません。青い線の近くをクリックしてください');
+    } finally { svBusy = false; }
   }, true);
-  // パネルをヘッダーのドラッグで動かす（スマホは下に固定）
+  // パネルをヘッダーのドラッグで動かす（画面のどこへでも。スマホは下に固定）
   {
-    const head = $id('sv-head');
+    const head = svPanel.querySelector('#sv-head');
     let drag = null;
     head.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('button, a') || window.matchMedia('(max-width: 760px)').matches) return;
+      if (e.target.closest('button, a') || mobileSv()) return;
       const pr = svPanel.getBoundingClientRect();
-      const br = svPanel.offsetParent.getBoundingClientRect();
-      drag = { dx: e.clientX - pr.left, dy: e.clientY - pr.top, bx: br.left, by: br.top, bw: br.width, bh: br.height, w: pr.width, h: pr.height };
+      drag = { dx: e.clientX - pr.left, dy: e.clientY - pr.top, w: pr.width };
       head.setPointerCapture(e.pointerId);
-      Object.assign(svPanel.style, { right: 'auto', bottom: 'auto', left: `${pr.left - br.left}px`, top: `${pr.top - br.top}px` });
-      svPanel.classList.remove('is-max');
+      if (svPanel.classList.contains('is-max')) { // 大きくしている途中で動かしたら元の大きさに戻す
+        svPanel.classList.remove('is-max');
+        placePanel();
+        drag.dx = Math.min(drag.dx, svRect.width - 40);
+        drag.w = svRect.width;
+      }
     });
     head.addEventListener('pointermove', (e) => {
       if (!drag) return;
-      svPanel.style.left = `${Math.max(0, Math.min(drag.bw - drag.w, e.clientX - drag.bx - drag.dx))}px`;
-      svPanel.style.top = `${Math.max(0, Math.min(drag.bh - 60, e.clientY - drag.by - drag.dy))}px`;
+      svPanel.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`; // 画面の端に少し残す
+      svPanel.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy))}px`;
     });
-    const endDrag = () => { drag = null; };
+    const endDrag = () => { if (drag) { drag = null; saveRect(); } };
     head.addEventListener('pointerup', endDrag);
     head.addEventListener('pointercancel', endDrag);
+    // 角のドラッグで大きさを変えたときも覚える
+    if ('ResizeObserver' in window) new ResizeObserver(() => { if (!svPanel.hidden) saveRect(); }).observe(svPanel);
   }
   if (svOn) setSv(true, true); // 地図を描き直したときも、モードと開いていた地点を引き継ぐ
   if (svPoint) openSv(svPoint[0], svPoint[1]);

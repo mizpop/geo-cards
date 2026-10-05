@@ -4,7 +4,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, removeSvPanel } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
@@ -537,6 +537,7 @@ function render() {
 function renderView() {
   const v = state.view;
   if ($('#spotlight').open) renderSearchResults();
+  if (v !== 'map') removeSvPanel(); // 地図を離れたらストリートビューのパネルも閉じる
   if (v === 'study') renderStudy();
   else if (v === 'quiz') renderQuiz();
   else if (v === 'map') { setFit(true); renderMap($('#view'), mapCtx); }
