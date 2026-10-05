@@ -802,8 +802,14 @@ export async function renderMap(view, ctx) {
         const common = { pane: 'svCoverage', maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '', crossOrigin: 'anonymous' };
         const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, maxNativeZoom: 17, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
         const thin = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, minZoom: SV_THIN_ZOOM, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 }).addTo(map);
+        // 地名・道路名だけの透明なタイルを青い線の上に重ねて、青い線を地名の後ろに見せる（英語表記の地図のとき。OSM は地名が地図に焼き込み済みで分けられない）
+        let labels = null;
+        if (tileStyle !== 'osm') {
+          if (!map.getPane('svLabels')) { const pane = map.createPane('svLabels'); pane.style.zIndex = 460; pane.style.pointerEvents = 'none'; }
+          labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { pane: 'svLabels', maxZoom: 19, maxNativeZoom: 18, keepBuffer: 1, updateWhenZooming: false, attribution: '' }).addTo(map);
+        }
         svCoverage = L.layerGroup([normal, thin]); // まとめて外せるように
-        svCoverage.remove = () => { normal.remove(); thin.remove(); };
+        svCoverage.remove = () => { normal.remove(); thin.remove(); labels?.remove(); };
       }
       if (!init) { clearFocus(); hideBubble(); }
     } else {
