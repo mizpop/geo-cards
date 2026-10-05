@@ -15,6 +15,7 @@ import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap
 import { mountBattle, watchPublicRooms } from './battle.js';
 import { APP_VERSION } from './changelog.js';
 import { placeSvBubble } from './svbubble.js';
+import { offlineSupported, offlineSavedAt, saveOffline, loadOffline, clearOffline } from './offline.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
@@ -220,6 +221,8 @@ function openSettings() {
     </section>
     <h3 class="set-group-title">🔄 学習記録の同期</h3>
     <section class="set-group" id="sync-box"></section>
+    ${offlineSupported() ? `<h3 class="set-group-title">📴 オフライン学習</h3>
+    <section class="set-group" id="offline-box"></section>` : ''}
     <h3 class="set-group-title">👤 アカウント</h3>
     <section class="set-group">
       ${item('ログイン中', esc($('#user-label')?.textContent || ''), api.mode === 'demo' ? '<span class="muted small">デモモード</span>' : '<button type="button" class="btn btn-sm" id="set-logout">ログアウト</button>')}
@@ -249,6 +252,23 @@ function openSettings() {
       <button class="btn btn-primary" data-close type="button">閉じる</button>
     </div>
     </div></div>`, 'modal-settings');
+  { // オフライン学習: カードの画像とデータを、この端末に保存する
+    const box = $('#offline-box');
+    const drawOffline = (msg = '', busy = false) => {
+      if (!box) return;
+      const at = offlineSavedAt();
+      box.innerHTML = item('カードを保存して、通信なしで学習', `カードの画像とデータ（カテゴリー・メモ・国の情報）を、この端末に保存します。保存したあとは、通信できないときも、暗記・クイズ（一人用）が使えます。${at ? `<br>最後に保存: ${new Date(at).toLocaleString('ja-JP')}` : '<br>まだ保存していません'}${msg ? `<br><b>${esc(msg)}</b>` : ''}`, `<span class="bt-row"><button type="button" class="btn btn-sm btn-primary" id="off-save" ${busy ? 'disabled' : ''}>${at ? '保存し直す' : '保存する'}</button>${at ? `<button type="button" class="btn btn-sm btn-ghost" id="off-clear" ${busy ? 'disabled' : ''}>削除</button>` : ''}</span>`, true);
+      $('#off-save')?.addEventListener('click', async () => {
+        drawOffline('保存しています… 0%', true);
+        try {
+          const r = await saveOffline(state, (d, n) => { const el = box.querySelector('b'); if (el) el.textContent = `保存しています… ${Math.round((d / Math.max(1, n)) * 100)}%`; });
+          drawOffline(`保存しました（カード ${r.cards} 枚・画像 ${r.images} 枚${r.failed ? `・失敗 ${r.failed}` : ''}）`);
+        } catch (e) { drawOffline(`保存できませんでした（${e.message}）`); }
+      });
+      $('#off-clear')?.addEventListener('click', async () => { await clearOffline(); drawOffline('削除しました'); });
+    };
+    drawOffline();
+  }
   $('#set-changelog')?.addEventListener('click', () => openChangelog());
   $('#set-logout')?.addEventListener('click', () => { closeModal(); doLogout(); });
   { // 左の目次: 見出しから作る。押すとその見出しへ動き、見ている位置を強調する（狭い画面では隠す）
@@ -470,8 +490,9 @@ async function enterApp() {
   startLive();
   if (!lobbyWatching) { // 公開された対戦の部屋のお知らせ（ポップアップから参加できる）
     lobbyWatching = true;
-    watchPublicRooms({ api, esc, busy: () => !!battle?.inRoom?.(), onJoin: (code) => {
+    watchPublicRooms({ api, esc, busy: () => !!battle?.inRoom?.(), onJoin: (code, lock) => {
       pendingBattleRoom = code;
+      pendingBattleLock = !!lock;
       if (battle) { battle.leave(); battle = null; }
       state.quiz.kind = 'battle';
       state.quiz.phase = 'setup';
@@ -529,7 +550,23 @@ document.addEventListener('pointerup', () => { live.pressed = false; setTimeout(
 document.addEventListener('pointercancel', () => { live.pressed = false; }, true);
 document.addEventListener('focusout', () => setTimeout(flushLive, 0));
 
+// 保存しておいたデータ（オフライン学習）で表示する。保存がなければ false
+async function useOfflineData() {
+  const off = await loadOffline();
+  if (!off) return false;
+  state.categories = off.categories;
+  state.cards = off.cards;
+  state.countryNotes = off.countryNotes;
+  state.facts = off.facts;
+  setFacts(state.facts);
+  setInfoCards(state.cards);
+  state.urls = off.urls;
+  state.urlsAt = Date.now() + 365 * 86400000; // 保存した画像の URL は期限切れにならない
+  state.offline = true;
+  return true;
+}
 async function reloadCards() {
+  if (!navigator.onLine && await useOfflineData()) { toast('📴 通信できないため、保存したデータで表示しています'); return; }
   try {
     state.categories = await api.listCategories();
     state.cards = await api.listCards();
@@ -542,6 +579,7 @@ async function reloadCards() {
     state.urls = await api.imageUrls(state.cards);
     state.urlsAt = Date.now();
   } catch (e) {
+    if (await useOfflineData()) { toast('📴 読み込めなかったため、保存したデータで表示しています'); return; }
     toast(`読み込みに失敗しました: ${e.message}`, 'error');
   }
   rebuildStudyDeck(true);
@@ -1081,6 +1119,42 @@ function openPhotoModal(topic, code, srcs, i, src = null) {
   navModal({ kind: 'photo', topic, code, srcs, i });
   if (src && fresh) popFrom($('#modal'), src);
 }
+// 写真メモの一覧・検索（参考写真に書いたメモをまとめて見る）
+function photoNoteEntries() {
+  const out = [];
+  for (const [key, byCode] of state.facts) {
+    if (!key.startsWith('photo|')) continue;
+    const [, topic, ...rest] = key.split('|');
+    const rel = rest.join('|');
+    for (const [code, v] of byCode) if (v?.note) out.push({ topic, rel, code, note: v.note });
+  }
+  return out;
+}
+function openPhotoNotes() {
+  const all = photoNoteEntries();
+  let q = '';
+  let topic = '';
+  openModal(`
+    <div class="modal-head"><h2>📝 写真メモ一覧</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    <div class="toolbar"><input type="search" id="pn-q" class="input grow" placeholder="メモ・国名で検索" autocomplete="off">
+      <select class="select select-sm" id="pn-topic" aria-label="写真の種類"><option value="">すべての種類</option>${PHOTO_TOPICS.map((t) => `<option value="${t}">${esc(modeDef(t).icon)} ${esc(modeDef(t).name)}</option>`).join('')}</select>
+      <span class="counter" id="pn-count"></span></div>
+    <div id="pn-list" class="pn-list"></div>`, 'modal-wide');
+  const draw = () => {
+    const kw = q.trim().toLowerCase();
+    const list = all.filter((e) => (!topic || e.topic === topic) && (!kw || e.note.toLowerCase().includes(kw) || countryName(e.code).toLowerCase().includes(kw))).sort((x, y) => countryName(x.code).localeCompare(countryName(y.code), 'ja'));
+    $('#pn-count').textContent = `${list.length} / ${all.length} 件`;
+    $('#pn-list').innerHTML = list.length ? list.map((e, i) => `<button type="button" class="pn-item" data-i="${i}"><img src="${esc(REF_BASE + e.rel)}" alt="" loading="lazy"><div class="pn-body"><div class="pn-head">${flagImg(e.code)}<b>${esc(countryName(e.code))}</b><span class="muted small">${esc(modeDef(e.topic).icon)} ${esc(modeDef(e.topic).name)}</span></div><div class="pn-note">${nl2br(e.note)}</div></div></button>`).join('') : `<p class="empty">${all.length ? '該当するメモがありません' : '写真メモはまだありません（参考写真の画面で「見どころのメモ」を書くと、ここに集まります）'}</p>`;
+    $$('#pn-list .pn-item').forEach((b) => b.addEventListener('click', () => {
+      const e = list[Number(b.dataset.i)];
+      const rels = REF_IMAGES[e.topic]?.[e.code] || [e.rel];
+      openPhotoModal(e.topic, e.code, rels.map((r) => REF_BASE + r), Math.max(0, rels.indexOf(e.rel)), REF_BASE + e.rel);
+    }));
+  };
+  $('#pn-q').addEventListener('input', (ev) => { q = ev.target.value; draw(); });
+  $('#pn-topic').addEventListener('change', (ev) => { topic = ev.target.value; draw(); });
+  draw();
+}
 // 写真ごとのメモ（見どころ）: 国ごとの情報と同じテーブル（country_facts）に topic「photo|種類|画像のパス」で保存
 const relOf = (src) => (src.startsWith(REF_BASE) ? src.slice(REF_BASE.length) : src);
 const photoNoteKey = (topic, src) => `photo|${topic}|${relOf(src)}`;
@@ -1407,6 +1481,7 @@ function renderCompare() {
         ${codes.length ? `<span class="grow"></span>
           <button type="button" class="btn btn-ghost btn-sm" id="cmp-expand" title="すべての項目を開く">▾ すべて開く</button>
           <button type="button" class="btn btn-ghost btn-sm" id="cmp-collapse" title="すべての項目を閉じる">▸ すべて閉じる</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="cmp-print" title="この比較表を印刷（PDF として保存もできます）">🖨 印刷 / PDF</button>
           <button type="button" class="btn btn-ghost btn-sm" id="cmp-clear">国をすべて外す</button>` : ''}
       </div>
       ${suggest.length && !full ? `<div class="cmp-suggest"><span class="muted small">隣の国:</span>${suggest.map((c) => `<button type="button" class="chip chip-btn" data-add="${c}">＋ ${flagImg(c)}${esc(countryName(c))}</button>`).join('')}</div>` : ''}
@@ -1431,6 +1506,7 @@ function renderCompare() {
   $$('#view [data-add]').forEach((b) => b.addEventListener('click', () => update([...codes, b.dataset.add])));
   $$('#view [data-info]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.info, b)));
   $('#cmp-clear')?.addEventListener('click', () => update([]));
+  $('#cmp-print')?.addEventListener('click', () => { document.body.classList.add('print-compare'); st.closed.clear(); renderCompare(); setTimeout(() => window.print(), 150); }); // 全項目を開いてから印刷
   // 国とカテゴリーを決めた状態でカードの作成を始める
   $$('#view [data-new-code]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2155,6 +2231,7 @@ function quizEligible(regions) {
 // ---- リアルタイム対戦（js/battle.js） ----
 let battle = null;
 let lobbyWatching = false;
+let pendingBattleLock = false;
 let pendingBattleRoom = ''; // 公開された部屋のポップアップから来たときのコード
 function renderBattle() {
   if (battle && $('#battle-root')?.isConnected) return; // 対戦中は、描き直さない（通信を保つ）
@@ -2162,7 +2239,9 @@ function renderBattle() {
   setFit('scroll');
   $('#view').innerHTML = '<section class="panel battle" id="battle-root"></section>';
   const auto = pendingBattleRoom;
+  const autoLock = pendingBattleLock;
   pendingBattleRoom = '';
+  pendingBattleLock = false;
   battle = mountBattle($('#battle-root'), {
     api, esc, play, toast, countryName, flagImg, flagUrl, cardById, frontHtml, answerHtml, cardInfoHtml, factPanelHtml,
     mountQuizMap, mountPinMap, distanceBetween, resolveCountryCode,
@@ -2185,6 +2264,8 @@ function renderBattle() {
     },
     publish: (m) => watchPublicRooms.lobby?.send(m),
     autoJoin: auto,
+    autoLock,
+    regionName: (code) => REGION_BY_ID.get(COUNTRY_BY_CODE.get(code)?.region)?.name || '',
     onExit: () => { battle = null; svHide = false; state.quiz.kind = 'cards'; renderQuiz(); },
   });
 }
@@ -3539,6 +3620,7 @@ function renderManage() {
       ${regionPickHtml('m-region', m.regionsOff)}
       ${catPickHtml('m-cat', m.catsOff)}
       ${sortSelectHtml('m-sort')}
+      <button class="btn btn-ghost btn-sm" id="m-photonotes" type="button" title="参考写真に書いたメモの一覧・検索">📝 写真メモ</button>
       <span class="counter" id="m-count"></span>
     </div>
     ${ed ? `<div class="toolbar toolbar-sub">
@@ -3564,6 +3646,7 @@ function renderManage() {
     </div>` : ''}
     </div>
     <div id="manage-list"></div>`;
+  $('#m-photonotes')?.addEventListener('click', openPhotoNotes);
   $('#m-new')?.addEventListener('click', () => openEditor(null));
   $('#m-filter').addEventListener('input', (e) => { m.q = e.target.value; renderManageList(); });
   $('#m-sort').addEventListener('change', (e) => { settings.cardSort = e.target.value; saveSettings(); renderManageList(); });
@@ -4577,3 +4660,6 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('#view .answer-country[data-info]');
   if (b) openCountryInfo(b.dataset.info, b);
 });
+
+// 比較表の印刷が終わったら、印刷用の状態を戻す
+window.addEventListener('afterprint', () => document.body.classList.remove('print-compare'));

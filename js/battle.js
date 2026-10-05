@@ -8,6 +8,9 @@ const newCode = () => Array.from({ length: 5 }, () => ROOM_CHARS[Math.floor(Math
 const newId = () => Math.random().toString(36).slice(2, 10);
 const NAME_KEY = 'geo-cards-battle-name';
 const SCOPE_KEY = 'geo-cards-battle-scope-v1';
+const sha = async (s) => { try { const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`geo-battle:${s}`)); return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, '0')).join(''); } catch { return `plain:${s}`; } };
+const HIST_KEY = 'geo-cards-battle-history-v1';
+const TEAMS = { A: { name: '赤チーム', dot: '🔴' }, B: { name: '青チーム', dot: '🔵' } };
 const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
 const KINDS = [['cards', '🃏 カード'], ['photo', '📷 参考写真'], ['fact', '🗺 国の特徴'], ['sv', '🧍 ストリートビュー']];
 const MODES = { choice: '4 択', input: '入力', map: '地図で選ぶ', pin: '場所をピン' };
@@ -35,7 +38,10 @@ export function mountBattle(host, ctx) {
   let tick = null;
   let timers = [];
   let building = false;
-  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
+  let pwChecked = false;
+  const specIds = new Set(); // 観戦の人（得点・順位には入れない）
+  const lastTeam = new Map(); // 退出した人のチーム（合計点に残す）
+  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, teams: false, hints: false, password: '', pwh: '', regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
   try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
   const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
   let hostId = '';
@@ -52,11 +58,15 @@ export function mountBattle(host, ctx) {
   function leave() { cfg.public = false; if (pubTimer) stopPublic(); clearTimers(); chat.hidden = true; ctx.setSvHide(false); try { ch?.leave(); } catch { /* 無視 */ } ch = null; }
   const send = (m) => ch?.send(m);
 
-  async function join(code, asHost) {
+  async function join(code, asHost, spec = false) {
     me.name = (host.querySelector('#bt-name')?.value || me.name || '').trim().slice(0, 16) || `プレイヤー${Math.floor(Math.random() * 90 + 10)}`;
     try { localStorage.setItem(NAME_KEY, me.name); } catch { /* 無視 */ }
     room = code;
     isHost = asHost;
+    me.spec = !!spec && !asHost;
+    me.team = '';
+    me.pw = host.querySelector('#bt-pass')?.value || '';
+    pwChecked = false;
     hostId = asHost ? me.id : '';
     names.set(me.id, me.name);
     try {
@@ -77,8 +87,12 @@ export function mountBattle(host, ctx) {
   }
 
   // ---- 参加者・ホスト ----
-  const meInfo = (h = isHost) => ({ id: me.id, name: me.name, host: h, at: me.at, max: cfg.max });
-  const announce = () => ctx.publish?.({ t: 'open', room, name: me.name, n: players.size, max: cfg.max, kind: (KINDS.find((k) => k[0] === cfg.kind) || [])[1] || '' });
+  const meInfo = (h = isHost) => ({ id: me.id, name: me.name, host: h, at: me.at, max: cfg.max, spec: !!me.spec, team: me.team || '', ...(h ? { teams: !!cfg.teams, pwh: cfg.pwh || '' } : {}) });
+  const act = () => [...players.values()].filter((p) => !p.spec); // 参加者（観戦を除く）
+  const hostInfo = () => [...players.values()].find((p) => p.id === hostId) || [...players.values()].find((p) => p.host);
+  const teamsOn = () => !!hostInfo()?.teams;
+  const teamOf = (id) => players.get(id)?.team || lastTeam.get(id) || '';
+  const announce = () => ctx.publish?.({ t: 'open', room, name: me.name, n: act().length, max: cfg.max, lock: !!cfg.pwh, kind: (KINDS.find((k) => k[0] === cfg.kind) || [])[1] || '' });
   // 部屋の公開: ロビーにいる間、定期的に「公開中」を全員に知らせる。閉じる・開始・退出で取り消す
   let pubTimer = null;
   function syncPublic() {
@@ -90,7 +104,7 @@ export function mountBattle(host, ctx) {
   function onPresence(list) {
     const prev = players;
     players = new Map(list.map((p) => [p.id, p]));
-    list.forEach((p) => names.set(p.id, p.name));
+    list.forEach((p) => { names.set(p.id, p.name); if (p.spec) specIds.add(p.id); else specIds.delete(p.id); if (p.team) lastTeam.set(p.id, p.team); });
     if (!alive()) return;
     if (phase !== 'entry' && players.has(me.id)) { // 部屋にいた人が抜けたら、部屋の全員に知らせる
       for (const id of prev.keys()) {
@@ -101,14 +115,28 @@ export function mountBattle(host, ctx) {
       }
     }
     const hp = list.find((p) => p.host);
-    if (!isHost && hp?.max && list.length > hp.max) { // 満員: 入った順で、最大人数に入れなかった人は退出
-      const order = [...list].sort((x, y) => (x.at || 0) - (y.at || 0) || (x.id < y.id ? -1 : 1));
-      if (order.findIndex((p) => p.id === me.id) >= hp.max) { toast('この部屋は満員です', 'error'); leave(); phase = 'entry'; renderEntry(); return; }
+    const players0 = list.filter((p) => !p.spec);
+    if (!isHost && !me.spec && hp?.max && players0.length > hp.max) { // 満員（観戦は数えない）: 入った順で、最大人数に入れなかった人は退出
+      const order = [...players0].sort((x, y) => (x.at || 0) - (y.at || 0) || (x.id < y.id ? -1 : 1));
+      if (order.findIndex((p) => p.id === me.id) >= hp.max) { toast('この部屋は満員です（観戦なら入れます）', 'error'); leave(); phase = 'entry'; renderEntry(); return; }
+    }
+    if (!isHost && hp && !pwChecked) { // パスワード: ホストの情報にあるハッシュと照らす
+      pwChecked = true;
+      if (hp.pwh) sha(me.pw || '').then((h) => { if (h !== hp.pwh && alive() && phase !== 'entry') { toast('パスワードが違います', 'error'); leave(); phase = 'entry'; renderEntry(); } });
+    }
+    if (hp?.teams && !me.spec && !me.team && players.has(me.id)) { // チーム戦: 人数の少ないチームに自動で入る
+      const cnt = { A: 0, B: 0 };
+      players0.forEach((p) => { if (p.team) cnt[p.team]++; });
+      me.team = cnt.A <= cnt.B ? 'A' : 'B';
+      ch?.setMe(meInfo());
+    }
+    if (isHost && game && ['play', 'reveal'].includes(phase)) { // 途中から入った観戦の人に、今の状況を送る
+      for (const p of list) if (p.spec && !prev.has(p.id)) sendState(p.id);
     }
     if (isHost && pubTimer) announce();
     if (!hostId) { const h = list.find((p) => p.host); if (h) hostId = h.id; }
     else if (!players.has(hostId) && players.has(me.id)) { // ホストが抜けたら、残った人の中で ID が一番小さい人が引き継ぐ
-      const next = [...players.keys()].sort()[0];
+      const next = (act().map((p) => p.id).sort()[0]) || [...players.keys()].sort()[0];
       setHost(next);
     }
     if (phase === 'lobby') renderLobby(); else if (phase === 'play') renderPlayStatus();
@@ -143,7 +171,7 @@ export function mountBattle(host, ctx) {
     const list = [...players.values()];
     chat.innerHTML = `<button type="button" class="bt-chat-toggle" id="bt-chat-toggle">💬 チャット・参加者${unread && !chatOpen ? ` <b class="bt-unread">${unread}</b>` : ''}<span class="bt-chat-arrow">${chatOpen ? '▾' : '▴'}</span></button>
       <div class="bt-chat-body" ${chatOpen ? '' : 'hidden'}>
-        <ul class="bt-members">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-mname">${p.id === hostId ? '👑 ' : ''}${esc(p.name)}</span>${isHost && p.id !== me.id ? `<button type="button" class="bt-mbtn" data-act="host" data-id="${p.id}" title="ホストを譲る">👑 譲る</button><button type="button" class="bt-mbtn bt-kick" data-act="kick" data-id="${p.id}" title="退出させる">✕ キック</button>` : ''}</li>`).join('')}</ul>
+        <ul class="bt-members">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-mname">${p.id === hostId ? '👑 ' : ''}${p.spec ? '👁 ' : ''}${esc(p.name)}</span>${isHost && p.id !== me.id ? `${p.spec ? '' : `<button type="button" class="bt-mbtn" data-act="host" data-id="${p.id}" title="ホストを譲る">👑 譲る</button>`}<button type="button" class="bt-mbtn bt-kick" data-act="kick" data-id="${p.id}" title="退出させる">✕ キック</button>` : ''}</li>`).join('')}</ul>
         <div class="bt-msgs" id="bt-msgs">${chatLog.map((m) => (m.sys ? `<div class="bt-sys">${esc(m.text)}</div>` : `<div class="bt-msg ${m.mine ? 'mine' : ''}"><b>${esc(m.name)}</b> ${esc(m.text)}</div>`)).join('')}</div>
         <form class="bt-chat-form" id="bt-chat-form"><input class="input" id="bt-chat-input" maxlength="200" placeholder="メッセージ（Enter で送信）" autocomplete="off"><button class="btn btn-sm" type="submit">送信</button></form>
       </div>`;
@@ -183,7 +211,7 @@ export function mountBattle(host, ctx) {
       const questions = await ctx.buildQuestions(cfg);
       if (questions.length < 3) { toast('出題できる問題が足りません。地域やカテゴリーの条件を広げてください（クイズ設定）', 'error'); return; }
       cfg.public = false; syncPublic();
-      send({ t: 'start', perQ: cfg.perQ, autoNext: cfg.autoNext, questions });
+      send({ t: 'start', perQ: cfg.perQ, autoNext: cfg.autoNext, hints: cfg.hints, kind: cfg.kind, questions });
       later(2000, () => send({ t: 'q', i: 0 }));
     } catch (e) { toast(`問題を作れませんでした（${e.message}）`, 'error'); } finally { building = false; if (phase === 'lobby') renderLobby(); }
   }
@@ -192,7 +220,7 @@ export function mountBattle(host, ctx) {
   function checkAllAnswered() {
     if (!isHost || !game || phase !== 'play') return;
     const got = game.answers.get(game.i);
-    if (got && [...players.keys()].every((id) => got.has(id))) send({ t: 'reveal', i: game.i });
+    if (got && act().every((p) => got.has(p.id))) send({ t: 'reveal', i: game.i });
   }
 
   // ---- 受信（全員） ----
@@ -203,7 +231,7 @@ export function mountBattle(host, ctx) {
       phase = 'play';
       main.innerHTML = '<p class="bt-wait">問題を準備しています…</p>';
       await ctx.prepare(m.questions);
-      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, mine: {}, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
+      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, hints: !!m.hints, kind: m.kind || '', mine: {}, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
       play?.('open');
     } else if (m.t === 'q' && game) {
       clearTimers();
@@ -213,12 +241,7 @@ export function mountBattle(host, ctx) {
       phase = 'play';
       play?.('slide');
       renderPlay();
-      tick = setInterval(() => {
-        if (!alive()) { leave(); return; }
-        const left = Math.max(0, game.perQ - (performance.now() - game.t0) / 1000);
-        const el = host.querySelector('#bt-timer');
-        if (el) { el.textContent = Math.ceil(left); el.closest('.counter')?.classList.toggle('is-hurry', left < 5); }
-      }, 200);
+      startTick();
       if (isHost) hostOpened(m.i);
     } else if (m.t === 'ans' && game) {
       if (!game.answers.has(m.i)) game.answers.set(m.i, new Map());
@@ -234,9 +257,16 @@ export function mountBattle(host, ctx) {
       play?.(mine?.res === 'ok' ? 'correct' : mine?.res === 'partial' ? 'partial' : 'wrong');
       renderReveal();
       if (isHost) hostRevealed(m.i);
+    } else if (m.t === 'state' && m.to === me.id && me.spec) { // 途中から入った観戦の人: ホストが送る今の状況を受け取る
+      await ctx.prepare(m.questions);
+      Object.entries(m.names || {}).forEach(([id, n]) => names.set(id, n));
+      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, hints: !!m.hints, kind: m.kind || '', mine: {}, i: m.i, answers: new Map([[m.i, new Map(Object.entries(m.got || {}))]]), scores: new Map(Object.entries(m.scores || {})), done: new Set(Array.from({ length: m.i + (m.phase === 'reveal' ? 1 : 0) }, (_, k) => k)), t0: performance.now() - (m.elapsed || 0) };
+      phase = m.phase;
+      if (phase === 'play') { renderPlay(); startTick(); } else renderReveal();
     } else if (m.t === 'end' && game) {
       clearTimers();
       phase = 'final';
+      recordResult();
       ctx.setSvHide(false);
       play?.('finish');
       renderFinal();
@@ -260,9 +290,63 @@ export function mountBattle(host, ctx) {
     }
   }
 
+  // ---- 残り時間・ヒント・観戦への状況送信・成績の記録 ----
+  function startTick() {
+    clearInterval(tick);
+    tick = setInterval(() => {
+      if (!alive()) { leave(); return; }
+      const ms = performance.now() - game.t0;
+      const left = Math.max(0, game.perQ - ms / 1000);
+      const el = host.querySelector('#bt-timer');
+      if (el) { el.textContent = Math.ceil(left); el.closest('.counter')?.classList.toggle('is-hurry', left < 5); }
+      if (game.hints) updateHint();
+    }, 200);
+  }
+  // ヒント（部屋の設定）: 時間が経つと、地域・頭文字のヒントが出る。得点は 0.8 倍・0.6 倍
+  const hintLevel = () => { if (!game?.hints) return 0; const f = (performance.now() - game.t0) / (game.perQ * 1000); return f >= 0.7 ? 2 : f >= 0.4 ? 1 : 0; };
+  const hintFactor = () => [1, 0.8, 0.6][hintLevel()];
+  function updateHint() {
+    const el = host.querySelector('#bt-hint');
+    if (!el || phase !== 'play') return;
+    const Q = game.questions[game.i];
+    if (Q.k === 'fact') return;
+    const code = ctx.cardFor(Q)?.countries?.[0];
+    if (!code) return;
+    const lv = hintLevel();
+    if (el.dataset.lv === String(lv)) return;
+    el.dataset.lv = String(lv);
+    el.hidden = lv === 0;
+    if (lv === 1) el.textContent = `💡 ヒント 1: ${ctx.regionName(code)}（得点 ×0.8）`;
+    if (lv === 2) el.textContent = `💡 ヒント 2: ${ctx.regionName(code)} ・ 頭文字「${countryName(code)[0]}」（得点 ×0.6）`;
+  }
+  function sendState(to) {
+    if (!game) return;
+    const obj = (m) => Object.fromEntries(m);
+    send({ t: 'state', to, questions: game.questions, perQ: game.perQ, autoNext: game.autoNext, hints: game.hints, kind: game.kind, i: game.i, phase, elapsed: performance.now() - game.t0, scores: obj(game.scores), got: obj(game.answers.get(game.i) || new Map()), names: obj(names) });
+  }
+  const teamTotals = () => { const t = { A: 0, B: 0 }; for (const [id, s] of game?.scores || []) { const tm = teamOf(id); if (tm && !specIds.has(id)) t[tm] += s; } return t; };
+  // 対戦の成績を、この端末に記録する（観戦は記録しない）
+  function recordResult() {
+    if (me.spec || !game || game.recorded) return;
+    game.recorded = true;
+    const rows = board();
+    const idx = rows.findIndex((p) => p.id === me.id);
+    if (idx < 0) return;
+    let rank = idx + 1;
+    const teams = teamsOn();
+    if (teams) { const t = teamTotals(); rank = t.A === t.B ? 1 : (t[me.team] > t[me.team === 'A' ? 'B' : 'A'] ? 1 : 2); }
+    try {
+      const hist = JSON.parse(localStorage.getItem(HIST_KEY) || '[]');
+      hist.push({ at: Date.now(), kind: game.kind, players: rows.length, rank, score: rows[idx].score, qn: game.questions.length, teams });
+      localStorage.setItem(HIST_KEY, JSON.stringify(hist.slice(-100)));
+    } catch { /* 保存できなくても続ける */ }
+  }
+  const readHistory = () => { try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch { return []; } };
+
   // ---- 回答 ----
   // res: ok / partial / ng、pts: 得点（正解は速いほど高い）、label: みんなに見せる答えの表示
   function submit({ res, pts, label, pick }) {
+    if (me.spec) return; // 観戦は回答しない
     const got = game?.answers.get(game.i);
     if (phase !== 'play' || got?.has(me.id)) return;
     host.querySelectorAll('.bt-choices .choice, #bt-send, #bt-guess, #bt-input').forEach((b) => { b.disabled = true; });
@@ -276,14 +360,16 @@ export function mountBattle(host, ctx) {
     send({ t: 'ans', id: me.id, i: game.i, res, pts, label });
   }
   const msNow = () => performance.now() - game.t0;
-  const scoreOf = (res) => { const b = bonus(msNow(), game.perQ); return res === 'ok' ? Math.round(500 + 500 * b) : res === 'partial' ? Math.round(150 + 150 * b) : 0; };
+  const scoreOf = (res) => { const b = bonus(msNow(), game.perQ); const base = res === 'ok' ? 500 + 500 * b : res === 'partial' ? 150 + 150 * b : 0; return Math.round(base * hintFactor()); };
 
   // ---- 画面 ----
   const board = () => {
-    const ids = new Set([...names.keys()].filter((id) => players.has(id) || game?.scores.has(id)));
-    return [...ids].map((id) => ({ id, name: names.get(id) || '?', score: game?.scores.get(id) || 0 })).sort((a, b) => b.score - a.score);
+    const ids = new Set([...names.keys()].filter((id) => !specIds.has(id) && (players.has(id) || game?.scores.has(id))));
+    return [...ids].map((id) => ({ id, name: names.get(id) || '?', score: game?.scores.get(id) || 0, team: teamOf(id) })).sort((a, b) => b.score - a.score);
   };
-  const boardHtml = () => `<ol class="bt-board">${board().map((p, i) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${esc(p.name)}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`).join('')}</ol>`;
+  const teamDot = (id) => { const t = teamsOn() ? teamOf(id) : ''; return t ? `${TEAMS[t].dot} ` : ''; };
+  const teamBoardHtml = () => { if (!teamsOn() || !game) return ''; const t = teamTotals(); const lead = t.A === t.B ? '' : t.A > t.B ? 'A' : 'B'; return `<div class="bt-teams">${['A', 'B'].map((k) => `<div class="bt-team ${lead === k ? 'lead' : ''}"><span>${TEAMS[k].dot} ${TEAMS[k].name}</span><b>${t[k].toLocaleString()}</b></div>`).join('')}</div>`; };
+  const boardHtml = () => `${teamBoardHtml()}<ol class="bt-board">${board().map((p, i) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${teamDot(p.id)}${esc(p.name)}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`).join('')}</ol>`;
   const head = (title, extra = '') => `<div class="bt-head"><h2>👥 ${title}</h2><div class="bt-head-actions">${extra}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">${phase === 'entry' ? '← 戻る' : '退出'}</button></div></div>`;
   // 退出: ホストが抜けるときは、先に別の人へホストを渡してから抜ける
   const bindExit = () => host.querySelector('#bt-exit')?.addEventListener('click', async () => {
@@ -296,6 +382,19 @@ export function mountBattle(host, ctx) {
     onExit();
   });
 
+  // 対戦成績（この端末に記録）
+  function statsHtml() {
+    const h = readHistory();
+    if (!h.length) return '<h3 class="bt-sub">📊 あなたの対戦成績</h3><p class="muted small">まだ記録がありません。対戦が終わると、順位と得点がここに残ります。</p>';
+    const wins = h.filter((x) => x.rank === 1).length;
+    const avgRank = h.reduce((n, x) => n + x.rank, 0) / h.length;
+    const avgScore = Math.round(h.reduce((n, x) => n + x.score, 0) / h.length);
+    const best = Math.max(...h.map((x) => x.score));
+    const recent = h.slice(-5).reverse().map((x) => `<li><span class="muted small">${new Date(x.at).toLocaleDateString('ja-JP')}</span> ${esc(x.kind ? (KINDS.find((k) => k[0] === x.kind) || [, x.kind])[1] : '')}${x.teams ? ' ・チーム' : ''} <b>${x.rank} 位</b> / ${x.players} 人 ・ ${x.score.toLocaleString()} 点</li>`).join('');
+    return `<h3 class="bt-sub">📊 あなたの対戦成績</h3>
+      <div class="bt-stats"><div><b>${h.length}</b><span>対戦</span></div><div><b>${wins}</b><span>1 位</span></div><div><b>${avgRank.toFixed(1)}</b><span>平均順位</span></div><div><b>${avgScore.toLocaleString()}</b><span>平均得点</span></div><div><b>${best.toLocaleString()}</b><span>最高得点</span></div></div>
+      <ul class="bt-hist">${recent}</ul><button type="button" class="link-btn" id="bt-hist-clear">成績を消す</button>`;
+  }
   function renderEntry() {
     if (!alive()) return;
     main.innerHTML = `${head('リアルタイム対戦')}
@@ -303,23 +402,26 @@ export function mountBattle(host, ctx) {
       <div class="bt-form">
         <label class="bt-label">あなたの名前<input id="bt-name" class="input" maxlength="16" value="${esc(me.name)}" placeholder="例: たろう"></label>
         <div class="bt-row"><button type="button" class="btn btn-primary" id="bt-create">🆕 部屋を作る</button></div>
-        <div class="bt-row"><input id="bt-code" class="input bt-code" maxlength="5" placeholder="部屋のコード（5 文字）" autocapitalize="characters"><button type="button" class="btn" id="bt-join">入る</button></div>
+        <div class="bt-row"><input id="bt-code" class="input bt-code" maxlength="5" placeholder="部屋のコード（5 文字）" autocapitalize="characters"><input id="bt-pass" class="input bt-pass" type="password" maxlength="20" placeholder="パスワード（ある部屋のみ）" autocomplete="off"><button type="button" class="btn" id="bt-join">入る</button><button type="button" class="btn btn-ghost" id="bt-watch" title="回答せずに、見るだけで入る">👁 観戦で入る</button></div>
       </div>
-      <h3 class="bt-sub">📢 公開中の部屋</h3><div id="bt-pubrooms"></div>`;
+      <h3 class="bt-sub">📢 公開中の部屋</h3><div id="bt-pubrooms"></div>
+      ${statsHtml()}`;
     drawPublic();
     bindExit();
     host.querySelector('#bt-create').addEventListener('click', () => join(newCode(), true));
-    const go = () => { const c = host.querySelector('#bt-code').value.trim().toUpperCase(); if (c.length < 5) { toast('部屋のコード（5 文字）を入力してください', 'error'); return; } join(c, false); };
-    host.querySelector('#bt-join').addEventListener('click', go);
-    host.querySelector('#bt-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    host.querySelector('#bt-hist-clear')?.addEventListener('click', () => { if (confirm('対戦の成績を消しますか？')) { try { localStorage.removeItem(HIST_KEY); } catch { /* 無視 */ } renderEntry(); } });
+    const go = (spec = false) => { const c = host.querySelector('#bt-code').value.trim().toUpperCase(); if (c.length < 5) { toast('部屋のコード（5 文字）を入力してください', 'error'); return; } join(c, false, spec); };
+    host.querySelector('#bt-join').addEventListener('click', () => go(false));
+    host.querySelector('#bt-watch').addEventListener('click', () => go(true));
+    host.querySelector('#bt-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(false); });
   }
   // 入口に、公開中の部屋の一覧（ポップアップは一度しか出ないので、あとはここから入れる）
   function drawPublic() {
     const box = main.querySelector('#bt-pubrooms');
     if (!box) return;
     const list = publicRooms();
-    box.innerHTML = list.length ? list.map((r) => `<div class="bt-pubroom"><div><b>${esc(r.name)}</b> さんの部屋 <span class="bt-room small">${esc(r.code)}</span><div class="muted small">${esc(r.kind)} ・ ${r.n} / ${r.max} 人</div></div><button type="button" class="btn btn-primary btn-sm" data-code="${esc(r.code)}">参加する</button></div>`).join('') : '<p class="muted small">公開中の部屋はありません。ホストが「部屋を公開する」を押すと、ここに出ます。</p>';
-    box.querySelectorAll('[data-code]').forEach((x) => x.addEventListener('click', () => join(x.dataset.code, false)));
+    box.innerHTML = list.length ? list.map((r) => `<div class="bt-pubroom"><div><b>${esc(r.name)}</b> さんの部屋 <span class="bt-room small">${esc(r.code)}</span><div class="muted small">${r.lock ? '🔒 ' : ''}${esc(r.kind)} ・ ${r.n} / ${r.max} 人</div></div><div class="bt-row"><button type="button" class="btn btn-primary btn-sm" data-code="${esc(r.code)}" data-lock="${r.lock ? 1 : 0}">参加する</button><button type="button" class="btn btn-sm" data-code="${esc(r.code)}" data-lock="${r.lock ? 1 : 0}" data-spec="1">👁 観戦</button></div></div>`).join('') : '<p class="muted small">公開中の部屋はありません。ホストが「部屋を公開する」を押すと、ここに出ます。</p>';
+    box.querySelectorAll('[data-code]').forEach((x) => x.addEventListener('click', () => { if (x.dataset.lock === '1' && !main.querySelector('#bt-pass')?.value) { toast('🔒 パスワードの部屋です。上の「パスワード」欄に入力してから押してください', 'error'); main.querySelector('#bt-pass')?.focus(); return; } join(x.dataset.code, false, x.dataset.spec === '1'); }));
   }
   let unwatch = () => {};
   unwatch = (() => { const f = () => { if (!alive()) { unwatch(); return; } if (phase === 'entry') drawPublic(); }; roomListeners.add(f); const t = setInterval(f, 5000); return () => { roomListeners.delete(f); clearInterval(t); }; })();
@@ -336,7 +438,8 @@ export function mountBattle(host, ctx) {
     const counts = isHost ? ctx.scopeCounts(cfg) : { regions: new Map(), cats: new Map() };
     main.innerHTML = `${head(`部屋 <span class="bt-room">${esc(room)}</span>`, isHost ? `<button type="button" class="btn btn-sm ${cfg.public ? 'btn-primary' : ''}" id="bt-public" title="${cfg.public ? '今このサイトを開いている全員に、参加用のポップアップを出しています（押すと非公開）' : '押すと、このサイトを開いている全員に「参加する」ポップアップが出ます'}">${cfg.public ? '📢 公開中' : '📢 部屋を公開する'}</button>` : '')}
       <p class="muted small">このコードを友達に伝えてください。${isHost ? '全員そろったら「開始」を押します。' : 'ホストが開始するのを待っています。'}</p>
-      <ul class="bt-players">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}">${p.host ? '👑 ' : ''}${esc(p.name)}</li>`).join('') || '<li class="muted">接続中…</li>'}</ul>
+      <ul class="bt-players">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}">${p.host ? '👑 ' : ''}${p.spec ? '👁 ' : (teamsOn() && p.team ? `${TEAMS[p.team].dot} ` : '')}${esc(p.name)}</li>`).join('') || '<li class="muted">接続中…</li>'}</ul>
+      ${teamsOn() && !me.spec ? `<div class="bt-row"><span class="muted small">あなたのチーム:</span>${['A', 'B'].map((k) => `<button type="button" class="btn btn-sm ${me.team === k ? 'btn-primary' : ''}" data-team="${k}">${TEAMS[k].dot} ${TEAMS[k].name}</button>`).join('')}</div>` : ''}
       ${isHost ? `<div class="bt-settings quiz-setup">
         <h3 class="bt-sub">部屋の設定</h3>
         <div class="setup-block"><div class="setup-label"><span>出題内容</span></div>${segHtml('bt-kind', KINDS, cfg.kind)}</div>
@@ -359,9 +462,13 @@ export function mountBattle(host, ctx) {
           ${cfg.kind === 'fact' ? '' : `<div class="setup-block"><div class="setup-label"><span>回答方式</span></div>${segHtml('bt-mode', modesOf(cfg.kind).map((m) => [m, MODES[m]]), cfg.mode)}</div>`}
           <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ)}</div>
           <div class="setup-block"><div class="setup-label"><span>答え合わせから次の問題へ</span></div>${sliderHtml('bt-an', 0, 60, 5, cfg.autoNext)}</div>
+          <div class="setup-block"><div class="setup-label"><span>対戦の形式</span></div>${segHtml('bt-teams', [[0, '個人戦'], [1, 'チーム戦（赤 vs 青）']], cfg.teams ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（時間が経つと表示・得点が下がる）']], cfg.hints ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>パスワード（空なら誰でも入れる）</span></div><input id="bt-pw" class="input" type="text" maxlength="20" placeholder="なし" value="${esc(cfg.password)}" autocomplete="off"></div>
         </div>
-        <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${list.length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${list.length} 人）`}</button></div>` : ''}`;
+        <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${act().length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${act().length} 人）`}</button></div>` : ''}`;
     bindExit();
+    main.querySelectorAll('[data-team]').forEach((x) => x.addEventListener('click', () => { me.team = x.dataset.team; ch?.setMe(meInfo()); renderLobby(); }));
     if (!isHost) return;
     const pick = (id, key, num) => main.querySelectorAll(`#${id} button`).forEach((x) => x.addEventListener('click', () => { cfg[key] = num ? Number(x.dataset.v) : x.dataset.v; if (key === 'max') { ch?.setMe(meInfo()); if (pubTimer) announce(); } renderLobby(); }));
     pick('bt-kind', 'kind'); pick('bt-mode', 'mode'); pick('bt-topic', 'topic'); pick('bt-svsrc', 'svSource');
@@ -376,6 +483,13 @@ export function mountBattle(host, ctx) {
       });
     }
     main.querySelector('#bt-public')?.addEventListener('click', () => { cfg.public = !cfg.public; syncPublic(); renderLobby(); });
+    const pickBool = (id, key) => main.querySelectorAll(`#${id} button`).forEach((x) => x.addEventListener('click', () => {
+      cfg[key] = x.dataset.v === '1';
+      if (key === 'teams') { for (const p of players.values()) { /* 全員のチームは各自が決める */ } ch?.setMe(meInfo()); if (!cfg.teams) { me.team = ''; ch?.setMe(meInfo()); } }
+      renderLobby();
+    }));
+    pickBool('bt-teams', 'teams'); pickBool('bt-hints', 'hints');
+    main.querySelector('#bt-pw')?.addEventListener('change', async (e) => { cfg.password = e.target.value.trim(); cfg.pwh = cfg.password ? await sha(cfg.password) : ''; ch?.setMe(meInfo()); if (pubTimer) announce(); toast(cfg.pwh ? '🔒 パスワードを設定しました' : 'パスワードを外しました'); });
     const redo = () => { saveScope(); renderLobby(); };
     main.querySelectorAll('[data-region]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.regions.add(x.dataset.region); else cfg.regions.delete(x.dataset.region); redo(); }));
     main.querySelectorAll('[data-cat]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.catsOff.delete(x.dataset.cat); else cfg.catsOff.add(x.dataset.cat); redo(); }));
@@ -390,9 +504,11 @@ export function mountBattle(host, ctx) {
   function renderPlay() {
     const Q = game.questions[game.i];
     // 単独プレイと同じ見た目・大きさ（画面いっぱいの問題カード、下に選択肢）
-    const top = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length}</span><span class="counter qt-counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span><span class="grow"></span>${isHost ? '<button type="button" class="btn btn-sm" id="bt-force" title="まだ答えていない人を待たずに、いますぐ答え合わせにする">⏩ 答え合わせにする</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
-      <div class="progress"><div class="progress-bar" style="width:${(game.i / game.questions.length) * 100}%"></div></div>`;
+    const top = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length}</span><span class="counter qt-counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span>${me.spec ? '<span class="bt-speclabel">👁 観戦中</span>' : ''}${teamsOn() && me.team ? `<span class="bt-speclabel">${TEAMS[me.team].dot} ${TEAMS[me.team].name}</span>` : ''}<span class="grow"></span>${isHost ? '<button type="button" class="btn btn-sm" id="bt-force" title="まだ答えていない人を待たずに、いますぐ答え合わせにする">⏩ 答え合わせにする</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
+      <div class="progress"><div class="progress-bar" style="width:${(game.i / game.questions.length) * 100}%"></div></div>
+      ${game.hints ? '<div class="bt-hint" id="bt-hint" hidden></div>' : ''}`;
     host.classList.add('bt-play');
+    host.classList.toggle('bt-spec', !!me.spec);
     ctx.setFit(true);
     ctx.setSvHide(true);
     if (Q.k === 'fact') {
@@ -465,7 +581,7 @@ export function mountBattle(host, ctx) {
           if (!pending || game.i !== at) return;
           game.mine[at] = { guess: pending };
           const km = ctx.distanceBetween(pending, [card.lat, card.lng]);
-          const pts = Math.round(1000 * Math.exp(-km / 1500) * (0.8 + 0.2 * bonus(msNow(), game.perQ)));
+          const pts = Math.round(1000 * Math.exp(-km / 1500) * (0.8 + 0.2 * bonus(msNow(), game.perQ)) * hintFactor());
           submit({ res: km <= 150 ? 'ok' : km <= 750 ? 'partial' : 'ng', pts, label: `約 ${Math.round(km).toLocaleString()} km` });
         });
       }
@@ -482,7 +598,7 @@ export function mountBattle(host, ctx) {
     const el = host.querySelector('#bt-status');
     if (!el || !game) return;
     const got = game.answers.get(game.i);
-    el.textContent = `回答 ${[...players.keys()].filter((id) => got?.has(id)).length} / ${players.size} 人`;
+    el.textContent = `回答 ${act().filter((p) => got?.has(p.id)).length} / ${act().length} 人`;
   }
 
   function renderReveal() {
@@ -510,7 +626,7 @@ export function mountBattle(host, ctx) {
     // 現在の順位に、この問題の結果（○✗・答え・得点）を並べる。答え合わせと一緒に、スクロールせずに見える位置に置く
     const rows = board().map((p, i) => {
       const a = got.get(p.id);
-      return `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${esc(p.name)}</span><span class="bt-res res-${a?.res || 'ng'}">${a ? { ok: '○', partial: '△', ng: '✗' }[a.res] : '－'}</span><span class="bt-label">${a ? esc(a.label || '') : '未回答'}</span><span class="bt-gain">+${(a?.pts || 0).toLocaleString()}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`;
+      return `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${teamDot(p.id)}${esc(p.name)}</span><span class="bt-res res-${a?.res || 'ng'}">${a ? { ok: '○', partial: '△', ng: '✗' }[a.res] : '－'}</span><span class="bt-label">${a ? esc(a.label || '') : '未回答'}</span><span class="bt-gain">+${(a?.pts || 0).toLocaleString()}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`;
     }).join('');
     // 地図で答える問題: 自分の答えと正解がわかる地図を、画像・ストリートビューの下に出す
     const card0 = Q.k === 'card' ? ctx.cardFor(Q) : null;
@@ -525,7 +641,7 @@ export function mountBattle(host, ctx) {
       <div class="feedback fb-${mine?.res || 'ng'}">
         <div class="feedback-head"><div class="feedback-title">${title}${mine ? ` <small>+${mine.pts.toLocaleString()} 点</small>` : ''}</div>
           ${isHost ? `<button type="button" class="btn btn-primary" id="bt-next">${last ? '結果発表へ' : '次の問題へ'}</button>` : ''}</div>
-        <h3 class="bt-sub">現在の順位（今回の得点つき）</h3><ul class="bt-board bt-results">${rows}</ul>
+        <h3 class="bt-sub">現在の順位（今回の得点つき）</h3>${teamBoardHtml()}<ul class="bt-board bt-results">${rows}</ul>
         ${info}
         <p class="muted small">${game.autoNext ? `${game.autoNext} 秒後に自動で${last ? '結果発表へ' : '次の問題へ'}進みます${isHost ? '（ボタンを押すとすぐに進みます）' : ''}` : isHost ? `準備ができたら「${last ? '結果発表へ' : '次の問題へ'}」を押してください` : `ホストが「${last ? '結果発表へ' : '次の問題へ'}」を押すのを待っています…`}</p>
       </div></div>`;
@@ -555,11 +671,17 @@ export function mountBattle(host, ctx) {
       send(last ? { t: 'end' } : { t: 'q', i: game.i + 1 });
     });
   }
+  // 結果発表の見出し（チーム戦は勝ったチーム、個人戦は自分の順位）
+  function finalNote() {
+    if (teamsOn() && game) { const t = teamTotals(); return `<p class="bt-final-note">${t.A === t.B ? '🤝 引き分け' : `🏆 ${TEAMS[t.A > t.B ? 'A' : 'B'].dot} ${TEAMS[t.A > t.B ? 'A' : 'B'].name}の勝ち！`}</p>`; }
+    const i = board().findIndex((p) => p.id === me.id);
+    return me.spec || i < 0 ? '' : `<p class="bt-final-note">あなたは ${i + 1} 位（${board()[i].score.toLocaleString()} 点）</p>`;
+  }
   function renderFinal() {
     host.classList.remove('bt-play');
     ctx.setFit('scroll');
     main.innerHTML = `${head('結果発表')}
-      <div class="bt-final">${boardHtml()}</div>
+      ${finalNote()}<div class="bt-final">${boardHtml()}</div>
       <div class="bt-row">${isHost ? '<button type="button" class="btn btn-primary" id="bt-again">もう一度（ロビーへ）</button>' : '<span class="muted small">ホストが「もう一度」を押すと、ロビーに戻ります</span>'}</div>`;
     bindExit();
     host.querySelector('#bt-again')?.addEventListener('click', () => send({ t: 'lobby' }));
@@ -569,7 +691,8 @@ export function mountBattle(host, ctx) {
   if (ctx.autoJoin) { // 公開された部屋のポップアップから来たとき: コードを入れておき、名前があればそのまま入る
     const c = host.querySelector('#bt-code');
     if (c) c.value = ctx.autoJoin;
-    if (me.name) join(ctx.autoJoin, false); else host.querySelector('#bt-name')?.focus();
+    if (ctx.autoLock) { toast('🔒 パスワードの部屋です。パスワードを入力して「入る」を押してください', 'error'); host.querySelector('#bt-pass')?.focus(); }
+    else if (me.name) join(ctx.autoJoin, false); else host.querySelector('#bt-name')?.focus();
   }
   return { leave, inRoom: () => phase !== 'entry' };
 }
@@ -583,15 +706,15 @@ export function watchPublicRooms({ api, esc, onJoin, busy }) {
     const list = [...roomsStore].filter(([, r]) => r.popped && !r.dismissed && r.n < r.max && Date.now() - r.seen < FRESH_MS);
     if (!list.length || busy()) { box?.remove(); box = null; return; }
     if (!box?.isConnected) { box = document.createElement('div'); box.className = 'bt-popups'; document.body.appendChild(box); }
-    box.innerHTML = list.map(([code, r]) => `<div class="bt-popup" role="alert"><div class="bt-popup-text">🎮 <b>${esc(r.name)}</b> さんが対戦の部屋を公開しました<div class="muted small">${esc(r.kind)} ・ ${r.n} / ${r.max} 人 ・ あとから「リアルタイム対戦」でも入れます</div></div><button type="button" class="btn btn-primary btn-sm" data-join="${esc(code)}">参加する</button><button type="button" class="bt-popup-x" data-x="${esc(code)}" aria-label="閉じる">✕</button></div>`).join('');
-    box.querySelectorAll('[data-join]').forEach((x) => x.addEventListener('click', () => { const r = roomsStore.get(x.dataset.join); if (r) r.dismissed = true; draw(); onJoin(x.dataset.join); }));
+    box.innerHTML = list.map(([code, r]) => `<div class="bt-popup" role="alert"><div class="bt-popup-text">🎮 <b>${esc(r.name)}</b> さんが対戦の部屋を公開しました<div class="muted small">${r.lock ? '🔒 パスワードあり ・ ' : ''}${esc(r.kind)} ・ ${r.n} / ${r.max} 人 ・ あとから「リアルタイム対戦」でも入れます</div></div><button type="button" class="btn btn-primary btn-sm" data-join="${esc(code)}">参加する</button><button type="button" class="bt-popup-x" data-x="${esc(code)}" aria-label="閉じる">✕</button></div>`).join('');
+    box.querySelectorAll('[data-join]').forEach((x) => x.addEventListener('click', () => { const r = roomsStore.get(x.dataset.join); if (r) r.dismissed = true; draw(); onJoin(x.dataset.join, !!r?.lock); }));
     box.querySelectorAll('[data-x]').forEach((x) => x.addEventListener('click', () => { const r = roomsStore.get(x.dataset.x); if (r) r.dismissed = true; draw(); }));
   };
   api.openLobby((m) => {
     if (m?.t === 'open' && m.room) {
       const old = roomsStore.get(m.room);
       const r = old || { popped: false, dismissed: false };
-      Object.assign(r, { name: m.name, n: m.n, max: m.max, kind: m.kind, seen: Date.now() });
+      Object.assign(r, { name: m.name, n: m.n, max: m.max, kind: m.kind, lock: !!m.lock, seen: Date.now() });
       roomsStore.set(m.room, r);
       if (!old && !busy()) { // 初めて見た部屋: ポップアップを一度だけ出して、数秒後に自動で消す
         r.popped = true;
