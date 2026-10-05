@@ -1229,6 +1229,27 @@ const langText = (l) => { const v = LANGS[l]; return `${v.ja} ${LANG_EN[l] || ''
 function renderLang() {
   setFit('scroll');
   const st = state.lang;
+  // 検索欄は作り直さない（入力のたびに作り直すと、日本語入力の変換が 1 文字ごとに確定されてしまうため）。結果の部分だけを描き直す
+  $('#view').innerHTML = `
+    <div class="lang-view">
+      <div class="toolbar lang-toolbar">
+        <h2 class="lang-title">🔤 言語</h2>
+        <input type="search" id="lang-q" class="input grow" placeholder="言語名・文字・単語で絞り込み（例: ñ / ulica / スワヒリ）" value="${esc(st.q)}" autocomplete="off">
+        <span class="counter" id="lang-count"></span>
+      </div>
+      <div id="lang-body"></div>
+    </div>`;
+  const q = $('#lang-q');
+  let composing = false;
+  q.addEventListener('compositionstart', () => { composing = true; });
+  q.addEventListener('compositionend', () => { composing = false; st.q = q.value; drawLangBody(); }); // 変換が確定したときに絞り込む
+  q.addEventListener('input', (e) => { if (composing || e.isComposing) return; st.q = q.value; drawLangBody(); });
+  drawLangBody();
+}
+
+// 言語タブの結果（選んだ文字・文字の候補・言語の一覧）を描く
+function drawLangBody() {
+  const st = state.lang;
   const { byLang, byChar } = langChars();
   const terms = st.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const all = Object.keys(LANGS);
@@ -1243,13 +1264,7 @@ function renderLang() {
     for (const ch of st.chars) h = h.split(esc(ch)).join(`<mark>${esc(ch)}</mark>`);
     return h;
   };
-  $('#view').innerHTML = `
-    <div class="lang-view">
-      <div class="toolbar lang-toolbar">
-        <h2 class="lang-title">🔤 言語</h2>
-        <input type="search" id="lang-q" class="input grow" placeholder="言語名・文字・単語で絞り込み（例: ñ / ulica / スワヒリ）" value="${esc(st.q)}" autocomplete="off">
-        <span class="counter">${hits.length} / ${all.length} 言語</span>
-      </div>
+  $('#lang-body').innerHTML = `
       <div class="lang-picked">
         ${st.chars.size ? `<span class="muted small">選んだ文字:</span> ${[...st.chars].map((ch) => `<button type="button" class="lang-ch on" data-ch="${esc(ch)}" title="外す">${esc(ch)} ✕</button>`).join('')}<button type="button" class="link-btn" id="lang-clear">すべて外す</button>` : '<span class="muted small">看板で見かけた文字を下から選ぶと、その文字を使う言語に絞り込めます（キリル文字など、キーボードで打てない文字も選べます）</span>'}
       </div>
@@ -1280,23 +1295,15 @@ function renderLang() {
           </article>`;
         }).join('') : '<p class="empty">当てはまる言語がありません。文字を外すか、言葉を変えてみてください</p>'}
       </div>
-    </div>`;
-  const q = $('#lang-q');
-  q.addEventListener('input', () => {
-    st.q = q.value;
-    const pos = q.selectionStart;
-    renderLang();
-    const nq = $('#lang-q');
-    nq.focus();
-    nq.setSelectionRange(pos, pos);
-  });
+  `;
+  $('#lang-count').textContent = `${hits.length} / ${all.length} 言語`;
   $$('#view .lang-ch[data-ch]').forEach((b) => b.addEventListener('click', () => {
     const ch = b.dataset.ch;
     if (st.chars.has(ch)) st.chars.delete(ch); else st.chars.add(ch);
     play('tap');
-    renderLang();
+    drawLangBody();
   }));
-  $('#lang-clear')?.addEventListener('click', () => { st.chars.clear(); renderLang(); });
+  $('#lang-clear')?.addEventListener('click', () => { st.chars.clear(); drawLangBody(); });
   $$('#view .lang-group').forEach((d) => d.addEventListener('toggle', () => { if (d.open) st.open.add(d.dataset.group); else st.open.delete(d.dataset.group); }));
   $$('#view [data-lang-country]').forEach((b) => b.addEventListener('click', () => openCountryInfo(b.dataset.langCountry, b, b.dataset.lang)));
 }
