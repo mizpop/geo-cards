@@ -3934,33 +3934,9 @@ function countrySummaryHtml(code) {
 const EXT_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>';
 
 /* ================= 地図 ================= */
-// ストリートビューで見つけた場所からカードを作る: 国・場所の名前・Google マップのリンクを入れた作成画面を開く
-// いま開いているタブの画面を 1 枚撮る（ブラウザの「このタブを共有」の確認が出る）。撮れなければ null
-async function captureThisTab() {
-  if (!navigator.mediaDevices?.getDisplayMedia) return null;
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' });
-  } catch { return null; }
-  try {
-    const video = document.createElement('video');
-    video.muted = true;
-    video.srcObject = stream;
-    await video.play();
-    await new Promise((r) => setTimeout(r, 450)); // 共有の確認の表示が消えるのを少し待つ
-    const c = document.createElement('canvas');
-    c.width = video.videoWidth;
-    c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
-    return blob ? { blob, scale: video.videoWidth / window.innerWidth } : null;
-  } catch { return null; } finally { stream.getTracks().forEach((t) => t.stop()); }
-}
-
-// ストリートビューで見つけた場所からカードを作る: 画面を撮って、映像の部分を切り抜いた状態の画像編集を開き、
-// 国・場所の名前・Google マップのリンクを入れた作成画面にする。画面を撮れなければ、クリップボードの画像を使う
-async function cardFromSv({ lat, lng, codePromise, frameRect }) {
-  const shot = await captureThisTab(); // ボタンを押した直後に始める（ユーザー操作が必要なため）
+// ストリートビューで見つけた場所からカードを作る: 撮影して貼り付けた画像（blob）を、切り抜きの画面で開き、
+// 国・場所の名前・Google マップのリンクを入れた作成画面にする（画面共有は使わないので、ブラウザの確認は出ない）
+async function cardFromSv({ lat, lng, codePromise, blob }) {
   const code = await Promise.resolve(codePromise).catch(() => null);
   let area = '';
   try { // 場所の名前（県・市など）を OpenStreetMap で調べる。調べられなくても作成は続ける
@@ -3972,22 +3948,13 @@ async function cardFromSv({ lat, lng, codePromise, frameRect }) {
     area = [a.state || a.province || a.region, a.city || a.county || a.town || a.municipality].filter(Boolean).filter((x, i, arr) => arr.indexOf(x) === i).join(' ');
   } catch { /* 空のまま */ }
   if (!code) toast('国を判定できなかったので、国は選び直してください');
-  else if (!shot) toast('画面を撮影できませんでした。クリップボードの画像があれば入れます（なければ Ctrl+V で貼り付け）');
   closeModal();
-  const preset = {
+  openEditor(null, {
     countries: code ? [code] : [], area,
     notes: `ストリートビュー: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`,
-  };
-  if (shot) {
-    preset.blob = shot.blob;
-    // 撮った画面の中で、ストリートビューの映像の部分（画像の座標）。最初の切り抜きの範囲にする
-    if (frameRect) preset.cropFirst = { x: Math.max(0, Math.round(frameRect.left * shot.scale)), y: Math.max(0, Math.round(frameRect.top * shot.scale)), w: Math.round(frameRect.width * shot.scale), h: Math.round(frameRect.height * shot.scale) };
-    else preset.cropFirst = {};
-  } else {
-    preset.autoPaste = true;
-    preset.cropFirst = {}; // クリップボードの画像でも、貼り付けたらすぐ切り抜きの画面を開く
-  }
-  openEditor(null, preset);
+    blob, // 撮影した画像
+    cropFirst: {}, // すぐ切り抜きの画面を開く（範囲は自分で選ぶ）
+  });
 }
 const mapCtx = {
   createCardFromSv: (p) => cardFromSv(p),

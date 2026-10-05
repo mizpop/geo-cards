@@ -52,7 +52,7 @@ export const svEmbedUrl = (lat, lng, heading = 0) => `https://www.google.com/map
 export const svOpenUrl = (lat, lng) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`;
 // ストリートビューのある道路（青い線）のタイル。キー不要。クリックした地点の近くの線を探すのにも使う
 const SV_TILE = (x, y, z) => `https://mts1.google.com/vt?hl=ja&lyrs=svv&style=40,18&x=${x}&y=${y}&z=${z}`;
-const SV_SNAP_MIN_ZOOM = 12; // これより引いた縮尺では、道路が区別できないので寄せない（クリックした場所に拡大する）
+const SV_HOVER_MIN_ZOOM = 11; // これ以上拡大しているとき、マウスを動かすと開く場所の印を出す
 const SV_LINE_ZOOM = 14; // 道路ごとの青い線として見える縮尺
 const SV_THIN_ZOOM = 15; // これ以上拡大したら、青い線を半分の太さにする
 const SV_SNAP_M = 250; // クリックの近くの何メートル以内の道路に寄せるか
@@ -82,8 +82,7 @@ function svTileAlpha(x, y, z) {
   return svTiles.get(url);
 }
 // クリックした地点に一番近い「ストリートビューのある線」の地点。見つからなければ null、読み取れなければクリックした地点
-async function svSnap(lat, lng, zoom, { R: Ropt = 0, force = false } = {}) {
-  if (zoom < SV_SNAP_MIN_ZOOM && !force) return { lat, lng };
+async function svSnap(lat, lng, zoom, { R: Ropt = 0, lenient = false } = {}) {
   const z = Math.min(17, Math.round(zoom));
   const n = 256 * 2 ** z;
   const sin = Math.sin((lat * Math.PI) / 180);
@@ -116,12 +115,26 @@ async function svSnap(lat, lng, zoom, { R: Ropt = 0, force = false } = {}) {
       }
     }
   }
-  if (!readable) return force ? null : { lat, lng }; // タイルを読めなかった（通信できないなど）: そのまま開く
+  if (!readable) return lenient ? { lat, lng } : null; // タイルを読めなかった（通信できないなど）: lenient なら、クリックした地点をそのまま開く
   if (!best) return null;
   return {
     lng: (best[0] / n) * 360 - 180,
     lat: (Math.atan(Math.sinh(Math.PI * (1 - (2 * best[1]) / n))) * 180) / Math.PI,
   };
+}
+// クリックした付近の「ストリートビューのある道路」の地点。縮尺が小さいとき（道路が区別できない）は、
+// 粗い縮尺で「画面で 44px 以内の青い所」を見つけてから、縮尺を上げながら（粗い → 細かい）道路の上に寄せていく。なければ null
+async function svFind(lat, lng, zoom) {
+  if (zoom >= SV_LINE_ZOOM) return svSnap(lat, lng, zoom, { lenient: true });
+  const z0 = Math.max(5, Math.min(13, Math.round(zoom)));
+  let cur = await svSnap(lat, lng, z0, { R: Math.max(8, Math.min(60, Math.round(SV_SNAP_PX * 2 ** (z0 - zoom)))), lenient: true });
+  if (!cur) return null;
+  for (const [z, R] of [[10, 40], [12, 30], [14, 24], [16, 24]]) {
+    if (z <= z0) continue;
+    cur = await svSnap(cur.lat, cur.lng, z, { R });
+    if (!cur) return null;
+  }
+  return cur;
 }
 // 緯度・経度がどの国の中か（50m の国境データで判定。海上や小さな島で見つからなければ null）
 function ringHas(ring, x, y) {
@@ -180,7 +193,7 @@ export async function randomSvPoint(code, attempts = 8) {
     if (!pt) continue;
     let cur = { lat: pt[1], lng: wrapLng(pt[0]) };
     for (const [z, R] of [[8, 60], [10, 40], [12, 30], [14, 24], [16, 24]]) { // 縮尺ごとに「何ピクセル以内の線へ寄せるか」
-      const hit = await svSnap(cur.lat, cur.lng, z, { R, force: true });
+      const hit = await svSnap(cur.lat, cur.lng, z, { R });
       if (!hit) { cur = null; break; }
       cur = hit;
     }
@@ -685,7 +698,7 @@ export async function renderMap(view, ctx) {
   let bannerTimer = null;
   const svPin = () => L.divIcon({ className: 'sv-pin', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] });
   const SV_HELP = '青い線の近くをクリック';
-  const SV_HELP_FAR = 'クリックした場所に拡大します';
+  const SV_HELP_FAR = 'クリック付近の道路を開きます';
   const helpText = () => (map.getZoom() >= SV_LINE_ZOOM ? SV_HELP : SV_HELP_FAR);
   const bannerNote = (msg) => {
     $id('sv-banner-text').textContent = msg;
@@ -712,6 +725,7 @@ export async function renderMap(view, ctx) {
     svRect = { left: r.left, top: r.top, width: r.width, height: r.height };
   };
   function closeSv() {
+    endCapture();
     svPoint = null;
     setMin(false);
     svPanel.hidden = true;
@@ -738,7 +752,8 @@ export async function renderMap(view, ctx) {
       $id('sv-banner-text').textContent = helpText();
       if (!svCoverage) { // 青い線（ストリートビューのある道路）を地図に重ねる。拡大したら、半分の太さ（1 段細かいタイルを半分の大きさで）にする
         if (!map.getPane('svCoverage')) { const pane = map.createPane('svCoverage'); pane.style.zIndex = 450; pane.style.pointerEvents = 'none'; }
-        const common = { pane: 'svCoverage', maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '' };
+        // crossOrigin: 画素を読み取る処理（svTileAlpha）と同じ読み込み方にする（違うと、ブラウザのキャッシュのせいで読み取りに失敗することがある）
+        const common = { pane: 'svCoverage', maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '', crossOrigin: 'anonymous' };
         const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, maxNativeZoom: 17, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
         const thin = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, minZoom: SV_THIN_ZOOM, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 }).addTo(map);
         svCoverage = L.layerGroup([normal, thin]); // まとめて外せるように
@@ -754,12 +769,54 @@ export async function renderMap(view, ctx) {
   $id('map-sv').addEventListener('click', () => setSv(!svOn));
   $id('sv-exit').addEventListener('click', () => setSv(false));
   svPanel.querySelector('#sv-close').addEventListener('click', closeSv);
-  svPanel.querySelector('#sv-card')?.addEventListener('click', async () => {
-    if (!svPoint) return;
+  // 「📍 この場所でカードを作る」: 映像を最大にして、画面を撮影してもらう（ブラウザの画面共有は使わない）。
+  // 撮影した画像を貼り付け（Ctrl+V）かボタンで取り込んだら、元の大きさに戻して、切り抜きの画面つきのカード作成を開く
+  let capture = null; // { bar, onPaste, wasMax }
+  function endCapture() {
+    if (!capture) return;
+    document.removeEventListener('paste', capture.onPaste);
+    capture.bar.remove();
+    if (!capture.wasMax) svPanel.classList.remove('is-max');
+    capture = null;
+  }
+  function beginCapture() {
+    if (!svPoint || capture) return;
     const [lat, lng] = svPoint;
-    // 画面の撮影は、ボタンを押した直後（ユーザー操作の直後）に始める必要があるので、国の判定は待たない
-    ctx.createCardFromSv({ lat, lng, codePromise: countryAt(lat, lng), frameRect: svFrame.getBoundingClientRect() });
-  });
+    const codePromise = countryAt(lat, lng);
+    const wasMax = svPanel.classList.contains('is-max');
+    setMin(false);
+    svPanel.classList.add('is-max'); // 映像を最大にしてから撮影する
+    const bar = document.createElement('div');
+    bar.className = 'sv-capture';
+    bar.innerHTML = `<b>📸 この映像を撮影してください</b>
+      <span>Windows は Win+Shift+S、Mac は ⌘+Shift+4 で範囲を選んでコピーし、<kbd>Ctrl</kbd>+<kbd>V</kbd> で貼り付けてください（切り抜きは次の画面でもできます）</span>
+      <button type="button" class="btn btn-sm btn-primary" id="sv-cap-read">コピーした画像を取り込む</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sv-cap-cancel">キャンセル</button>`;
+    svPanel.insertBefore(bar, svFrame); // 映像の上ではなく、ヘッダーのすぐ下の専用の行に（撮影に写り込まないように）
+    const done = (blob) => { endCapture(); ctx.createCardFromSv({ lat, lng, codePromise, blob }); };
+    const onPaste = (e) => {
+      const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith('image/'));
+      if (!item) return; // 文字の貼り付けは無視
+      e.preventDefault();
+      done(item.getAsFile());
+    };
+    capture = { bar, onPaste, wasMax };
+    document.addEventListener('paste', onPaste);
+    bar.querySelector('#sv-cap-cancel').addEventListener('click', endCapture);
+    bar.querySelector('#sv-cap-read').addEventListener('click', async () => {
+      try {
+        for (const it of await navigator.clipboard.read()) {
+          const type = it.types.find((t) => t.startsWith('image/'));
+          if (type) { done(await it.getType(type)); return; }
+        }
+        ctx.toast('クリップボードに画像がありません。先に撮影してコピーしてください', 'error');
+      } catch { ctx.toast('クリップボードを読めませんでした。Ctrl+V で貼り付けてください', 'error'); }
+    });
+    // 映像の中にフォーカスがあると貼り付けが映像の側に届かないので、ボタンへフォーカスを移す
+    window.focus();
+    bar.querySelector('#sv-cap-read').focus();
+  }
+  svPanel.querySelector('#sv-card')?.addEventListener('click', beginCapture);
   svPanel.querySelector('#sv-max').addEventListener('click', () => { setMin(false); saveRect(); svPanel.classList.toggle('is-max'); });
   // 一時的な縮小: ヘッダーだけにして、地図を見やすくする（もう一度押す・新しい場所を開くと戻る）
   function setMin(on) {
@@ -788,10 +845,10 @@ export async function renderMap(view, ctx) {
     if (!svOn || e.buttons || e.target.closest('.leaflet-control')) return;
     clearTimeout(svHoverTimer);
     svHoverTimer = setTimeout(async () => {
-      if (!svOn || map.getZoom() < SV_SNAP_MIN_ZOOM) { hideGhost(); return; }
+      if (!svOn || map.getZoom() < SV_HOVER_MIN_ZOOM) { hideGhost(); return; } // 引いた縮尺では、動かすたびに探すと重いので印は出さない（クリックすれば探す）
       const seq = ++svHoverSeq;
       const ll = map.mouseEventToLatLng(e).wrap();
-      const hit = await svSnap(ll.lat, ll.lng, map.getZoom());
+      const hit = await svFind(ll.lat, ll.lng, map.getZoom());
       if (seq !== svHoverSeq || !svOn) return;
       svHoverPt = { x: e.clientX, y: e.clientY, hit };
       if (hit) { showGhost(hit); $id('map').classList.add('sv-hot'); } else { if (ghost) { ghost.remove(); ghost = null; } $id('map').classList.remove('sv-hot'); }
@@ -808,16 +865,13 @@ export async function renderMap(view, ctx) {
     e.preventDefault();
     if (svDown && Math.hypot(e.clientX - svDown[0], e.clientY - svDown[1]) > 5) return;
     const ll = map.mouseEventToLatLng(e).wrap();
-    // 道路が区別できない縮尺: クリックした場所に拡大して、そこで道路を選んでもらう
-    if (map.getZoom() < SV_SNAP_MIN_ZOOM) {
-      if (anim) map.flyTo(ll, SV_LINE_ZOOM + 1, { duration: 0.6 }); else map.setView(ll, SV_LINE_ZOOM + 1, { animate: false });
-      bannerNote('拡大しました。青い線の近くをクリック');
-      return;
-    }
-    // さっきの「印」の近くをクリックしたなら、その印の場所へ（計算し直さない）
-    const hit = svHoverPt && Math.hypot(e.clientX - svHoverPt.x, e.clientY - svHoverPt.y) < 12 ? svHoverPt.hit : await svSnap(ll.lat, ll.lng, map.getZoom());
+    // さっきの「印」の近くをクリックしたなら、その印の場所へ（計算し直さない）。なければクリックした付近の道路を探す（縮尺が小さくてもよい）
+    const hit = svHoverPt && Math.hypot(e.clientX - svHoverPt.x, e.clientY - svHoverPt.y) < 12 ? svHoverPt.hit : await svFind(ll.lat, ll.lng, map.getZoom());
     if (hit) openSv(hit.lat, hit.lng);
-    else bannerNote('近くに道路がありません');
+    else { // 何もない所（海・砂漠・映像のない地域など）は、開く前にお知らせ
+      ctx.toast('この付近にはストリートビューがありません', 'error');
+      bannerNote('付近にはありません');
+    }
   }, true);
   // パネルをヘッダーのドラッグで動かす（画面のどこへでも。スマホは下に固定）
   {
@@ -859,7 +913,7 @@ export async function renderMap(view, ctx) {
   }
   if (svOn) setSv(true, true); // 地図を描き直したときも、モードと開いていた地点を引き継ぐ
   if (svPoint) openSv(svPoint[0], svPoint[1]);
-  escHandler = () => { if (svPoint) closeSv(); else if (svOn) setSv(false); else clearFocus(); };
+  escHandler = () => { if (capture) endCapture(); else if (svPoint) closeSv(); else if (svOn) setSv(false); else clearFocus(); };
   notesHandler = () => renderInfo();
   const isVisible = (code, view) => {
     const parts = partBounds.get(code);

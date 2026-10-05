@@ -1819,3 +1819,12 @@ textarea { resize: vertical; line-height: 1.6; }
 /* 一時的な縮小: ヘッダーだけ（映像は隠す。位置は変えない） */
 .sv-panel.is-min { height: auto !important; min-height: 0; resize: none; }
 .sv-panel.is-min iframe, .sv-panel.is-min .sv-note { display: none; }
+
+/* カードを作るための撮影案内（ストリートビューを最大にしたあと、画面の上に出す） */
+.sv-capture {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px;
+  background: #1c7ed6; color: #fff; font-size: 13px;
+}
+.sv-capture span { flex: 1 1 260px; line-height: 1.4; font-size: 12px; }
+.sv-capture kbd { background: rgba(255, 255, 255, .22); border-radius: 4px; padding: 0 5px; font: inherit; font-weight: 700; }
+.sv-capture .btn-ghost { color: #fff; border-color: rgba(255, 255, 255, .5); }
