@@ -800,8 +800,9 @@ function onKeydown(e) {
 /* ================= カード表示部品 ================= */
 // withBack: 裏面だけの書き込み（ヒントの印）を画像に重ねる（答えが見えている場面用）
 // ストリートビューの練習の問題: 映像を埋め込む。左上に出る場所の名前（答えのヒント）は、答えるまで隠す
+let svHide = false; // 対戦で、答えが出るまで場所の名前を隠す
 function svFrontHtml(card) {
-  const hide = state.view === 'quiz' && state.quiz.phase === 'question' && !state.quiz.answered;
+  const hide = svHide || (state.view === 'quiz' && state.quiz.phase === 'question' && !state.quiz.answered);
   return `<div class="front-img sv-front">${catBadge(card, 'cat-on-img')}<iframe class="sv-quiz-frame" title="ストリートビュー" src="${esc(svEmbedUrl(card.lat, card.lng, card.heading))}" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>${hide ? '<div class="sv-cover" aria-hidden="true"><span>？</span></div>' : ''}</div>`;
 }
 const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
@@ -2124,11 +2125,63 @@ function renderBattle() {
   setFit('scroll');
   $('#view').innerHTML = '<section class="panel battle" id="battle-root"></section>';
   battle = mountBattle($('#battle-root'), {
-    api, esc, play, toast, countryName, flagImg, cardById, frontHtml,
-    getCards: () => quizEligible(state.quiz.regions).filter((c) => !c.sv && c.countries.length),
-    makeOptions: (card) => makeOptions(card, state.quiz.regions),
-    onExit: () => { battle = null; state.quiz.kind = 'cards'; renderQuiz(); },
+    api, esc, play, toast, countryName, flagImg, flagUrl, cardById, frontHtml, answerHtml, cardInfoHtml, factPanelHtml,
+    mountQuizMap, mountPinMap, distanceBetween, resolveCountryCode,
+    factTopics: FACT_TOPICS.map((id) => ({ id, name: modeDef(id).name, icon: modeDef(id).icon })),
+    setSvHide: (v) => { svHide = v; },
+    cardFor: (Q) => (Q.card ? svCards.get(Q.card.id) : cardById(Q.cardId)),
+    buildQuestions: battleBuild,
+    prepare: async (qs) => {
+      for (const Q of qs) if (Q.card) svCards.set(Q.card.id, Q.card);
+      if (qs.some((Q) => String(Q.cardId || '').startsWith('ref|'))) await ensureRefInfo().catch(() => {}); // 撮影地点の座標
+    },
+    judge: (card, mode, given) => {
+      if (mode === 'map') { const g = given[0]; return { result: card.countries.includes(g) ? 'ok' : card.countries.some((c) => COUNTRY_INFO[c]?.nb.includes(g)) ? 'partial' : 'ng' }; }
+      return { result: grade(card, given) };
+    },
+    onExit: () => { battle = null; svHide = false; state.quiz.kind = 'cards'; renderQuiz(); },
   });
+}
+// 対戦の問題を作る（ホスト）。クイズ設定の地域・カテゴリー・写真の種類を使う
+async function battleBuild(cfg) {
+  const q = state.quiz;
+  const regions = q.regions;
+  const n = cfg.qn;
+  if (cfg.kind === 'fact') {
+    const groups = legendGroups(cfg.topic, allCodes());
+    const m = modeDef(cfg.topic);
+    return shuffle(factQuizPool(cfg.topic, regions)).slice(0, n).map((code) => {
+      const right = classify(cfg.topic, code);
+      const wrong = shuffle(groups.filter((g) => g.key !== right.key && !alsoTrue(cfg.topic, code, g))).slice(0, 3);
+      const sw = (g) => g.swatch || `<span class="sw" style="background:${g.color}"></span>`;
+      return { k: 'fact', topic: cfg.topic, topicName: m.name, topicIcon: m.icon, item: { code, answer: right.key, options: shuffle([right, ...wrong]).map((g) => ({ key: g.key, label: g.label, swatch: sw(g) })) } };
+    });
+  }
+  const opts = (card) => (cfg.mode === 'choice' ? makeOptions(card, regions) : null);
+  if (cfg.kind === 'sv') {
+    const codes = REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable);
+    const out = [];
+    const used = new Set();
+    let tries = 0;
+    const worker = async () => {
+      while (out.length < n && tries < n * 8) {
+        tries++;
+        const fresh = codes.filter((c) => !used.has(c));
+        const code = pick(fresh.length ? fresh : codes);
+        const p = await randomSvPoint(code).catch(() => null);
+        if (!p || out.length >= n) continue;
+        used.add(code);
+        const card = { id: `sv|${Date.now()}|${out.length}`, countries: [code], sv: true, lat: p.lat, lng: p.lng, heading: Math.floor(Math.random() * 360), description: '', area: '', notes: '', category_id: null, created_at: '' };
+        out.push({ k: 'card', mode: cfg.mode, card, options: opts(card) });
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    return out;
+  }
+  let pool;
+  if (cfg.kind === 'photo') { await ensureRefInfo().catch(() => {}); pool = photoPool({ photoTopics: new Set(PHOTO_TOPICS), regions, mode: cfg.mode }); }
+  else pool = quizEligible(regions).filter((c) => !c.sv && c.countries.length);
+  return shuffle(pool).slice(0, n).map((card) => ({ k: 'card', mode: cfg.mode, cardId: card.id, options: opts(card) }));
 }
 function renderQuiz() {
   const q = state.quiz;

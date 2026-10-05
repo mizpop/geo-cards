@@ -1927,3 +1927,14 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
 .bt-rank { width: 2em; text-align: center; }
 .bt-pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bt-wait { text-align: center; padding: 40px 0; font-size: 18px; }
+.bt-input-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.bt-input-row .input { flex: 1; min-width: 200px; }
+.bt-chips { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
+.bt-qm { min-height: min(66vh, 620px); margin-top: 8px; }
+.bt-answer { margin: 10px 0; }
+.bt-results li { gap: 8px; }
+.bt-res { width: 1.4em; text-align: center; font-weight: 700; }
+.bt-res.res-ok { color: var(--accent); }
+.bt-res.res-partial { color: #fab005; }
+.bt-res.res-ng { color: #e03131; }
+.bt-label { flex: 1; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
