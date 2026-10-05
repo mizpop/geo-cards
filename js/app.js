@@ -2966,7 +2966,7 @@ function renderPinQuestion(card) {
             </div>
             ${answerHtml(card, 'sm', true)}
             ${cardInfoHtml(card)}
-          </div>` : `<p class="quiz-prompt">${card.sv ? 'このストリートビューの場所を' : 'この写真の撮影地点を'}、地図をクリックしてピンを置き、「回答」を押してください（近いほど高得点）</p><button class="btn btn-primary qm-guess" id="q-guess" type="button" disabled>📍 この場所で回答</button>`}
+          </div>` : `<button class="btn btn-primary qm-guess" id="q-guess" type="button" disabled>📍 この場所で回答</button>`}
       </div>
     </div>`;
   attachZoom($('.quiz-card .front-img'));

@@ -362,7 +362,7 @@ export function mountBattle(host, ctx) {
     } else { // map / pin: 左に問題、右下に地図
       main.innerHTML = `${top}<div class="qm-layout qm-float bt-qm"><div class="quiz-card">${frontHtml(card, false, false)}</div>
         <div class="qm-side"><div class="quiz-map" id="bt-map"><div class="map-loading">地図を読み込み中…</div></div>
-        <p class="quiz-prompt">${Q.mode === 'map' ? '答えの国を、地図でクリック' : '場所を地図でクリックしてピンを置き、「回答」を押してください'}</p>
+        ${Q.mode === 'map' ? '<p class="quiz-prompt">答えの国を、地図でクリック</p>' : ''}
         ${Q.mode === 'pin' ? '<button class="btn btn-primary qm-guess" id="bt-guess" type="button" disabled>📍 この場所で回答</button>' : ''}</div></div>`;
       bindExit();
       const at = game.i;
