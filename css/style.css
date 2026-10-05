@@ -1960,3 +1960,23 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
 .bt-scope { display: flex; flex-direction: column; gap: 8px; }
 .bt-scope-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .bt-scope-row > .muted { width: 5.5em; flex: none; }
+
+.battle { max-width: 1000px; }
+.bt-settings { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
+.bt-settings .setup-block { margin: 12px 0; }
+/* 対戦のストリートビューは大きく（映像が見やすいように） */
+.battle .quiz-card:has(.sv-front) { height: min(72vh, 720px); min-height: 360px; }
+.battle .bt-qm .quiz-card:has(.sv-front) { height: auto; min-height: min(70vh, 700px); }
+
+/* ストリートビューの問題・答え: 映像を右に大きく、答えや選択肢は左に */
+.sv-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); gap: 14px; align-items: start; }
+.sv-split > .quiz-card, .battle .sv-split > .quiz-card:has(.sv-front), .sv-split > .quiz-card:has(.sv-front) { order: 2; height: min(76vh, 780px); min-height: 380px; }
+.sv-split > :not(.quiz-card) { order: 1; min-width: 0; }
+@media (max-width: 900px) {
+  .sv-split { grid-template-columns: minmax(0, 1fr); }
+  .sv-split > .quiz-card, .battle .sv-split > .quiz-card:has(.sv-front) { order: 0; height: 55vh; min-height: 280px; }
+  .sv-split > :not(.quiz-card) { order: 1; }
+}
+.sv-split > :not(.quiz-card) { max-height: min(76vh, 780px); overflow-y: auto; overscroll-behavior: contain; }
+.sv-split .feedback, .sv-split .quiz-bottom { max-height: none; }
+@media (max-width: 900px) { .sv-split > :not(.quiz-card) { max-height: none; overflow: visible; } }

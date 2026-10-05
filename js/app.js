@@ -2130,7 +2130,8 @@ function renderBattle() {
     factTopics: FACT_TOPICS.map((id) => ({ id, name: modeDef(id).name, icon: modeDef(id).icon })),
     setSvHide: (v) => { svHide = v; },
     regions: REGIONS.map((r) => ({ id: r.id, name: r.name })),
-    categories: allCats().map((c) => ({ key: c.id, name: c.name })),
+    categories: allCats().map((c) => ({ key: c.id, name: c.name, vars: catVars(c) })),
+    scopeCounts: battleCounts,
     photoTopics: PHOTO_TOPICS.map((t) => ({ id: t, name: modeDef(t).name, icon: modeDef(t).icon })),
     cardFor: (Q) => (Q.card ? svCards.get(Q.card.id) : cardById(Q.cardId)),
     buildQuestions: battleBuild,
@@ -2144,6 +2145,16 @@ function renderBattle() {
     },
     onExit: () => { battle = null; svHide = false; state.quiz.kind = 'cards'; renderQuiz(); },
   });
+}
+// 対戦の設定画面に出す、地域・カテゴリーごとの出題数
+function battleCounts(cfg) {
+  const regions = new Map(REGIONS.map((r) => [r.id, 0]));
+  const cats = new Map(allCats().map((c) => [c.id, 0]));
+  if (cfg.kind === 'sv') for (const r of REGIONS) regions.set(r.id, r.countries.filter((c) => isPlayable(c.code)).length);
+  else if (cfg.kind === 'photo') { for (const t of cfg.photoTopics) for (const [code, list] of Object.entries(REF_IMAGES[t] || {})) { const r = COUNTRY_BY_CODE.get(code)?.region; if (regions.has(r)) regions.set(r, regions.get(r) + list.length); } }
+  else if (cfg.kind === 'fact') for (const r of REGIONS) regions.set(r.id, factQuizPool(cfg.topic, new Set([r.id])).length);
+  else for (const c of state.cards) { if (c.sv) continue; for (const r of cardRegions(c)) regions.set(r, (regions.get(r) || 0) + 1); cats.set(catKey(c), (cats.get(catKey(c)) || 0) + 1); }
+  return { regions, cats };
 }
 // 対戦の問題を作る（ホスト）。クイズ設定の地域・カテゴリー・写真の種類を使う
 async function battleBuild(cfg) {
@@ -2160,6 +2171,22 @@ async function battleBuild(cfg) {
     });
   }
   const opts = (card) => (cfg.mode === 'choice' ? makeOptions(card, regions) : null);
+  if (cfg.kind === 'sv' && cfg.svSource === 'ref') { // GeoHints の写真が撮られた地点だけ
+    await ensureRefInfo().catch(() => {});
+    const allowed = new Set(REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)));
+    const byCountry = new Map();
+    for (const [topic, byCode] of Object.entries(REF_IMAGES)) for (const [code, rels] of Object.entries(byCode)) {
+      if (!allowed.has(code)) continue;
+      for (const rel of rels) { const i = refInfo(topic, rel); if (i && i.lat != null && i.lng != null) { if (!byCountry.has(code)) byCountry.set(code, []); byCountry.get(code).push({ code, lat: i.lat, lng: i.lng, heading: i.heading || 0, topic, rel }); } }
+    }
+    const picks = [];
+    const pools = shuffle([...byCountry.values()].map((l) => shuffle(l)));
+    while (picks.length < n && pools.some((l) => l.length)) for (const l of pools) { if (picks.length >= n) break; if (l.length) picks.push(l.pop()); }
+    return shuffle(picks).map((p, k) => {
+      const card = { id: `sv|${Date.now()}|${k}`, countries: [p.code], sv: true, lat: p.lat, lng: p.lng, heading: Math.round(p.heading), refTopic: p.topic, refSrc: REF_BASE + p.rel, description: '', area: '', notes: '', category_id: null, created_at: '' };
+      return { k: 'card', mode: cfg.mode, card, options: opts(card) };
+    });
+  }
   if (cfg.kind === 'sv') {
     const codes = REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable);
     const out = [];
@@ -2786,6 +2813,7 @@ function renderQuestion() {
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    ${card.sv ? '<div class="sv-split">' : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
       ${a ? '' : `<p class="quiz-prompt">${card.sv ? 'この場所は、どこの国？（映像の中は動き回れます）' : 'この特徴が見られる国は？'}</p>`}
@@ -2802,6 +2830,7 @@ function renderQuestion() {
           ${cardInfoHtml(card)}
         </div>` : ''}
     </div>
+    ${card.sv ? '</div>' : ''}
   `;
 
   attachZoom($('.quiz-card .front-img'));
