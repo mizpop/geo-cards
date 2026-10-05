@@ -2053,3 +2053,9 @@ body:has(.sv-front) { overflow-x: clip; }
 .bt-choices.answered .choice { opacity: .5; }
 .bt-choices.answered .choice.picked { opacity: 1; outline: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--surface)); position: relative; }
 .bt-choices.answered .choice.picked::after { content: '✔ あなたの回答'; margin-left: auto; font-size: 12px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+
+/* 対戦の答え合わせ（地図で答える問題）: 画像・ストリートビューの下に、自分の答えと正解の地図 */
+.sv-split > .bt-media { order: 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bt-media > .quiz-card, .sv-split > .bt-media > .quiz-card:has(.sv-front), .battle .sv-split > .bt-media > .quiz-card:has(.sv-front) { height: min(46vh, 480px) !important; min-height: 240px; order: 0; }
+.bt-media > .bt-rmap { flex: none; height: min(34vh, 360px); min-height: 220px; }
+.bt-media > .quiz-card { flex: none !important; }

@@ -202,7 +202,7 @@ export function mountBattle(host, ctx) {
       phase = 'play';
       main.innerHTML = '<p class="bt-wait">問題を準備しています…</p>';
       await ctx.prepare(m.questions);
-      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
+      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, mine: {}, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
       play?.('open');
     } else if (m.t === 'q' && game) {
       clearTimers();
@@ -453,6 +453,7 @@ export function mountBattle(host, ctx) {
         ctx.mountQuizMap(host.querySelector('#bt-map'), { answers: card.countries, answered: null, qid: `bt${at}`, animate: false, onPick: (code) => {
           if (game.i !== at) return;
           const r = ctx.judge(card, 'map', [code]).result;
+          game.mine[at] = { code };
           submit({ res: r, pts: scoreOf(r), label: countryName(code) });
         } }).then(() => host.querySelector('#bt-map .map-loading')?.remove()).catch(() => {});
       } else {
@@ -461,6 +462,7 @@ export function mountBattle(host, ctx) {
           .then(() => host.querySelector('#bt-map .map-loading')?.remove()).catch(() => {});
         host.querySelector('#bt-guess').addEventListener('click', () => {
           if (!pending || game.i !== at) return;
+          game.mine[at] = { guess: pending };
           const km = ctx.distanceBetween(pending, [card.lat, card.lng]);
           const pts = Math.round(1000 * Math.exp(-km / 1500) * (0.8 + 0.2 * bonus(msNow(), game.perQ)));
           submit({ res: km <= 150 ? 'ok' : km <= 750 ? 'partial' : 'ng', pts, label: `約 ${Math.round(km).toLocaleString()} km` });
@@ -509,6 +511,10 @@ export function mountBattle(host, ctx) {
       const a = got.get(p.id);
       return `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-rank">${medal(i)}</span><span class="bt-pname">${esc(p.name)}</span><span class="bt-res res-${a?.res || 'ng'}">${a ? { ok: '○', partial: '△', ng: '✗' }[a.res] : '－'}</span><span class="bt-label">${a ? esc(a.label || '') : '未回答'}</span><span class="bt-gain">+${(a?.pts || 0).toLocaleString()}</span><b class="bt-score">${p.score.toLocaleString()}</b></li>`;
     }).join('');
+    // 地図で答える問題: 自分の答えと正解がわかる地図を、画像・ストリートビューの下に出す
+    const card0 = Q.k === 'card' ? ctx.cardFor(Q) : null;
+    const showMap = !!card0 && ((Q.mode === 'map') || (Q.mode === 'pin' && card0.lat != null));
+    const mediaHtml = showMap ? `<div class="bt-media">${cardHtml}<div class="quiz-map bt-rmap" id="bt-rmap"><div class="map-loading">地図を読み込み中…</div></div></div>` : cardHtml;
     const last = game.i + 1 >= game.questions.length;
     const title = mine ? { ok: '○ 正解！', partial: '△ 惜しい', ng: '✗ 不正解' }[mine.res] : '⏱ 未回答';
     const toolbar = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length} の答え</span><span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
@@ -522,9 +528,17 @@ export function mountBattle(host, ctx) {
         <p class="muted small">${game.autoNext ? `${game.autoNext} 秒後に自動で${last ? '結果発表へ' : '次の問題へ'}進みます${isHost ? '（ボタンを押すとすぐに進みます）' : ''}` : isHost ? `準備ができたら「${last ? '結果発表へ' : '次の問題へ'}」を押してください` : `ホストが「${last ? '結果発表へ' : '次の問題へ'}」を押すのを待っています…`}</p>
       </div></div>`;
     // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）
-    main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${cardHtml}</div>` : `${cardHtml}${bottom}`}`;
+    main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${mediaHtml}</div>` : `${cardHtml}${bottom}`}`;
     bindExit();
     ctx.attachZoom(host.querySelector('.quiz-card .front-img'));
+    if (showMap) {
+      const el = host.querySelector('#bt-rmap');
+      const my = game.mine[game.i];
+      const at = game.i;
+      const done = () => { if (game.i === at) host.querySelector('#bt-rmap .map-loading')?.remove(); };
+      if (Q.mode === 'map') ctx.mountQuizMap(el, { answers: card0.countries, answered: { given: my?.code ? [my.code] : [] }, qid: `br${at}`, animate: false, onPick: () => {} }).then(done).catch(() => {});
+      else ctx.mountPinMap(el, { answer: [card0.lat, card0.lng], guess: my?.guess, reveal: !my?.guess, qid: `br${at}`, animate: false }).then(done).catch(() => {});
+    }
     main.querySelector('#bt-next')?.addEventListener('click', () => { // ホスト: 続けるボタンですぐに次へ
       if (!isHost || phase !== 'reveal') return;
       clearHostTimers();
