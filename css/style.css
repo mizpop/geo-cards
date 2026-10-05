@@ -1821,6 +1821,7 @@ textarea { resize: vertical; line-height: 1.6; }
   background: linear-gradient(135deg, #1f2933 60%, rgba(31, 41, 51, .85)); color: #adb5bd; font-size: 28px; font-weight: 800;
   border-bottom-right-radius: 14px;
 }
+.sv-cover-fs { position: absolute; right: 0; top: 0; width: 68px; height: 68px; z-index: 2; background: #1f2933; border-bottom-left-radius: 14px; }
 .sv-front .cat-on-img { z-index: 3; top: 92px; }
 
 /* クリックしたら開く場所（いちばん近い道路）の印 */
@@ -1978,7 +1979,8 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
   .sv-split > :not(.quiz-card) { order: 1; }
 }
 .sv-split > :not(.quiz-card) { max-height: min(76vh, 780px); overflow-y: auto; overscroll-behavior: contain; }
-.sv-split .feedback, .sv-split .quiz-bottom { max-height: none; }
+.sv-split .feedback { max-height: none; overflow: visible; }
+.sv-split > .quiz-bottom { max-height: min(76vh, 780px); overflow-y: auto; overscroll-behavior: contain; }
 @media (max-width: 900px) { .sv-split > :not(.quiz-card) { max-height: none; overflow: visible; } }
 
 /* 公開された対戦の部屋のポップアップ */
@@ -2019,3 +2021,5 @@ body:has(.sv-front) { overflow-x: clip; }
 
 .bt-gain { color: var(--accent); font-size: 12px; white-space: nowrap; }
 .bt-results .bt-score { min-width: 3.5em; text-align: right; }
+
+@media (max-width: 900px) { .sv-split > .quiz-bottom { max-height: none; overflow: visible; } }

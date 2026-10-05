@@ -813,7 +813,7 @@ function onKeydown(e) {
 let svHide = false; // 対戦で、答えが出るまで場所の名前を隠す
 function svFrontHtml(card) {
   const hide = svHide || (state.view === 'quiz' && state.quiz.phase === 'question' && !state.quiz.answered);
-  return `<div class="front-img sv-front">${catBadge(card, 'cat-on-img')}<iframe class="sv-quiz-frame" title="ストリートビュー" src="${esc(svEmbedUrl(card.lat, card.lng, card.heading))}" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>${hide ? '<div class="sv-cover" aria-hidden="true"><span>？</span></div>' : ''}</div>`;
+  return `<div class="front-img sv-front">${catBadge(card, 'cat-on-img')}<iframe class="sv-quiz-frame" title="ストリートビュー" src="${esc(svEmbedUrl(card.lat, card.lng, card.heading))}" ${hide ? '' : 'allow="fullscreen"'} referrerpolicy="strict-origin-when-cross-origin"></iframe>${hide ? '<div class="sv-cover" aria-hidden="true"><span>？</span></div><div class="sv-cover-fs" aria-hidden="true"></div>' : ''}</div>`; // 問題中は、全画面にすると隠した名前が見えるので、全画面を禁止して、右上の全画面ボタンも隠す
 }
 const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
