@@ -121,6 +121,7 @@ js/quizmap.js           地図で答えるクイズの地図
 js/infomap.js           地図のインフォグラフィック（シェブロン・ガードレール・電柱・通行・文字・苦手）
 js/infodata.js          インフォグラフィックの初期データ（GeoHints・Plonkit の資料から作成）
 js/refimages.js         地図の参考写真の一覧（GeoHints の画像）
+js/refinfo.js           参考写真ごとの解説・撮影地点（大きいので必要になったときだけ読み込む）
 js/annotate.js          画像への書き込み（丸・矢印・四角・ペン）
 functions/api/refimg.js 参考写真の中継（Cloudflare Pages Functions。カード作成用）
 sw.js                   オフライン用のサービスワーカー（ホーム画面に追加したとき）

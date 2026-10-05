@@ -10,7 +10,7 @@ import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
 import { record, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
-import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo } from './refimages.js';
+import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
 /* ================= ユーティリティ ================= */
@@ -106,7 +106,7 @@ function refCard(id) {
   if (!rel) return undefined;
   const info = refInfo(topic, rel) || {};
   const card = { id, countries: [code], description: '', area: '', notes: '', category_id: null, created_at: '', photo: true, topic, src: REF_BASE + rel, lat: info.lat, lng: info.lng };
-  refCards.set(id, card);
+  if (refInfoLoaded()) refCards.set(id, card); // 座標などの情報を読み込む前に作った分は覚えない（あとで座標つきで作り直す）
   return card;
 }
 const cardById = (id) => state.cards.find((c) => c.id === id) || (String(id).startsWith('ref|') ? refCard(id) : undefined);
@@ -827,6 +827,10 @@ function showNav(entry) {
     renderCountryModal(entry);
   }
   modalCurrent = entry;
+  // 参考写真の説明・撮影地点は大きいデータなので、必要になったときに読み込んで表示し直す
+  if ((entry.kind === 'photo' || (entry.kind === 'card' && String(entry.id).startsWith('ref|'))) && !refInfoLoaded()) {
+    ensureRefInfo().then(() => { if (modalCurrent === entry && $('#modal').open) showNav(entry); }).catch(() => {});
+  }
 }
 function modalBack() {
   const prev = modalStack.pop();
@@ -965,6 +969,7 @@ async function photoToCard(topic, code, src, btn) {
     const res = await fetch(`/api/refimg?path=${encodeURIComponent(rel)}`);
     if (!res.ok) throw new Error(`画像を取得できませんでした（${res.status}）`);
     const blob = await res.blob();
+    await ensureRefInfo().catch(() => {});
     const info = refInfo(topic, rel) || {};
     const place = (info.desc || '').match(/撮影場所: (.+?)付近/)?.[1] || '';
     const note = factOf(topic, code)?.note || '';
@@ -1948,12 +1953,19 @@ function renderQuiz() {
     renderQuiz();
   }));
   $('#q-og-site')?.addEventListener('change', (e) => { settings.playSite = e.target.value; saveSettings(); });
-  $('#q-og')?.addEventListener('click', () => {
+  $('#q-og')?.addEventListener('click', async () => {
+    await ensureRefInfo().catch(() => toast('写真の情報を読み込めませんでした', 'error'));
     const pool = photoPool({ ...q, mode: 'pin' });
     exportOpenGuessr(pool, `GeoChecker 参考写真（${[...q.photoTopics].map((t) => modeDef(t).name).join('・')}）`);
   });
   $$('#q-time button').forEach((b) => b.addEventListener('click', () => { q.timeLimit = Number(b.dataset.t); renderQuiz(); }));
-  $('#q-start').addEventListener('click', () => (isFact ? startFactQuiz(factQuizPool(q.factTopic, q.regions)) : startQuiz(isPhoto ? photoPool(q) : quizEligible(q.regions))));
+  $('#q-start').addEventListener('click', async () => {
+    if (isPhoto) await ensureRefInfo().catch(() => {}); // 撮影地点を当てる問題に必要な座標
+    if (isFact) startFactQuiz(factQuizPool(q.factTopic, q.regions));
+    else startQuiz(isPhoto ? photoPool(q) : quizEligible(q.regions));
+  });
+  // 写真のクイズの設定画面: 「撮影地点を当てる」に出せる枚数の計算に座標が要る。読み込めたら描き直す
+  if (isPhoto && !refInfoLoaded()) ensureRefInfo().then(() => { if (state.view === 'quiz' && q.phase === 'setup' && q.kind === 'photo') renderQuiz(); }).catch(() => {});
 }
 
 /* ---- タイムアタック（制限時間つき） ---- */

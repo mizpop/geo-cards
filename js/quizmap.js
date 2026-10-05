@@ -42,7 +42,7 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
   window.__quizMap = map; // 動作確認用
   el.classList.toggle('map-dark', isDark());
   L.control.attribution({ prefix: false }).addTo(map);
-  addBaseTiles(map, { keepBuffer: 4 });
+  addBaseTiles(map);
   if (qid !== lastQ) { lastView = null; lastQ = qid; }
   if (lastView) map.setView(lastView.center, lastView.zoom, { animate: false });
   else map.setView([25, 10], 1.5, { animate: false });
@@ -98,7 +98,7 @@ export async function mountPinMap(el, { answer, guess, onPick, animate = true, q
   window.__quizMap = map;
   el.classList.toggle('map-dark', isDark());
   L.control.attribution({ prefix: false }).addTo(map);
-  addBaseTiles(map, { keepBuffer: 4 });
+  addBaseTiles(map);
   if (qid !== lastQ) { lastView = null; lastQ = qid; }
   if (lastView) map.setView(lastView.center, lastView.zoom, { animate: false });
   else map.setView([25, 10], 1.5, { animate: false });

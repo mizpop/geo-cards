@@ -82,8 +82,13 @@ function getBubble() {
 // 'osm': OpenStreetMap（地名は現地の言語）。どちらも API キー不要
 let tileStyle = 'en';
 export function setTileStyle(v) { tileStyle = v === 'osm' ? 'osm' : 'en'; }
+// タイルの読み込みを控えめに: 画面の外に先読みする量（keepBuffer）を減らし、スマホ（指で操作する端末）・
+// データ節約の設定では、動かしている最中は読み込まず止まってから読み込む（端が少しだけ遅れて出る）
+const leanTiles = () => !!(window.matchMedia?.('(pointer: coarse)').matches || navigator.connection?.saveData);
 export function addBaseTiles(map, opts = {}) {
   const L = window.L;
+  const lean = leanTiles();
+  opts = { keepBuffer: lean ? 1 : 3, updateWhenIdle: lean, ...opts };
   // attribution は地図の帰属表示（右下）に自動で出る
   const layer = tileStyle === 'osm'
     ? L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', ...opts })
@@ -274,11 +279,7 @@ export async function renderMap(view, ctx) {
   }, { capture: true });
   const dark = isDark();
   // 背景の地図（設定で英語表記 / OpenStreetMap を切り替え）。ダークモードは CSS で色を反転
-  addBaseTiles(map, {
-    keepBuffer: 6, // 画面外のタイルを多めに保持して、移動時に端が白くなるのを防ぐ
-    updateWhenIdle: false, // 移動中も読み込む（スマホの既定は停止後のみ）
-    updateWhenZooming: false,
-  });
+  addBaseTiles(map, { updateWhenZooming: false });
   $id('map').classList.toggle('map-dark', dark);
   if (lastView) map.setView(lastView.center, lastView.zoom);
   else map.setView([25, 10], 2);
@@ -1077,13 +1078,21 @@ export async function renderMap(view, ctx) {
   restoreFocus = null;
   if (pendingFocus) { const c = pendingFocus; pendingFocus = null; focusCountry(c); }
 
-  // 精細な国境データを裏で読み込み、届いたら差し替える（選択・強調・ホバーの状態は引き継ぐ）
-  if (!patternMode) loadWorld('10m').then((w10) => {
-    if (seq !== renderSeq || !map || !layer) return;
-    worlds.hi = w10;
-    drawCountries(true);
-    resyncRenderer();
-  }).catch(() => { /* 取得できなければ 50m のまま */ });
+  // 精細な国境データ（約 1MB）は、拡大して使う縮尺（HI_ZOOM）の 1 段手前まで寄ったときに初めて読み込み、
+  // 届いたら差し替える（選択・強調・ホバーの状態は引き継ぐ）。世界全体を見ているだけなら読み込まない
+  let hiLoading = false;
+  const maybeLoadHi = () => {
+    if (patternMode || worlds.hi || hiLoading || !map || map.getZoom() < HI_ZOOM - 1) return;
+    hiLoading = true;
+    loadWorld('10m').then((w10) => {
+      if (seq !== renderSeq || !map || !layer) return;
+      worlds.hi = w10;
+      drawCountries(true);
+      resyncRenderer();
+    }).catch(() => { hiLoading = false; /* 取得できなければ 50m のまま（次に拡大したとき再挑戦） */ });
+  };
+  map.on('zoomend', maybeLoadHi);
+  maybeLoadHi();
   // レイアウト確定後にサイズを再計算
   setTimeout(() => map && map.invalidateSize(), 50);
 }
