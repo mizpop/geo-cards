@@ -34,7 +34,7 @@ export function mountBattle(host, ctx) {
   let tick = null;
   let timers = [];
   let building = false;
-  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, public: false, regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
+  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
   try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
   const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
   let hostId = '';
@@ -115,6 +115,7 @@ export function mountBattle(host, ctx) {
       ch?.setMe(meInfo(true));
       if (!silent) toast('あなたがホストになりました');
       if (game && phase === 'play') later(Math.max(500, game.perQ * 1000 + 1500 - (performance.now() - game.t0)), () => { if (phase === 'play') send({ t: 'reveal', i: game.i }); });
+      else if (game && phase === 'reveal') hostRevealed(game.i);
     }
     if (phase === 'lobby') renderLobby(); else if (phase === 'final') renderFinal();
     renderChatKeep();
@@ -169,10 +170,11 @@ export function mountBattle(host, ctx) {
       const questions = await ctx.buildQuestions(cfg);
       if (questions.length < 3) { toast('出題できる問題が足りません。地域やカテゴリーの条件を広げてください（クイズ設定）', 'error'); return; }
       cfg.public = false; syncPublic();
-      send({ t: 'start', perQ: cfg.perQ, questions });
+      send({ t: 'start', perQ: cfg.perQ, autoNext: cfg.autoNext, questions });
       later(2000, () => send({ t: 'q', i: 0 }));
     } catch (e) { toast(`問題を作れませんでした（${e.message}）`, 'error'); } finally { building = false; if (phase === 'lobby') renderLobby(); }
   }
+  const hostRevealed = (i) => { if (game?.autoNext) later(game.autoNext * 1000, () => { if (game && game.i === i && phase === 'reveal') send(i + 1 < game.questions.length ? { t: 'q', i: i + 1 } : { t: 'end' }); }); }; // ホストの設定で、一定時間後に自動で次へ
   const hostOpened = (i) => later(game.perQ * 1000 + 1500, () => { if (game && game.i === i && phase === 'play') send({ t: 'reveal', i }); });
   function checkAllAnswered() {
     if (!isHost || !game || phase !== 'play') return;
@@ -188,7 +190,7 @@ export function mountBattle(host, ctx) {
       phase = 'play';
       main.innerHTML = '<p class="bt-wait">問題を準備しています…</p>';
       await ctx.prepare(m.questions);
-      game = { questions: m.questions, perQ: m.perQ, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
+      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
       play?.('open');
     } else if (m.t === 'q' && game) {
       clearTimers();
@@ -218,6 +220,7 @@ export function mountBattle(host, ctx) {
       const mine = got.get(me.id);
       play?.(mine?.res === 'ok' ? 'correct' : mine?.res === 'partial' ? 'partial' : 'wrong');
       renderReveal();
+      if (isHost) hostRevealed(m.i);
     } else if (m.t === 'end' && game) {
       clearTimers();
       phase = 'final';
@@ -295,7 +298,8 @@ export function mountBattle(host, ctx) {
   let unwatch = () => {};
   unwatch = (() => { const f = () => { if (!alive()) { unwatch(); return; } if (phase === 'entry') drawPublic(); }; roomListeners.add(f); const t = setInterval(f, 5000); return () => { roomListeners.delete(f); clearInterval(t); }; })();
   // スライダー（動かしている間は数字だけ更新し、離したときに設定へ反映する）
-  const sliderHtml = (id, min, max, step, val, unit) => `<div class="bt-slider"><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"><output id="${id}-v">${val} ${unit}</output></div>`;
+  const sliderFmt = { 'bt-max': (n) => `${n} 人`, 'bt-qn': (n) => `${n} 問`, 'bt-pq': (n) => `${n} 秒`, 'bt-an': (n) => (n ? `${n} 秒後に自動` : '手動') };
+  const sliderHtml = (id, min, max, step, val) => `<div class="bt-slider"><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"><output id="${id}-v">${sliderFmt[id](val)}</output></div>`;
   const segHtml = (id, opts, cur) => `<div class="seg ${opts.length > 4 ? 'seg-wrap' : ''}" id="${id}">${opts.map(([v, label]) => `<button type="button" class="${cur === v ? 'on' : ''}" data-v="${v}">${label}</button>`).join('')}</div>`;
   function renderLobby() {
     if (!alive()) return;
@@ -324,20 +328,21 @@ export function mountBattle(host, ctx) {
           <div class="region-grid cat-grid">${ctx.categories.map((c) => `<label class="region-check cat-check ${counts.cats.get(c.key) ? '' : 'is-empty'}" style="${c.vars}"><input type="checkbox" data-cat="${esc(c.key)}" ${cfg.catsOff.has(c.key) ? '' : 'checked'}><span class="cat-dot"></span><span>${esc(c.name)}</span><span class="count">${counts.cats.get(c.key) || 0}</span></label>`).join('')}</div>
         </div>` : ''}
         <div class="setup-row">
-          <div class="setup-block"><div class="setup-label"><span>最大人数</span></div>${sliderHtml('bt-max', 2, 20, 1, cfg.max, '人')}</div>
-          <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${sliderHtml('bt-qn', 3, 50, 1, cfg.qn, '問')}</div>
+          <div class="setup-block"><div class="setup-label"><span>最大人数</span></div>${sliderHtml('bt-max', 2, 20, 1, cfg.max)}</div>
+          <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${sliderHtml('bt-qn', 3, 50, 1, cfg.qn)}</div>
           ${cfg.kind === 'fact' ? '' : `<div class="setup-block"><div class="setup-label"><span>回答方式</span></div>${segHtml('bt-mode', modesOf(cfg.kind).map((m) => [m, MODES[m]]), cfg.mode)}</div>`}
-          <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ, '秒')}</div>
+          <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ)}</div>
+          <div class="setup-block"><div class="setup-label"><span>答え合わせから次の問題へ</span></div>${sliderHtml('bt-an', 0, 60, 5, cfg.autoNext)}</div>
         </div>
         <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${list.length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${list.length} 人）`}</button></div>` : ''}`;
     bindExit();
     if (!isHost) return;
     const pick = (id, key, num) => main.querySelectorAll(`#${id} button`).forEach((x) => x.addEventListener('click', () => { cfg[key] = num ? Number(x.dataset.v) : x.dataset.v; if (key === 'max') { ch?.setMe(meInfo()); if (pubTimer) announce(); } renderLobby(); }));
     pick('bt-kind', 'kind'); pick('bt-mode', 'mode'); pick('bt-topic', 'topic'); pick('bt-svsrc', 'svSource');
-    for (const [id, key, unit] of [['bt-max', 'max', '人'], ['bt-qn', 'qn', '問'], ['bt-pq', 'perQ', '秒']]) {
+    for (const [id, key] of [['bt-max', 'max'], ['bt-qn', 'qn'], ['bt-pq', 'perQ'], ['bt-an', 'autoNext']]) {
       const r = main.querySelector(`#${id}`);
       if (!r) continue;
-      r.addEventListener('input', () => { main.querySelector(`#${id}-v`).textContent = `${r.value} ${unit}`; });
+      r.addEventListener('input', () => { main.querySelector(`#${id}-v`).textContent = sliderFmt[id](Number(r.value)); });
       r.addEventListener('change', () => {
         cfg[key] = Number(r.value);
         if (key === 'max') { ch?.setMe(meInfo()); if (pubTimer) announce(); }
@@ -359,7 +364,7 @@ export function mountBattle(host, ctx) {
   function renderPlay() {
     const Q = game.questions[game.i];
     // 単独プレイと同じ見た目・大きさ（画面いっぱいの問題カード、下に選択肢）
-    const top = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length}</span><span class="counter qt-counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span><span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
+    const top = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length}</span><span class="counter qt-counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span><span class="grow"></span>${isHost ? '<button type="button" class="btn btn-sm" id="bt-force" title="まだ答えていない人を待たずに、いますぐ答え合わせにする">⏩ 答え合わせにする</button>' : ''}<button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
       <div class="progress"><div class="progress-bar" style="width:${(game.i / game.questions.length) * 100}%"></div></div>`;
     host.classList.add('bt-play');
     ctx.setFit(true);
@@ -375,6 +380,7 @@ export function mountBattle(host, ctx) {
         submit({ res, pts: scoreOf(res), label: item.options.find((o) => o.key === b.dataset.key)?.label || '' });
       }));
       renderPlayStatus();
+      bindForce();
       return;
     }
     const card = ctx.cardFor(Q);
@@ -438,6 +444,11 @@ export function mountBattle(host, ctx) {
     }
     ctx.attachZoom(host.querySelector('.quiz-card .front-img')); // ホイールで拡大・ドラッグで移動（単独プレイと同じ）
     renderPlayStatus();
+    bindForce();
+  }
+  // ホスト: 答えていない人を待たずに、いますぐ答え合わせにする
+  function bindForce() {
+    host.querySelector('#bt-force')?.addEventListener('click', () => { if (isHost && phase === 'play') send({ t: 'reveal', i: game.i }); });
   }
   function renderPlayStatus() {
     const el = host.querySelector('#bt-status');
@@ -483,7 +494,7 @@ export function mountBattle(host, ctx) {
           ${isHost ? `<button type="button" class="btn btn-primary" id="bt-next">${last ? '結果発表へ' : '次の問題へ'}</button>` : ''}</div>
         <h3 class="bt-sub">現在の順位（今回の得点つき）</h3><ul class="bt-board bt-results">${rows}</ul>
         ${info}
-        <p class="muted small">${isHost ? `準備ができたら「${last ? '結果発表へ' : '次の問題へ'}」を押してください` : `ホストが「${last ? '結果発表へ' : '次の問題へ'}」を押すのを待っています…`}</p>
+        <p class="muted small">${game.autoNext ? `${game.autoNext} 秒後に自動で${last ? '結果発表へ' : '次の問題へ'}進みます${isHost ? '（ボタンを押すとすぐに進みます）' : ''}` : isHost ? `準備ができたら「${last ? '結果発表へ' : '次の問題へ'}」を押してください` : `ホストが「${last ? '結果発表へ' : '次の問題へ'}」を押すのを待っています…`}</p>
       </div></div>`;
     // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）
     main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${cardHtml}</div>` : `${cardHtml}${bottom}`}`;
