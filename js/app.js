@@ -181,6 +181,7 @@ function openSettings() {
     </div>`;
   openModal(`
     <div class="modal-head"><h2>設定</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    <div class="set-layout"><nav class="set-toc" id="set-toc" aria-label="設定の目次"></nav><div class="set-body">
     <h3 class="set-group-title">🎨 表示</h3>
     <section class="set-group">
       ${item('アニメーション', 'めくる・スライド・飛び出す動きや地図のズーム', sw('animations'))}
@@ -204,6 +205,7 @@ function openSettings() {
     ${canDownloadApp() ? `<h3 class="set-group-title">💻 デスクトップ版（Windows）</h3>
     <section class="set-group">
       ${item('Windows 版アプリ（exe）', 'インストール不要で、ダブルクリックで起動できます。中身はこのサイトなので、サイトの更新は自動で反映されます（インターネット接続が必要）。初めて開くとき Windows の警告が出たら、「詳細情報」→「実行」で開けます。', `<a class="btn btn-primary btn-sm" href="${esc(DESKTOP_DOWNLOAD_URL)}" target="_blank" rel="noopener">ダウンロード（約 74MB）</a>`)}
+      <p class="set-desc set-dl-note">⚠ Google ドライブで「ウイルススキャンできません」という画面が出ます（exe は Google が中身を確認できないため、必ず出ます）。そのまま <b>「ダウンロード」</b> を押してください。</p>
     </section>` : ''}
     <h3 class="set-group-title">⌨ キーボード操作</h3>
     <section class="set-group set-keys">
@@ -222,7 +224,25 @@ function openSettings() {
       <button class="btn btn-ghost" id="set-reset" type="button">初期設定に戻す</button>
       <span class="grow"></span>
       <button class="btn btn-primary" data-close type="button">閉じる</button>
-    </div>`, 'modal-settings');
+    </div>
+    </div></div>`, 'modal-settings');
+  { // 左の目次: 見出しから作る。押すとその見出しへ動き、見ている位置を強調する（狭い画面では隠す）
+    const m = $('#modal');
+    const titles = $$('.set-group-title', m);
+    const toc = $('#set-toc');
+    toc.innerHTML = titles.map((t, i) => `<button type="button" class="set-toc-item" data-i="${i}">${esc(t.textContent)}</button>`).join('');
+    const items = $$('.set-toc-item', toc);
+    items.forEach((b) => b.addEventListener('click', () => titles[Number(b.dataset.i)].scrollIntoView({ block: 'start', behavior: settings.animations ? 'smooth' : 'auto' })));
+    const mark = () => {
+      const top = m.getBoundingClientRect().top + 76;
+      let cur = 0;
+      titles.forEach((t, i) => { if (t.getBoundingClientRect().top <= top + 8) cur = i; });
+      if (m.scrollTop + m.clientHeight >= m.scrollHeight - 4) cur = titles.length - 1;
+      items.forEach((b, i) => b.classList.toggle('on', i === cur));
+    };
+    m.addEventListener('scroll', mark, { passive: true });
+    mark();
+  }
 
   // 学習記録の同期（引き継ぎコード）: 覚え具合・毎日の記録・自己ベストを、PC とスマホなどで共有する
   const renderSyncBox = (msg = '', kind = '') => {

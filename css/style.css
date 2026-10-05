@@ -770,6 +770,18 @@ textarea { resize: vertical; line-height: 1.6; }
 @keyframes gear-spin { to { transform: rotate(360deg); } }
 
 .modal-settings { width: min(520px, calc(100vw - 32px)); }
+.set-layout { display: block; }
+.set-toc { display: none; }
+.set-dl-note { margin: 4px 0 8px; }
+.modal-settings .set-group-title { scroll-margin-top: 74px; }
+@media (min-width: 760px) {
+  .modal-settings { width: min(780px, calc(100vw - 32px)); }
+  .set-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .set-toc { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 76px; }
+  .set-toc-item { text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+  .set-toc-item:hover { background: var(--surface-2); color: var(--text); }
+  .set-toc-item.on { background: var(--surface-2); color: var(--accent); font-weight: 700; }
+}
 .modal-settings .modal-head { margin-bottom: 18px; }
 .set-group-title { font-size: 13px; font-weight: 700; color: var(--muted); margin: 0 0 8px 4px; letter-spacing: .02em; }
 .set-group {
