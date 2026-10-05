@@ -20,6 +20,10 @@ export async function compressImage(blob, maxSide = 1600, quality = 0.82) {
   return out;
 }
 
+// 一覧・地図のサムネイル用の低画質版（長辺 480px・WebP 画質 0.6。元の 1/10 ほどの大きさ）
+export const THUMB_SIDE = 480;
+export const makeThumb = (blob) => compressImage(blob, THUMB_SIDE, 0.6);
+
 async function loadBitmap(blob) {
   if ('createImageBitmap' in window) {
     try { return await createImageBitmap(blob); } catch { /* 下のフォールバックへ */ }

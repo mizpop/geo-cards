@@ -570,7 +570,7 @@ export async function renderMap(view, ctx) {
     return `<div class="hb-fan" aria-hidden="true">
       ${show.map((c, i) => {
         const angle = (i - (n - 1) / 2) * step;
-        return `<div class="hb-card" style="${ctx.catVars(ctx.catOf(c))};--a:${angle.toFixed(1)}deg;z-index:${i + 1}">${ctx.imgUrl(c) ? `<img src="${ctx.esc(ctx.imgUrl(c))}" alt="">` : ''}</div>`;
+        return `<div class="hb-card" style="${ctx.catVars(ctx.catOf(c))};--a:${angle.toFixed(1)}deg;z-index:${i + 1}">${ctx.thumbUrl(c) ? `<img src="${ctx.esc(ctx.thumbUrl(c))}" alt="">` : ''}</div>`;
       }).join('')}
       ${list.length > n ? `<span class="hb-fan-more">+${list.length - n}</span>` : ''}
     </div>`;
@@ -865,7 +865,7 @@ export async function renderMap(view, ctx) {
                   ${url ? `<a class="ext-link" href="${url}" target="_blank" rel="noopener" title="Plonkit で開く">${EXT_ICON}</a>` : ''}
                 </div>
                 ${show.length ? `<div class="crow-thumbs">
-                  ${show.map((c) => `<button type="button" class="crow-thumb" data-card="${c.id}" style="${ctx.catVars(ctx.catOf(c))}" title="${ctx.esc(c.description || ctx.catOf(c).name)}">${ctx.imgUrl(c) ? `<img src="${ctx.esc(ctx.imgUrl(c))}" alt="" loading="lazy">` : ''}</button>`).join('')}
+                  ${show.map((c) => `<button type="button" class="crow-thumb" data-card="${c.id}" style="${ctx.catVars(ctx.catOf(c))}" title="${ctx.esc(c.description || ctx.catOf(c).name)}">${ctx.thumbUrl(c) ? `<img src="${ctx.esc(ctx.thumbUrl(c))}" alt="" loading="lazy">` : ''}</button>`).join('')}
                   ${list.length > show.length ? `<button type="button" class="crow-more" data-go="${code}">+${list.length - show.length}</button>` : ''}
                 </div>` : ''}
               </div>`;
@@ -1221,7 +1221,7 @@ function thumbsIcon(L, ctx, code, list, expanded = false) {
       <div class="map-thumbs-grid" style="grid-template-columns:repeat(${cols},1fr)">
         ${show.map((c) => (c.photo
           ? `<div class="map-thumb is-photo" data-card="${c.id}" title="参考写真（GeoHints）"><img src="${ctx.esc(c.src)}" alt="" loading="lazy"></div>`
-          : `<div class="map-thumb" data-card="${c.id}" style="${ctx.catVars(ctx.catOf(c))}" title="${ctx.esc(ctx.catOf(c).name)}">${ctx.imgUrl(c) ? `<img src="${ctx.esc(ctx.imgUrl(c))}" alt="">` : ''}</div>`)).join('')}
+          : `<div class="map-thumb" data-card="${c.id}" style="${ctx.catVars(ctx.catOf(c))}" title="${ctx.esc(ctx.catOf(c).name)}">${ctx.thumbUrl(c) ? `<img src="${ctx.esc(ctx.thumbUrl(c))}" alt="">` : ''}</div>`)).join('')}
       </div>
       ${more > 0 ? `<div class="map-thumbs-more" data-expand>${expanded ? '閉じる ▲' : `ほか ${more} 枚 ▼`}</div>` : ''}
     </div>`;

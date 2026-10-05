@@ -1714,3 +1714,10 @@ textarea { resize: vertical; line-height: 1.6; }
 .lang-countries { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .lang-countries .chip { font-size: 12px; }
 @media (max-width: 640px) { .lang-list { grid-template-columns: 1fr; } .lang-title { display: none; } }
+
+/* 画像編集: アイコンだけのツール・太さ */
+.seg.seg-icons button { display: inline-flex; align-items: center; justify-content: center; padding: 6px 9px; }
+.annot-width { display: inline-flex; align-items: center; gap: 6px; color: #fff; padding: 0 4px; }
+.annot-width input { width: 92px; accent-color: var(--accent); }
+.btn.btn-icon { padding: 5px 9px; display: inline-flex; align-items: center; }
+.annot-stage.is-select canvas { cursor: default; }

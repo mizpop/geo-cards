@@ -1,6 +1,6 @@
 // データアクセス層。Supabase 版とデモ（localStorage）版を同じインターフェースで提供する。
 import { CONFIG } from './config.js';
-import { compressImage, extFromType, blobToDataUrl } from './image.js';
+import { compressImage, makeThumb, extFromType, blobToDataUrl } from './image.js';
 
 const SIGNED_URL_TTL = 60 * 60 * 12; // 署名付きURLの有効期限（秒）
 
@@ -24,6 +24,9 @@ function cleanFields(f) {
   if (f.related) out.related = Array.from(f.related);
   return out;
 }
+
+// thumb_path の列がまだない（card-extras.sql を実行前）ときのエラーか
+const isThumbColumnError = (error) => /thumb_path/.test(error?.message || '') && /(column|schema cache)/i.test(error?.message || '');
 
 // card-extras.sql をまだ実行していない（列がない）ときのエラーを分かりやすく
 function explainColumnError(error) {
@@ -53,6 +56,7 @@ function translateAuthError(error) {
 function createSupabaseApi(sb) {
   const bucket = () => sb.storage.from(CONFIG.BUCKET);
   const urlCache = new Map(); // image_path -> { url, at }
+  let thumbsUnsupported = false; // thumb_path の列がまだない（card-extras.sql 実行前）
 
   async function currentUser() {
     const { data } = await sb.auth.getSession();
@@ -102,7 +106,7 @@ function createSupabaseApi(sb) {
     async imageUrls(cards) {
       const now = Date.now();
       const need = cards
-        .flatMap((c) => [c.image_path, c.back_path].filter(Boolean))
+        .flatMap((c) => [c.image_path, c.back_path, c.thumb_path].filter(Boolean))
         .filter((p) => { const hit = urlCache.get(p); return !hit || now - hit.at > (SIGNED_URL_TTL - 3600) * 1000; });
       for (let i = 0; i < need.length; i += 200) {
         const chunk = need.slice(i, i + 200);
@@ -111,7 +115,9 @@ function createSupabaseApi(sb) {
         for (const row of data) if (row.signedUrl) urlCache.set(row.path, { url: row.signedUrl, at: now });
       }
       // 裏面だけのレイヤーは「id|back」で
-      return new Map(cards.flatMap((c) => [[c.id, urlCache.get(c.image_path)?.url || ''], ...(c.back_path ? [[`${c.id}|back`, urlCache.get(c.back_path)?.url || '']] : [])]));
+      return new Map(cards.flatMap((c) => [[c.id, urlCache.get(c.image_path)?.url || ''],
+        ...(c.back_path ? [[`${c.id}|back`, urlCache.get(c.back_path)?.url || '']] : []),
+        ...(c.thumb_path ? [[`${c.id}|thumb`, urlCache.get(c.thumb_path)?.url || '']] : [])]));
     },
 
     // backBlob: 裏面だけに表示する書き込みのレイヤー（透明な画像）
@@ -124,6 +130,16 @@ function createSupabaseApi(sb) {
       const row = { id, image_path: path, ...cleanFields(fields) };
       if (!row.related?.length) delete row.related;
       const uploaded = [path];
+      // 一覧・地図用の低画質版（失敗しても本体の保存は続ける）
+      let thumbPath = null;
+      if (!thumbsUnsupported) {
+        try {
+          const tb = await makeThumb(imageBlob);
+          const tp = `${id}-t.${extFromType(tb.type)}`;
+          const ut = await bucket().upload(tp, tb, { contentType: tb.type, upsert: false });
+          if (!ut.error) { thumbPath = tp; row.thumb_path = tp; uploaded.push(tp); }
+        } catch { /* 低画質版なしで続行 */ }
+      }
       if (backBlob instanceof Blob) {
         const bb = await compressImage(backBlob);
         row.back_path = `${id}-back-${Date.now()}.${extFromType(bb.type)}`;
@@ -131,7 +147,14 @@ function createSupabaseApi(sb) {
         if (ub.error) { await bucket().remove(uploaded); throw ub.error; }
         uploaded.push(row.back_path);
       }
-      const { error } = await sb.from('cards').insert(row);
+      let { error } = await sb.from('cards').insert(row);
+      if (error && thumbPath && isThumbColumnError(error)) { // 列がまだない: 低画質版なしで保存し直す
+        thumbsUnsupported = true;
+        await bucket().remove([thumbPath]);
+        uploaded.splice(uploaded.indexOf(thumbPath), 1);
+        delete row.thumb_path;
+        ({ error } = await sb.from('cards').insert(row));
+      }
       if (error) {
         await bucket().remove(uploaded);
         throw explainColumnError(error);
@@ -152,6 +175,14 @@ function createSupabaseApi(sb) {
         patch.image_path = path;
         added.push(path);
         old.push(card.image_path);
+        if (!thumbsUnsupported) {
+          try {
+            const tb = await makeThumb(imageBlob);
+            const tp = `${card.id}-t-${Date.now()}.${extFromType(tb.type)}`;
+            const ut = await bucket().upload(tp, tb, { contentType: tb.type, upsert: false });
+            if (!ut.error) { patch.thumb_path = tp; added.push(tp); if (card.thumb_path) old.push(card.thumb_path); }
+          } catch { /* 低画質版なしで続行 */ }
+        }
       }
       if (back instanceof Blob) {
         const bb = await compressImage(back);
@@ -165,7 +196,15 @@ function createSupabaseApi(sb) {
         patch.back_path = null;
         old.push(card.back_path);
       }
-      const { error } = await sb.from('cards').update(patch).eq('id', card.id);
+      let { error } = await sb.from('cards').update(patch).eq('id', card.id);
+      if (error && patch.thumb_path && isThumbColumnError(error)) { // 列がまだない: 低画質版なしで保存し直す
+        thumbsUnsupported = true;
+        await bucket().remove([patch.thumb_path]);
+        added.splice(added.indexOf(patch.thumb_path), 1);
+        if (card.thumb_path) old.splice(old.indexOf(card.thumb_path), 1);
+        delete patch.thumb_path;
+        ({ error } = await sb.from('cards').update(patch).eq('id', card.id));
+      }
       if (error) {
         if (added.length) await bucket().remove(added);
         throw explainColumnError(error);
@@ -247,6 +286,35 @@ function createSupabaseApi(sb) {
       if (error) throw error;
     },
 
+    // 低画質版がまだないカードの分を作る（既存のカード用。1 枚ずつ元の画像を取得して小さくし、保存する）
+    // onProgress(done, total)。戻り値: 作れた枚数
+    async ensureThumbs(cards, onProgress = () => {}) {
+      const todo = cards.filter((c) => !c.thumb_path && c.image_path);
+      let done = 0;
+      for (const c of todo) {
+        try {
+          const urls = await this.imageUrls([c]);
+          const res = await fetch(urls.get(c.id));
+          const tb = await makeThumb(await res.blob());
+          const tp = `${c.id}-t.${extFromType(tb.type)}`;
+          const up = await bucket().upload(tp, tb, { contentType: tb.type, upsert: true });
+          if (up.error) throw up.error;
+          const { error } = await sb.from('cards').update({ thumb_path: tp }).eq('id', c.id); // updated_at は変えない
+          if (error) {
+            await bucket().remove([tp]);
+            if (isThumbColumnError(error)) throw new Error('データベースに thumb_path の列がありません。supabase/card-extras.sql を実行してください');
+            throw error;
+          }
+          done++;
+        } catch (ex) {
+          if (/thumb_path/.test(ex.message)) throw ex;
+          console.warn('低画質版を作れませんでした', c.id, ex);
+        }
+        onProgress(done, todo.length);
+      }
+      return done;
+    },
+
     async deleteCategory(id) {
       const { error } = await sb.from('categories').delete().eq('id', id);
       if (error) throw error;
@@ -255,7 +323,7 @@ function createSupabaseApi(sb) {
     async deleteCard(card) {
       const { error } = await sb.from('cards').delete().eq('id', card.id);
       if (error) throw error;
-      await bucket().remove([card.image_path, card.back_path].filter(Boolean));
+      await bucket().remove([card.image_path, card.back_path, card.thumb_path].filter(Boolean));
       urlCache.delete(card.image_path);
     },
   };
@@ -293,24 +361,27 @@ function createDemoApi() {
     async listCards() {
       return load().sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
-    async imageUrls(cards) { return new Map(cards.flatMap((c) => [[c.id, c.image_path], ...(c.back_path ? [[`${c.id}|back`, c.back_path]] : [])])); },
+    async imageUrls(cards) { return new Map(cards.flatMap((c) => [[c.id, c.image_path], ...(c.back_path ? [[`${c.id}|back`, c.back_path]] : []), ...(c.thumb_path ? [[`${c.id}|thumb`, c.thumb_path]] : [])])); },
+    async ensureThumbs() { return 0; }, // デモは保存容量が小さいので、追加時に作った分だけ
     async createCard(fields, imageBlob, backBlob = null) {
       const image = await blobToDataUrl(await compressImage(imageBlob, 1000, 0.75));
       const backPath = backBlob instanceof Blob ? await blobToDataUrl(await compressImage(backBlob, 1000, 0.75)) : null;
+      const thumb = await blobToDataUrl(await compressImage(imageBlob, 320, 0.55));
       // 読み込み〜保存の間に await を挟まない（並行して追加したときに上書きし合わないように）
       const cards = load();
       const now = new Date().toISOString();
-      cards.push({ id: uuid(), image_path: image, back_path: backPath, ...cleanFields(fields), created_at: now, updated_at: now });
+      cards.push({ id: uuid(), image_path: image, back_path: backPath, thumb_path: thumb, ...cleanFields(fields), created_at: now, updated_at: now });
       save(cards);
     },
     async updateCard(card, fields, imageBlob, back = null) {
       const image = imageBlob ? await blobToDataUrl(await compressImage(imageBlob, 1000, 0.75)) : null;
       const backPath = back instanceof Blob ? await blobToDataUrl(await compressImage(back, 1000, 0.75)) : null;
+      const thumb = imageBlob ? await blobToDataUrl(await compressImage(imageBlob, 320, 0.55)) : null;
       const cards = load();
       const c = cards.find((x) => x.id === card.id);
       if (!c) throw new Error('カードが見つかりません');
       Object.assign(c, cleanFields(fields), { updated_at: new Date().toISOString() });
-      if (image) c.image_path = image;
+      if (image) { c.image_path = image; c.thumb_path = thumb; }
       if (backPath) c.back_path = backPath;
       else if (back === 'clear') c.back_path = null;
       save(cards);

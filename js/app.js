@@ -290,6 +290,8 @@ function openSettings() {
   }, { once: true });
 }
 const imgUrl = (card) => card.src || state.urls.get(card.id) || '';
+// 一覧・地図などの小さい表示用の低画質版（まだ作っていないカードは元の画像）
+const thumbUrl = (card) => card.src || state.urls.get(`${card.id}|thumb`) || imgUrl(card);
 // 裏面だけに表示する書き込みのレイヤー（なければ ''）
 const backUrl = (card) => (card.photo ? '' : state.urls.get(`${card.id}|back`) || '');
 
@@ -742,7 +744,7 @@ function relatedHtml(card) {
   return `<div class="related">
     <div class="related-head">🔗 関連カード <span class="muted">${list.length}</span></div>
     <div class="related-list">${list.map((c) => `<button type="button" class="related-item" data-related="${c.id}" style="${catStyle(c)}" title="${esc(c.description || catOf(c).name)}">
-      <span class="related-thumb">${imgUrl(c) ? `<img src="${esc(imgUrl(c))}" alt="" loading="lazy">` : ''}</span>
+      <span class="related-thumb">${thumbUrl(c) ? `<img src="${esc(thumbUrl(c))}" alt="" loading="lazy">` : ''}</span>
       <span class="related-text"><span class="related-country">${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}</span></span>
     </button>`).join('')}</div>
   </div>`;
@@ -779,7 +781,7 @@ function tileHtml(card, extra = '') {
   const more = card.countries.length - shown.length;
   return `
     <article class="tile" data-id="${card.id}" tabindex="0" style="${catStyle(card)}">
-      <div class="tile-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img src="${esc(imgUrl(card))}" alt="" loading="lazy">` : ''}</div>
+      <div class="tile-img">${catBadge(card, 'cat-on-img')}${thumbUrl(card) ? `<img src="${esc(thumbUrl(card))}" alt="" loading="lazy">` : ''}</div>
       <div class="tile-body">
         <div class="tile-countries">${shown.map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join('')}${more > 0 ? `<span class="chip chip-more">+${more}</span>` : ''}</div>
         ${card.description ? `<p class="tile-desc">${esc(card.description)}</p>` : ''}
@@ -2920,6 +2922,7 @@ function renderManage() {
     <div class="toolbar toolbar-sub">
       <button class="btn btn-ghost btn-sm" id="m-cats">🏷 カテゴリー管理</button>
       <button class="btn btn-ghost btn-sm" id="m-bulk" title="複数の画像からまとめてカードを作る">📥 まとめて追加</button>
+      ${api.mode === 'supabase' && state.cards.some((c) => !c.thumb_path) ? `<button class="btn btn-ghost btn-sm" id="m-thumbs" title="一覧・地図で読み込む画像を軽くします（まだ低画質版のないカード ${state.cards.filter((c) => !c.thumb_path).length} 枚）">🖼 軽量画像を作成 <b class="badge-n">${state.cards.filter((c) => !c.thumb_path).length}</b></button>` : ''}
       <button class="btn btn-ghost btn-sm" id="m-export">バックアップを書き出し</button>
       <label class="btn btn-ghost btn-sm">バックアップから読み込み<input type="file" id="m-import" accept="application/json,.json" hidden></label>
       <span class="grow"></span>
@@ -2947,6 +2950,20 @@ function renderManage() {
   bindMultiPick('m-cat', m.catsOff, () => repick('m-cat'), m.openPick === 'm-cat');
   m.openPick = null;
   $('#m-export').addEventListener('click', exportBackup);
+  $('#m-thumbs')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const todo = state.cards.filter((c) => !c.thumb_path).length;
+      const n = await api.ensureThumbs(state.cards, (d, t) => { btn.textContent = `作成中… ${d} / ${t}`; });
+      toast(`${n} / ${todo} 枚の低画質版を作りました`);
+      await reloadCards();
+      render();
+    } catch (ex) {
+      toast(`作成に失敗しました: ${ex.message}`, 'error');
+      btn.disabled = false;
+    }
+  });
   $('#m-bulk').addEventListener('click', openBulkAdd);
   $('#m-cats').addEventListener('click', openCategoryManager);
   $('#m-import').addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
@@ -3345,7 +3362,7 @@ function openEditor(card, preset = {}) {
   const renderRelated = () => {
     const list = [...ed.related].map((id) => state.cards.find((c) => c.id === id)).filter(Boolean);
     $('#ed-related').innerHTML = list.length
-      ? list.map((c) => `<span class="chip chip-removable rel-chip" style="${catStyle(c)}">${imgUrl(c) ? `<img class="rel-chip-img" src="${esc(imgUrl(c))}" alt="">` : ''}${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}・${esc(catOf(c).name)}<button type="button" data-rel-rm="${c.id}" aria-label="関連カードから外す">✕</button></span>`).join('')
+      ? list.map((c) => `<span class="chip chip-removable rel-chip" style="${catStyle(c)}">${thumbUrl(c) ? `<img class="rel-chip-img" src="${esc(thumbUrl(c))}" alt="">` : ''}${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}・${esc(catOf(c).name)}<button type="button" data-rel-rm="${c.id}" aria-label="関連カードから外す">✕</button></span>`).join('')
       : '<span class="muted small">まだありません</span>';
     $$('#ed-related [data-rel-rm]').forEach((b) => b.addEventListener('click', () => { ed.related.delete(b.dataset.relRm); renderRelated(); renderRelResults(); }));
   };
@@ -3356,7 +3373,7 @@ function openEditor(card, preset = {}) {
     const hits = sortCards(matchCards(q)).filter((c) => c.id !== card?.id && !ed.related.has(c.id));
     box.innerHTML = hits.length
       ? `${hits.slice(0, 12).map((c) => `<button type="button" class="rel-hit" data-rel-add="${c.id}" style="${catStyle(c)}" title="${esc(c.description || '')}">
-          <span class="related-thumb">${imgUrl(c) ? `<img src="${esc(imgUrl(c))}" alt="" loading="lazy">` : ''}</span>
+          <span class="related-thumb">${thumbUrl(c) ? `<img src="${esc(thumbUrl(c))}" alt="" loading="lazy">` : ''}</span>
           <span class="related-text"><span class="related-country">${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}${c.description ? `・${esc(c.description)}` : ''}</span></span>
         </button>`).join('')}${hits.length > 12 ? `<p class="muted small">ほか ${hits.length - 12} 枚（言葉を足して絞り込めます）</p>` : ''}`
       : '<p class="muted small">該当するカードがありません</p>';
@@ -3707,7 +3724,7 @@ const mapCtx = {
   findCountry: (text) => findCountry(text),
   resolveCountry: (text) => resolveCountryCode(text),
   get cards() { return state.cards; },
-  allCats, catKey, catOf, catVars, imgUrl, countryName, esc, flagImg,
+  allCats, catKey, catOf, catVars, imgUrl, thumbUrl, countryName, esc, flagImg,
   openCard: (card, src, list) => openCardModal(card, src, list),
   animations: () => settings.animations,
   hoverAutoExpand: () => settings.hoverExpand,
