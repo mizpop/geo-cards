@@ -57,7 +57,8 @@ const SV_HOVER_MIN_ZOOM = 11; // これ以上拡大しているとき、マウ�
 const SV_LINE_ZOOM = 14; // 道路ごとの青い線として見える縮尺
 const SV_THIN_ZOOM = 15; // これ以上拡大したら、青い線を半分の太さにする
 const SV_SNAP_M = 250; // クリックの近くの何メートル以内の道路に寄せるか
-const SV_SNAP_PX = 44; // ...ただし画面で何ピクセル以内か（指でも押しやすい広さ）
+// 地図の縮尺に応じた、クリックの反応範囲（画面のピクセル）。引いているほど青い所が大きく見えるので広め、細い線のときは線に合わせて絞る
+const svSnapPx = (zoom) => (zoom >= SV_THIN_ZOOM ? 30 : zoom >= SV_LINE_ZOOM ? 40 : 56);
 const svTiles = new Map(); // url -> Promise<Uint8ClampedArray | null>（画素の透明度の読み取り用）
 function svTileAlpha(x, y, z) {
   const n = 2 ** z;
@@ -84,14 +85,15 @@ function svTileAlpha(x, y, z) {
 }
 // クリックした地点に一番近い「ストリートビューのある線」の地点。見つからなければ null、読み取れなければクリックした地点
 async function svSnap(lat, lng, zoom, { R: Ropt = 0, lenient = false } = {}) {
-  const z = Math.min(17, Math.round(zoom));
+  const thin = zoom >= SV_THIN_ZOOM; // 画面に出ている青い線と同じタイル（細い線は 1 つ細かい縮尺のタイル）を読む
+  const z = thin ? Math.min(20, Math.round(zoom) + 1) : Math.min(17, Math.round(zoom));
   const n = 256 * 2 ** z;
   const sin = Math.sin((lat * Math.PI) / 180);
   const px = Math.round(((lng + 180) / 360) * n);
   const py = Math.round((0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * n);
   // クリックから何ピクセルまでの青い線を探すか: 250m 以内、かつ画面で 44px 以内（タイルの画素に直して）
   const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** z; // タイルの 1 画素が何メートルか
-  const R = Ropt || Math.max(6, Math.min(Math.round(SV_SNAP_M / mpp), Math.round(SV_SNAP_PX * 2 ** (z - zoom)), 60));
+  const R = Ropt || Math.max(6, Math.min(Math.round(SV_SNAP_M / mpp), Math.round(svSnapPx(zoom) * 2 ** (z - zoom)), 90));
   const tx0 = Math.floor((px - R) / 256);
   const tx1 = Math.floor((px + R) / 256);
   const ty0 = Math.max(0, Math.floor((py - R) / 256));
@@ -128,12 +130,13 @@ async function svSnap(lat, lng, zoom, { R: Ropt = 0, lenient = false } = {}) {
 async function svFind(lat, lng, zoom) {
   if (zoom >= SV_LINE_ZOOM) return svSnap(lat, lng, zoom, { lenient: true });
   const z0 = Math.max(5, Math.min(13, Math.round(zoom)));
-  let cur = await svSnap(lat, lng, z0, { R: Math.max(8, Math.min(60, Math.round(SV_SNAP_PX * 2 ** (z0 - zoom)))), lenient: true });
+  let cur = await svSnap(lat, lng, z0, { R: Math.max(8, Math.min(60, Math.round(svSnapPx(zoom) * 2 ** (z0 - zoom)))), lenient: true });
   if (!cur) return null;
   for (const [z, R] of [[10, 40], [12, 30], [14, 24], [16, 24]]) {
     if (z <= z0) continue;
-    cur = await svSnap(cur.lat, cur.lng, z, { R });
-    if (!cur) return null;
+    const next = await svSnap(cur.lat, cur.lng, z, { R });
+    if (!next) break; // 細かい縮尺で見つからなくても、粗い縮尺で青かった所なら、そこを開く（開けないことがないように）
+    cur = next;
   }
   return cur;
 }
