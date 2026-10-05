@@ -2229,6 +2229,14 @@ async function battleBuild(cfg) {
   else pool = state.cards.filter((c) => !c.sv && c.countries.length && !cfg.catsOff.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
   return shuffle(pool).slice(0, n).map((card) => ({ k: 'card', mode: cfg.mode, cardId: card.id, options: opts(card) }));
 }
+// スライダー（数や時間を細かく調整する設定）。動かしている間は表示だけ変え、離したときに設定へ反映する
+const qSlider = (id, min, max, step, val, fmt) => `<div class="bt-slider"><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"><output id="${id}-v">${esc(fmt(val))}</output></div>`;
+function bindSlider(id, apply, fmt) {
+  const r = $(`#${id}`);
+  if (!r) return;
+  r.addEventListener('input', () => { $(`#${id}-v`).textContent = fmt(Number(r.value)); });
+  r.addEventListener('change', () => apply(Number(r.value)));
+}
 function renderQuiz() {
   const q = state.quiz;
   setFit(q.phase === 'question' ? true : 'scroll');
@@ -2248,7 +2256,7 @@ function renderQuiz() {
   const isPhoto = q.kind === 'photo';
   const isSv = q.kind === 'sv';
   if (!isPhoto && !isSv && q.mode === 'pin') q.mode = 'choice';
-  if (isSv) { q.timeLimit = 0; if (![5, 10, 20].includes(q.count)) q.count = 10; } // 練習は問題数を決めて 1 問ずつ
+  if (isSv) { q.timeLimit = 0; if (!(q.count >= 3 && q.count <= 30)) q.count = 10; } // 練習は問題数を決めて 1 問ずつ
   const factEligible = isFact ? factQuizPool(q.factTopic, q.regions).length : 0;
   const photoEligible = isPhoto ? photoPool(q).length : 0;
   const svCodes = isSv ? REGIONS.filter((r) => q.regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable) : [];
@@ -2338,9 +2346,7 @@ function renderQuiz() {
       <div class="setup-row">
         <div class="setup-block">
           <div class="setup-label"><span>問題数</span></div>
-          <div class="seg" id="q-count">
-            ${(isSv ? [5, 10, 20] : [10, 20, 50, 0]).map((n) => `<button class="${q.count === n ? 'on' : ''}" data-n="${n}">${n || '全部'}</button>`).join('')}
-          </div>
+          ${isSv ? qSlider('q-count', 3, 30, 1, q.count, (n) => `${n} 問`) : qSlider('q-count', 5, 105, 5, q.count === 0 ? 105 : q.count, (n) => (n >= 105 ? '全部' : `${n} 問`))}
         </div>
         <div class="setup-block not-fact">
           <div class="setup-label"><span>回答方式</span></div>
@@ -2353,15 +2359,11 @@ function renderQuiz() {
         </div>
         <div class="setup-block not-sv">
           <div class="setup-label"><span>制限時間（タイムアタック）</span></div>
-          <div class="seg" id="q-time">
-            ${[0, 60, 120].map((n) => `<button class="${q.timeLimit === n ? 'on' : ''}" data-t="${n}">${n ? `${n} 秒` : 'なし'}</button>`).join('')}
-          </div>
+          ${qSlider('q-time', 0, 300, 30, q.timeLimit, (n) => (n ? `${n} 秒` : 'なし'))}
         </div>
         <div class="setup-block">
           <div class="setup-label"><span>1 問ごとの制限時間</span></div>
-          <div class="seg" id="q-perq">
-            ${[0, 10, 20, 30, 60].map((n) => `<button class="${q.perQ === n ? 'on' : ''}" data-pq="${n}">${n ? `${n} 秒` : 'なし'}</button>`).join('')}
-          </div>
+          ${qSlider('q-perq', 0, 120, 5, q.perQ, (n) => (n ? `${n} 秒` : 'なし'))}
           <p class="muted small">時間内に答えられなかった問題は、不正解として答えを表示します</p>
         </div>
         <div class="setup-block cards-only">
@@ -2391,7 +2393,7 @@ function renderQuiz() {
   $('#q-all').addEventListener('click', () => { q.regions = new Set(REGIONS.map((r) => r.id)); renderQuiz(); });
   $('#q-none').addEventListener('click', () => { q.regions = new Set(); renderQuiz(); });
   $$('#q-svsrc button').forEach((b) => b.addEventListener('click', () => { q.svSource = b.dataset.src; renderQuiz(); }));
-  $$('#q-count button').forEach((b) => b.addEventListener('click', () => { q.count = Number(b.dataset.n); renderQuiz(); }));
+  bindSlider('q-count', (v) => { q.count = !isSv && v >= 105 ? 0 : v; renderQuiz(); }, (n) => (isSv ? `${n} 問` : n >= 105 ? '全部' : `${n} 問`));
   $$('#q-mode button').forEach((b) => b.addEventListener('click', () => { q.mode = b.dataset.mode; renderQuiz(); }));
   $$('#q-order button').forEach((b) => b.addEventListener('click', () => { q.order = b.dataset.order; renderQuiz(); }));
   $$('#q-kind button').forEach((b) => b.addEventListener('click', () => { q.kind = b.dataset.kind; renderQuiz(); }));
@@ -2407,8 +2409,8 @@ function renderQuiz() {
     const pool = photoPool({ ...q, mode: 'pin' });
     exportOpenGuessr(pool, `GeoChecker 参考写真（${[...q.photoTopics].map((t) => modeDef(t).name).join('・')}）`);
   });
-  $$('#q-perq button').forEach((b) => b.addEventListener('click', () => { q.perQ = Number(b.dataset.pq); renderQuiz(); }));
-  $$('#q-time button').forEach((b) => b.addEventListener('click', () => { q.timeLimit = Number(b.dataset.t); renderQuiz(); }));
+  bindSlider('q-perq', (v) => { q.perQ = v; renderQuiz(); }, (n) => (n ? `${n} 秒` : 'なし'));
+  bindSlider('q-time', (v) => { q.timeLimit = v; renderQuiz(); }, (n) => (n ? `${n} 秒` : 'なし'));
   $('#q-start').addEventListener('click', async (e) => {
     if (isSv) { (q.svSource === 'ref' ? startSvRefQuiz : startSvQuiz)(svCodes, e.currentTarget); return; }
     if (isPhoto) await ensureRefInfo().catch(() => {}); // 撮影地点を当てる問題に必要な座標

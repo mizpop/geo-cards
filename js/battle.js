@@ -294,6 +294,8 @@ export function mountBattle(host, ctx) {
   }
   let unwatch = () => {};
   unwatch = (() => { const f = () => { if (!alive()) { unwatch(); return; } if (phase === 'entry') drawPublic(); }; roomListeners.add(f); const t = setInterval(f, 5000); return () => { roomListeners.delete(f); clearInterval(t); }; })();
+  // スライダー（動かしている間は数字だけ更新し、離したときに設定へ反映する）
+  const sliderHtml = (id, min, max, step, val, unit) => `<div class="bt-slider"><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"><output id="${id}-v">${val} ${unit}</output></div>`;
   const segHtml = (id, opts, cur) => `<div class="seg ${opts.length > 4 ? 'seg-wrap' : ''}" id="${id}">${opts.map(([v, label]) => `<button type="button" class="${cur === v ? 'on' : ''}" data-v="${v}">${label}</button>`).join('')}</div>`;
   function renderLobby() {
     if (!alive()) return;
@@ -322,10 +324,10 @@ export function mountBattle(host, ctx) {
           <div class="region-grid cat-grid">${ctx.categories.map((c) => `<label class="region-check cat-check ${counts.cats.get(c.key) ? '' : 'is-empty'}" style="${c.vars}"><input type="checkbox" data-cat="${esc(c.key)}" ${cfg.catsOff.has(c.key) ? '' : 'checked'}><span class="cat-dot"></span><span>${esc(c.name)}</span><span class="count">${counts.cats.get(c.key) || 0}</span></label>`).join('')}</div>
         </div>` : ''}
         <div class="setup-row">
-          <div class="setup-block"><div class="setup-label"><span>最大人数</span></div>${segHtml('bt-max', [2, 4, 6, 8, 12, 20].map((n) => [n, `${n}`]), cfg.max)}</div>
-          <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${segHtml('bt-qn', [5, 10, 20, 50].map((n) => [n, `${n}`]), cfg.qn)}</div>
+          <div class="setup-block"><div class="setup-label"><span>最大人数</span></div>${sliderHtml('bt-max', 2, 20, 1, cfg.max, '人')}</div>
+          <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${sliderHtml('bt-qn', 3, 50, 1, cfg.qn, '問')}</div>
           ${cfg.kind === 'fact' ? '' : `<div class="setup-block"><div class="setup-label"><span>回答方式</span></div>${segHtml('bt-mode', modesOf(cfg.kind).map((m) => [m, MODES[m]]), cfg.mode)}</div>`}
-          <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${segHtml('bt-pq', [10, 20, 30, 45, 60].map((n) => [n, `${n} 秒`]), cfg.perQ)}</div>
+          <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ, '秒')}</div>
         </div>
         <div class="setup-block"><div class="setup-label"><span>部屋の公開</span></div>
           <div class="bt-row"><button type="button" class="btn ${cfg.public ? 'btn-primary' : ''}" id="bt-public">${cfg.public ? '📢 公開中（押すと非公開に）' : '📢 部屋を公開する'}</button>
@@ -334,7 +336,17 @@ export function mountBattle(host, ctx) {
     bindExit();
     if (!isHost) return;
     const pick = (id, key, num) => main.querySelectorAll(`#${id} button`).forEach((x) => x.addEventListener('click', () => { cfg[key] = num ? Number(x.dataset.v) : x.dataset.v; if (key === 'max') { ch?.setMe(meInfo()); if (pubTimer) announce(); } renderLobby(); }));
-    pick('bt-kind', 'kind'); pick('bt-mode', 'mode'); pick('bt-topic', 'topic'); pick('bt-svsrc', 'svSource'); pick('bt-qn', 'qn', true); pick('bt-max', 'max', true); pick('bt-pq', 'perQ', true);
+    pick('bt-kind', 'kind'); pick('bt-mode', 'mode'); pick('bt-topic', 'topic'); pick('bt-svsrc', 'svSource');
+    for (const [id, key, unit] of [['bt-max', 'max', '人'], ['bt-qn', 'qn', '問'], ['bt-pq', 'perQ', '秒']]) {
+      const r = main.querySelector(`#${id}`);
+      if (!r) continue;
+      r.addEventListener('input', () => { main.querySelector(`#${id}-v`).textContent = `${r.value} ${unit}`; });
+      r.addEventListener('change', () => {
+        cfg[key] = Number(r.value);
+        if (key === 'max') { ch?.setMe(meInfo()); if (pubTimer) announce(); }
+        renderLobby();
+      });
+    }
     main.querySelector('#bt-public')?.addEventListener('click', () => { cfg.public = !cfg.public; syncPublic(); renderLobby(); });
     const redo = () => { saveScope(); renderLobby(); };
     main.querySelectorAll('[data-region]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.regions.add(x.dataset.region); else cfg.regions.delete(x.dataset.region); redo(); }));

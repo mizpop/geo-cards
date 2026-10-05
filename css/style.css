@@ -2032,3 +2032,7 @@ body:has(.sv-front) { overflow-x: clip; }
 .sv-overlay-wrap > .quiz-bottom .choices { margin: 0; }
 .sv-overlay-wrap > .quiz-bottom .choice, .sv-overlay-wrap > .quiz-bottom .bt-input-row { backdrop-filter: blur(4px); background-color: rgba(18, 26, 33, .82); }
 .sv-overlay-wrap > .quiz-card:has(.sv-front) { height: auto !important; max-height: none !important; min-height: 420px; flex: 1 1 auto; }
+
+.bt-slider { display: flex; align-items: center; gap: 12px; }
+.bt-slider input[type="range"] { flex: 1; min-width: 160px; accent-color: var(--accent); }
+.bt-slider output { min-width: 4.2em; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
