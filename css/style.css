@@ -1863,3 +1863,12 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
 /* 隣接国などが 3 行以上のときの折りたたみ */
 .nb-fold.is-folded { overflow: hidden; }
 .fold-toggle { font-size: 12px; margin: 0 0 3px; }
+
+/* 右のパネル（国の情報）を隠す */
+.map-box { position: relative; }
+.map-panel-toggle { position: absolute; top: 10px; right: 10px; z-index: 800; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+.map-panel-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.map-panel-toggle[aria-pressed="true"] { background: var(--accent); color: #0b1a12; border-color: var(--accent); }
+.map-layout.panel-hidden { grid-template-columns: minmax(0, 1fr); }
+.map-layout.panel-hidden .vsplit, .map-layout.panel-hidden .map-panel { display: none; }
+@media (max-width: 760px) { .map-layout.panel-hidden { grid-template-rows: minmax(0, 1fr); } .view-fit .map-layout.panel-hidden { grid-template-rows: minmax(0, 1fr); } }

@@ -433,6 +433,7 @@ export async function renderMap(view, ctx) {
           </div>
           <button class="map-sv-btn ${svOn ? 'is-on' : ''}" id="map-sv" type="button" aria-pressed="${svOn}" aria-label="ストリートビュー" title="ストリートビュー: 押してから、青い線で表示される道路の近くをクリックすると、その場所の映像を表示します">${SV_ICON}</button>
         </div>
+        <button class="map-panel-toggle" id="map-panel-toggle" type="button" aria-label="右のパネルを隠す" aria-pressed="false" title="国の情報パネルを隠す・表示する"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
         <div class="sv-banner" id="sv-banner" hidden>${SV_ICON}<span id="sv-banner-text">青い線がストリートビューのある道路です。その近くをクリックしてください</span><button type="button" class="link-btn" id="sv-exit">終了（Esc）</button></div>
 
@@ -1477,6 +1478,22 @@ export async function renderMap(view, ctx) {
     ms.dispatchEvent(new Event('input'));
   });
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
+  // 右パネル（国の情報）を隠す・表示する（選んだ状態は覚えておく）
+  {
+    const layoutEl = view.querySelector('.map-layout');
+    const btn = $id('map-panel-toggle');
+    const set = (hide, save = true) => {
+      layoutEl.classList.toggle('panel-hidden', hide);
+      btn.setAttribute('aria-pressed', String(hide));
+      btn.setAttribute('aria-label', hide ? '右のパネルを表示' : '右のパネルを隠す');
+      if (save) try { localStorage.setItem('geo-cards-map-panel-hidden', hide ? '1' : '0'); } catch { /* 保存できなくてもよい */ }
+      setTimeout(() => map && map.invalidateSize(), 30);
+    };
+    let hidden = false;
+    try { hidden = localStorage.getItem('geo-cards-map-panel-hidden') === '1'; } catch { /* 読めなくてもよい */ }
+    set(hidden, false);
+    btn.addEventListener('click', () => set(!layoutEl.classList.contains('panel-hidden')));
+  }
   // 地図と右パネルの間の境界線: ドラッグで右パネルの幅を変える（ダブルクリックで元に戻す）
   {
     const layoutEl = view.querySelector('.map-layout');
