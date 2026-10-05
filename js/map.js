@@ -800,7 +800,8 @@ export async function renderMap(view, ctx) {
         if (!map.getPane('svCoverage')) { const pane = map.createPane('svCoverage'); pane.style.zIndex = 450; pane.style.pointerEvents = 'none'; }
         // crossOrigin: 画素を読み取る処理（svTileAlpha）と同じ読み込み方にする（違うと、ブラウザのキャッシュのせいで読み取りに失敗することがある）
         const common = { pane: 'svCoverage', maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '', crossOrigin: 'anonymous' };
-        const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, maxNativeZoom: 17, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
+        // 縮小しているときも細く見せるため、全ての縮尺で 1 段細かいタイルを半分の大きさで表示する
+        const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
         const thin = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, minZoom: SV_THIN_ZOOM, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 }).addTo(map);
         // 地名・道路名だけの透明なタイルを青い線の上に重ねて、青い線を地名の後ろに見せる（英語表記の地図のとき。OSM は地名が地図に焼き込み済みで分けられない）
         let labels = null;
