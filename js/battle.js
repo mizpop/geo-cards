@@ -376,7 +376,7 @@ export function mountBattle(host, ctx) {
     if (!card) { main.innerHTML = `${top}<p class="muted">この問題のカードを読み込めませんでした。次の問題をお待ちください。</p>`; bindExit(); return; }
     const front = `<div class="quiz-card">${frontHtml(card, false, false)}</div>`;
     if (Q.mode === 'choice') {
-      main.innerHTML = `${top}${front}<div class="quiz-bottom"><div class="choices bt-choices">${Q.options.map((code, i) => `<button type="button" class="choice" data-code="${code}"><span class="key">${i + 1}</span>${flagImg(code)}<span>${esc(countryName(code))}</span></button>`).join('')}</div></div>`;
+      main.innerHTML = `${top}${card.sv ? '<div class="sv-overlay-wrap">' : ''}${front}<div class="quiz-bottom"><div class="choices bt-choices">${Q.options.map((code, i) => `<button type="button" class="choice" data-code="${code}"><span class="key">${i + 1}</span>${flagImg(code)}<span>${esc(countryName(code))}</span></button>`).join('')}</div></div>${card.sv ? '</div>' : ''}`;
       bindExit();
       host.querySelectorAll('.bt-choices .choice').forEach((b) => b.addEventListener('click', () => {
         const res = card.countries.includes(b.dataset.code) ? 'ok' : 'ng';
@@ -385,9 +385,9 @@ export function mountBattle(host, ctx) {
     } else if (Q.mode === 'input') {
       const need = card.countries.length;
       const draft = [];
-      main.innerHTML = `${top}${front}<div class="quiz-bottom"><div class="bt-input-row"><div class="bt-chips" id="bt-chips"></div>
+      main.innerHTML = `${top}${card.sv ? '<div class="sv-overlay-wrap">' : ''}${front}<div class="quiz-bottom"><div class="bt-input-row"><div class="bt-chips" id="bt-chips"></div>
         <input type="text" id="bt-input" class="input" list="country-list" placeholder="${need > 1 ? `国名を入力して Enter で追加（${need} か国）` : '国名を入力して Enter（例: ポーランド / Poland）'}" autocomplete="off">
-        <button type="button" class="btn btn-primary" id="bt-send">回答</button></div></div>`;
+        <button type="button" class="btn btn-primary" id="bt-send">回答</button></div></div>${card.sv ? '</div>' : ''}`;
       bindExit();
       const chips = () => { host.querySelector('#bt-chips').innerHTML = draft.map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join(''); };
       const finish = () => {

@@ -2023,3 +2023,12 @@ body:has(.sv-front) { overflow-x: clip; }
 .bt-results .bt-score { min-width: 3.5em; text-align: right; }
 
 @media (max-width: 900px) { .sv-split > .quiz-bottom { max-height: none; overflow: visible; } }
+
+/* ストリートビューの 4 択・入力: 選択肢・解答欄を映像の下部に重ね、触れていないときは半透明 */
+.sv-overlay-wrap { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sv-overlay-wrap > .quiz-card { flex: 1; min-height: 0; }
+.sv-overlay-wrap > .quiz-bottom { position: absolute; left: 50%; transform: translateX(-50%); bottom: 34px; width: min(800px, calc(100% - 56px)); max-height: none; overflow: visible; z-index: 6; opacity: .38; transition: opacity .18s ease; padding: 0; }
+.sv-overlay-wrap > .quiz-bottom:hover, .sv-overlay-wrap > .quiz-bottom:focus-within { opacity: 1; }
+.sv-overlay-wrap > .quiz-bottom .choices { margin: 0; }
+.sv-overlay-wrap > .quiz-bottom .choice, .sv-overlay-wrap > .quiz-bottom .bt-input-row { backdrop-filter: blur(4px); background-color: rgba(18, 26, 33, .82); }
+.sv-overlay-wrap > .quiz-card:has(.sv-front) { height: auto !important; max-height: none !important; min-height: 420px; flex: 1 1 auto; }

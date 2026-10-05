@@ -2830,10 +2830,10 @@ function renderQuestion() {
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
-    ${card.sv && a ? '<div class="sv-split">' : ''}
+    ${card.sv ? `<div class="${a ? 'sv-split' : 'sv-overlay-wrap'}">` : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
-      ${a ? '' : `<p class="quiz-prompt">${card.sv ? 'この場所は、どこの国？（映像の中は動き回れます）' : 'この特徴が見られる国は？'}</p>`}
+      ${a || card.sv ? '' : '<p class="quiz-prompt">この特徴が見られる国は？</p>'}
       ${answerUi}
       ${a ? `
         <div class="feedback fb-${a.result}">
@@ -2847,7 +2847,7 @@ function renderQuestion() {
           ${cardInfoHtml(card)}
         </div>` : ''}
     </div>
-    ${card.sv && a ? '</div>' : ''}
+    ${card.sv ? '</div>' : ''}
   `;
 
   attachZoom($('.quiz-card .front-img'));
