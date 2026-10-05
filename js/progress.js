@@ -10,7 +10,11 @@ export const MAX_BOX = INTERVALS.length - 1;
 let data = (() => {
   try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; }
 })();
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* 保存できなくても続行 */ } };
+// 記録が変わったことを知らせる（端末間の同期の送信を予約するため）
+const listeners = new Set();
+export const onProgressChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
+const changed = () => { for (const fn of listeners) { try { fn(); } catch { /* 無視 */ } } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* 保存できなくても続行 */ } changed(); };
 // 別のタブで記録したときも反映
 window.addEventListener('storage', (e) => {
   if (e.key !== KEY) return;
@@ -99,6 +103,7 @@ export function logActivity(ok, region) {
     act.regions[region] = r;
   }
   try { localStorage.setItem(ACT_KEY, JSON.stringify(act)); } catch { /* 保存できなくても続行 */ }
+  changed();
 }
 export const activity = () => act;
 // 連続して学習した日数（今日まだなら昨日まででも数える）
@@ -121,6 +126,7 @@ export function logConfusion(right, given) {
   act.conf = act.conf || {};
   act.conf[k] = (act.conf[k] || 0) + 1;
   try { localStorage.setItem(ACT_KEY, JSON.stringify(act)); } catch { /* 無視 */ }
+  changed();
 }
 export const confusions = () => Object.entries(act.conf || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ pair: k.split('|'), n }));
 
@@ -133,6 +139,37 @@ export function saveBest(key, score) {
   if (prev === null || score > prev) {
     all[key] = score;
     try { localStorage.setItem(BEST_KEY, JSON.stringify(all)); } catch { /* 無視 */ }
+    changed();
   }
   return prev;
+}
+
+/* ---------------- 端末間の同期用: まとめて書き出す・取り込む（マージ） ---------------- */
+const readBest = () => { try { return JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch { return {}; } };
+export const exportAll = () => ({ v: 1, progress: data, activity: act, best: readBest() });
+const num = (x) => (Number.isFinite(x) ? x : 0);
+// 相手（別の端末）の記録を取り込む。カードごとの覚え具合は新しい方、毎日の回数・地域ごとの回数・混同・自己ベストは大きい方を採る。
+// 戻り値: この端末の記録が変わったか
+export function mergeAll(remote) {
+  if (!remote || typeof remote !== 'object') return false;
+  let changedAny = false;
+  // 覚え具合
+  for (const [id, r] of Object.entries(remote.progress || {})) {
+    const l = data[id];
+    if (!l || num(r.seen) > num(l.seen) || (num(r.seen) === num(l.seen) && num(r.ok) + num(r.ng) > num(l.ok) + num(l.ng))) { data[id] = r; changedAny = true; }
+  }
+  // 毎日の記録・地域・混同
+  const ra = remote.activity || {};
+  for (const [k, r] of Object.entries(ra.days || {})) if (!act.days[k] || num(r.n) > num(act.days[k].n)) { act.days[k] = r; changedAny = true; }
+  for (const [k, r] of Object.entries(ra.regions || {})) if (!act.regions[k] || num(r.n) > num(act.regions[k].n)) { act.regions[k] = r; changedAny = true; }
+  for (const [k, n] of Object.entries(ra.conf || {})) { act.conf = act.conf || {}; if (num(n) > num(act.conf[k])) { act.conf[k] = n; changedAny = true; } }
+  // 自己ベスト
+  const best = readBest();
+  let bestChanged = false;
+  for (const [k, v] of Object.entries(remote.best || {})) if (best[k] == null || v > best[k]) { best[k] = v; bestChanged = true; }
+  if (bestChanged) { try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch { /* 無視 */ } changedAny = true; }
+  if (changedAny) {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); localStorage.setItem(ACT_KEY, JSON.stringify(act)); } catch { /* 無視 */ }
+  }
+  return changedAny;
 }

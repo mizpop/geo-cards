@@ -1777,3 +1777,11 @@ textarea { resize: vertical; line-height: 1.6; }
 /* ストリートビューのある道路（青い線）を目立たせる */
 .sv-coverage { filter: saturate(1.4) brightness(1.5) drop-shadow(0 0 1px rgba(255, 255, 255, .7)); }
 .sv-banner { transition: background .2s; }
+
+/* 学習記録の同期 */
+.sync-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; width: 100%; }
+.sync-input { flex: 1 1 220px; min-width: 0; font-family: ui-monospace, monospace; }
+.sync-code { font-family: ui-monospace, monospace; letter-spacing: .04em; }
+.sync-msg { margin-top: 8px; }
+.sync-msg.is-error { color: var(--danger, #e03131); }
+.sync-msg.is-ok { color: var(--accent); }

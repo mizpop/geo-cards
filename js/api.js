@@ -28,6 +28,13 @@ function cleanFields(f) {
 // thumb_path の列がまだない（card-extras.sql を実行前）ときのエラーか
 const isThumbColumnError = (error) => /thumb_path/.test(error?.message || '') && /(column|schema cache)/i.test(error?.message || '');
 
+// progress-sync.sql をまだ実行していない（関数がない）ときのエラーを分かりやすく
+function explainSyncError(error) {
+  const msg = error?.message || '';
+  if (/(sync_get|sync_put)/.test(msg) && /(not find|does not exist|schema cache)/i.test(msg)) return new Error('同期の準備ができていません。Supabase の SQL Editor で supabase/progress-sync.sql を実行してください');
+  return error;
+}
+
 // card-extras.sql をまだ実行していない（列がない）ときのエラーを分かりやすく
 function explainColumnError(error) {
   const msg = error?.message || '';
@@ -286,6 +293,17 @@ function createSupabaseApi(sb) {
       if (error) throw error;
     },
 
+    // 学習記録の端末間同期（引き継ぎコード）。supabase/progress-sync.sql の関数を呼ぶ
+    async syncGet(code) {
+      const { data, error } = await sb.rpc('sync_get', { p_code: code });
+      if (error) throw explainSyncError(error);
+      return data || null; // { data, updated_at } か null（まだない）
+    },
+    async syncPut(code, payload) {
+      const { error } = await sb.rpc('sync_put', { p_code: code, p_data: payload });
+      if (error) throw explainSyncError(error);
+    },
+
     // 低画質版がまだないカードの分を作る（既存のカード用。1 枚ずつ元の画像を取得して小さくし、保存する）
     // onProgress(done, total)。戻り値: 作れた枚数
     async ensureThumbs(cards, onProgress = () => {}) {
@@ -363,6 +381,14 @@ function createDemoApi() {
     },
     async imageUrls(cards) { return new Map(cards.flatMap((c) => [[c.id, c.image_path], ...(c.back_path ? [[`${c.id}|back`, c.back_path]] : []), ...(c.thumb_path ? [[`${c.id}|thumb`, c.thumb_path]] : [])])); },
     async ensureThumbs() { return 0; }, // デモは保存容量が小さいので、追加時に作った分だけ
+    // 学習記録の同期のお試し用（本物のサーバーの代わりに、このブラウザの中に置く）
+    async syncGet(code) { try { return JSON.parse(localStorage.getItem('geo-cards-demo-sync-v1'))?.[code] || null; } catch { return null; } },
+    async syncPut(code, payload) {
+      let all = {};
+      try { all = JSON.parse(localStorage.getItem('geo-cards-demo-sync-v1')) || {}; } catch { /* 空 */ }
+      all[code] = { data: payload, updated_at: new Date().toISOString() };
+      localStorage.setItem('geo-cards-demo-sync-v1', JSON.stringify(all));
+    },
     async createCard(fields, imageBlob, backBlob = null) {
       const image = await blobToDataUrl(await compressImage(imageBlob, 1000, 0.75));
       const backPath = backBlob instanceof Blob ? await blobToDataUrl(await compressImage(backBlob, 1000, 0.75)) : null;

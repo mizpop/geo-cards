@@ -8,6 +8,7 @@ import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTi
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
+import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
@@ -193,6 +194,8 @@ function openSettings() {
       ${item('止まると詳しく表示', '国にマウスを乗せて 0.5 秒止まると、吹き出しに詳しい情報を出します。オフでも右クリックで表示できます', sw('hoverExpand'))}
       ${item('背景の地図', '英語表記: 国名・地名を英語で表示（Google マップに近い見た目）／ OpenStreetMap: 地名を現地の言語で表示', seg('mapTiles', [['en', '英語表記'], ['osm', 'OpenStreetMap']]), true)}
     </section>
+    <h3 class="set-group-title">🔄 学習記録の同期</h3>
+    <section class="set-group" id="sync-box"></section>
     <h3 class="set-group-title">⌨ キーボード操作</h3>
     <section class="set-group set-keys">
       ${KEY_ACTIONS.map(([act, label]) => `
@@ -212,6 +215,58 @@ function openSettings() {
       <button class="btn btn-primary" data-close type="button">閉じる</button>
     </div>`, 'modal-settings');
 
+  // 学習記録の同期（引き継ぎコード）: 覚え具合・毎日の記録・自己ベストを、PC とスマホなどで共有する
+  const renderSyncBox = (msg = '', kind = '') => {
+    const box = $('#sync-box');
+    if (!box) return;
+    const code = getCode();
+    const at = lastSyncAt();
+    const note = msg ? `<div class="set-desc sync-msg ${kind}">${esc(msg)}</div>` : '';
+    box.innerHTML = typeof api.syncGet !== 'function' ? '<div class="set-item"><div class="set-text"><div class="set-desc">この環境では同期を使えません</div></div></div>' : !code ? `
+      <div class="set-item set-item-stacked"><div class="set-text"><div class="set-title">引き継ぎコードで記録を共有</div>
+        <div class="set-desc">「覚えた / まだ」・連続日数・毎日の回数・タイムアタックの自己ベストを、ほかの端末と共有します。1 台目で「コードを作る」を押し、表示されたコードを 2 台目の「コードを入力」に入力してください。${api.mode === 'demo' ? '（デモモードでは、このブラウザの中だけで試せます）' : ''}</div></div>
+        <div class="sync-row"><button type="button" class="btn btn-primary btn-sm" id="sync-new">コードを作って同期を始める</button></div>
+        <div class="sync-row"><input class="input sync-input" id="sync-code-in" placeholder="別の端末のコードを入力（例: ABCDE-FGHJK-…）" autocomplete="off" spellcheck="false"><button type="button" class="btn btn-sm" id="sync-join">この端末を同期する</button></div>${note}</div>` : `
+      <div class="set-item set-item-stacked"><div class="set-text"><div class="set-title">同期中</div>
+        <div class="set-desc">引き継ぎコード: <b class="sync-code" id="sync-code-view" data-shown="0">${esc(formatCode(code).replace(/[A-Z0-9]/g, (c, i) => (i < 5 ? c : '•')))}</b>
+        <button type="button" class="link-btn" id="sync-show">表示</button> ・ <button type="button" class="link-btn" id="sync-copy">コピー</button><br>
+        ${at ? `最後の同期: ${esc(fmtTime(new Date(at).toISOString()))}` : 'まだ同期していません'}</div></div>
+        <div class="sync-row"><button type="button" class="btn btn-sm" id="sync-now">今すぐ同期</button><button type="button" class="btn btn-ghost btn-sm" id="sync-off">同期をやめる</button></div>${note}</div>`;
+    const run = async (label, fn) => {
+      const btns = $$('#sync-box button');
+      btns.forEach((b) => { b.disabled = true; });
+      try { await fn(); } catch (e) { renderSyncBox(`${label}に失敗しました: ${e.message}`, 'is-error'); return; }
+    };
+    const afterSync = (merged) => { if (merged) { rebuildStudyDeck(true); if (state.view !== 'quiz') render(); } };
+    $('#sync-new')?.addEventListener('click', () => run('コードの作成', async () => {
+      const c = newCode();
+      setCode(c);
+      try { afterSync(await syncNow(api)); } catch (e) { clearCode(); throw e; }
+      renderSyncBox('コードを作りました。ほかの端末の「コードを入力」にこのコードを入れてください（「表示」で確認できます）', 'is-ok');
+    }));
+    $('#sync-join')?.addEventListener('click', () => run('同期', async () => {
+      const c = normalizeCode($('#sync-code-in').value);
+      if (!isValidCode(c)) throw new Error('コードは 20 文字です（ハイフンはあってもなくても大丈夫）');
+      const remote = await api.syncGet(c);
+      if (!remote) throw new Error('このコードの記録が見つかりません。1 台目で作ったコードか確認してください');
+      setCode(c);
+      afterSync(await syncNow(api));
+      renderSyncBox('この端末の記録と合わせて同期しました', 'is-ok');
+    }));
+    $('#sync-now')?.addEventListener('click', () => run('同期', async () => { afterSync(await syncNow(api)); renderSyncBox('同期しました', 'is-ok'); }));
+    $('#sync-off')?.addEventListener('click', () => { if (confirm('同期をやめますか？この端末の記録はそのまま残り、サーバーの記録も消えません')) { clearCode(); renderSyncBox(); } });
+    $('#sync-show')?.addEventListener('click', () => {
+      const el = $('#sync-code-view');
+      const shown = el.dataset.shown === '1';
+      el.dataset.shown = shown ? '0' : '1';
+      el.textContent = shown ? formatCode(code).replace(/[A-Z0-9]/g, (c, i) => (i < 5 ? c : '•')) : formatCode(code);
+      $('#sync-show').textContent = shown ? '表示' : '隠す';
+    });
+    $('#sync-copy')?.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(formatCode(code)); toast('コードをコピーしました'); } catch { toast('コピーできませんでした。「表示」で確認してください', 'error'); }
+    });
+  };
+  renderSyncBox();
   const changed = () => { saveSettings(); };
   $$('#modal .switch input').forEach((cb) => cb.addEventListener('change', () => { settings[cb.dataset.key] = cb.checked; changed(); }));
   $$('#modal .seg').forEach((g) => g.addEventListener('click', (e) => {
@@ -360,6 +415,11 @@ async function enterApp() {
   await reloadCards();
   route();
   startLive();
+  // 学習記録の同期（引き継ぎコードを設定している場合）: 起動時と、記録が変わったあと自動で
+  startAutoSync(api, {
+    onMerged: () => { if (!$('#modal').open && !(state.view === 'quiz' && state.quiz.phase === 'question')) { rebuildStudyDeck(true); renderView(); } toast('ほかの端末の学習記録を取り込みました'); },
+    onError: (e) => console.warn('学習記録の同期に失敗しました', e),
+  });
 }
 
 /* ---- ほかの人によるカードの追加・編集・削除をリアルタイムで反映 ----
