@@ -4,7 +4,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, removeSvPanel } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, removeSvPanel, countryAt } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
@@ -3296,6 +3296,8 @@ function openEditor(card, preset = {}) {
   });
   // 参考写真などから作るときの初期値
   if (preset.blob) setImage(preset.blob);
+  // クリップボードに画像（スクリーンショット）があれば自動で入れる（許可を求められることがあります。なければ何もしない）
+  if (preset.autoPaste) readClipboardImage().then((b) => { if (b && !ed.blob) setImage(b); }).catch(() => {});
   if (preset.description) $('#ed-desc').value = preset.description;
   if (preset.notes) $('#ed-notes').value = preset.notes;
   if (preset.area) $('#ed-area').value = preset.area;
@@ -3757,7 +3759,28 @@ function countrySummaryHtml(code) {
 const EXT_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>';
 
 /* ================= 地図 ================= */
+// ストリートビューで見つけた場所からカードを作る: 国・場所の名前・Google マップのリンクを入れた作成画面を開く
+async function cardFromSv({ lat, lng, code }) {
+  let area = '';
+  try { // 場所の名前（県・市など）を OpenStreetMap で調べる。調べられなくても作成は続ける
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 3500);
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=ja&lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}`, { signal: ctl.signal });
+    clearTimeout(timer);
+    const a = (await r.json()).address || {};
+    area = [a.state || a.province || a.region, a.city || a.county || a.town || a.municipality].filter(Boolean).filter((x, i, arr) => arr.indexOf(x) === i).join(' ');
+  } catch { /* 空のまま */ }
+  if (!code) toast('国を判定できなかったので、国は選び直してください');
+  else toast('先にスクリーンショットをコピーしておけば、画像が自動で入ります（なければ Ctrl+V で貼り付け）');
+  closeModal();
+  openEditor(null, {
+    countries: code ? [code] : [], area,
+    notes: `ストリートビュー: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`,
+    autoPaste: true,
+  });
+}
 const mapCtx = {
+  createCardFromSv: (p) => cardFromSv(p),
   countrySummaryHtml: (code) => countrySummaryHtml(code),
   openCountry: (code, src, lang) => openCountryInfo(code, src, lang),
   attachComplete: (input, opts) => attachInlineComplete(input, opts),

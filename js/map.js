@@ -119,6 +119,31 @@ async function svSnap(lat, lng, zoom) {
     lat: (Math.atan(Math.sinh(Math.PI * (1 - (2 * best[1]) / n))) * 180) / Math.PI,
   };
 }
+// 緯度・経度がどの国の中か（50m の国境データで判定。海上や小さな島で見つからなければ null）
+function ringHas(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function polyHas(poly, x, y) {
+  return ringHas(poly[0], x, y) && !poly.slice(1).some((h) => ringHas(h, x, y)); // 外側の輪の中で、穴の外
+}
+export async function countryAt(lat, lng) {
+  const w = await loadWorld('50m');
+  for (const f of w.fc.features) {
+    const code = f.properties.code;
+    const g = f.geometry;
+    if (!code || !g) continue;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    // 日付変更線をまたぐ国は経度が連続するように直してあるので、360 度ずらした位置も調べる
+    if (polys.some((poly) => [0, 360, -360].some((d) => polyHas(poly, lng + d, lat)))) return code;
+  }
+  return null;
+}
 // パネルの位置と大きさ（画面全体の中で動かせる。開き直しても引き継ぐ）
 let svRect = null; // { left, top, width, height }
 export function removeSvPanel() { document.getElementById('sv-panel')?.remove(); }
@@ -596,6 +621,7 @@ export async function renderMap(view, ctx) {
     <div class="sv-head" id="sv-head">
       <span class="sv-title">${SV_ICON} ストリートビュー</span>
       <span class="sv-coord muted small" id="sv-coord"></span>
+      ${ctx.isEditor() ? '<button type="button" class="icon-btn sv-btn" id="sv-card" title="この場所でカードを作る（国と場所を入れた状態で作成画面を開きます）" aria-label="この場所でカードを作る">📍</button>' : ''}
       <a class="icon-btn sv-btn" id="sv-ext" target="_blank" rel="noopener" title="Google マップで開く" aria-label="Google マップで開く">↗</a>
       <button type="button" class="icon-btn sv-btn" id="sv-max" title="大きく / 元の大きさ" aria-label="大きく表示">⤢</button>
       <button type="button" class="icon-btn sv-btn" id="sv-close" title="閉じる（Esc）" aria-label="閉じる">✕</button>
@@ -674,6 +700,11 @@ export async function renderMap(view, ctx) {
   $id('map-sv').addEventListener('click', () => setSv(!svOn));
   $id('sv-exit').addEventListener('click', () => setSv(false));
   svPanel.querySelector('#sv-close').addEventListener('click', closeSv);
+  svPanel.querySelector('#sv-card')?.addEventListener('click', async () => {
+    if (!svPoint) return;
+    const [lat, lng] = svPoint;
+    ctx.createCardFromSv({ lat, lng, code: await countryAt(lat, lng) });
+  });
   svPanel.querySelector('#sv-max').addEventListener('click', () => { saveRect(); svPanel.classList.toggle('is-max'); });
   // 地図のクリックを横取りして（国の選択などは動かさない）、近くの青い線の地点を求める。ドラッグで動かしただけのときは開かない
   let svDown = null;
