@@ -486,6 +486,13 @@ export async function renderMap(view, ctx) {
   const dark = isDark();
   // 背景の地図（設定で英語表記 / OpenStreetMap を切り替え）。ダークモードは CSS で色を反転
   addBaseTiles(map, { updateWhenZooming: false });
+  // 地名・道路名だけの透明なタイルを、色で塗った地図や青い線の上に重ねる（英語表記の地図のとき。OSM は地名が地図に焼き込み済みで分けられない）
+  if (tileStyle !== 'osm') {
+    const pane = map.createPane('svLabels');
+    pane.style.zIndex = 460; // 塗り（400）・青い線（450）より上、マーカー（600）より下
+    pane.style.pointerEvents = 'none';
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { pane: 'svLabels', maxZoom: 19, maxNativeZoom: 18, keepBuffer: leanTiles() ? 1 : 2, updateWhenZooming: false, attribution: '' }).addTo(map);
+  }
   $id('map').classList.toggle('map-dark', dark);
   if (lastView) map.setView(lastView.center, lastView.zoom);
   else map.setView([25, 10], 2);
@@ -803,14 +810,8 @@ export async function renderMap(view, ctx) {
         // 縮小しているときも細く見せるため、全ての縮尺で 1 段細かいタイルを半分の大きさで表示する
         const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
         const thin = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, minZoom: SV_THIN_ZOOM, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 }).addTo(map);
-        // 地名・道路名だけの透明なタイルを青い線の上に重ねて、青い線を地名の後ろに見せる（英語表記の地図のとき。OSM は地名が地図に焼き込み済みで分けられない）
-        let labels = null;
-        if (tileStyle !== 'osm') {
-          if (!map.getPane('svLabels')) { const pane = map.createPane('svLabels'); pane.style.zIndex = 460; pane.style.pointerEvents = 'none'; }
-          labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { pane: 'svLabels', maxZoom: 19, maxNativeZoom: 18, keepBuffer: 1, updateWhenZooming: false, attribution: '' }).addTo(map);
-        }
         svCoverage = L.layerGroup([normal, thin]); // まとめて外せるように
-        svCoverage.remove = () => { normal.remove(); thin.remove(); labels?.remove(); };
+        svCoverage.remove = () => { normal.remove(); thin.remove(); };
       }
       if (!init) { clearFocus(); hideBubble(); }
     } else {
