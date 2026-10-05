@@ -431,6 +431,7 @@ export function mountBattle(host, ctx) {
         });
       }
     }
+    ctx.attachZoom(host.querySelector('.quiz-card .front-img')); // ホイールで拡大・ドラッグで移動（単独プレイと同じ）
     renderPlayStatus();
   }
   function renderPlayStatus() {
@@ -470,6 +471,7 @@ export function mountBattle(host, ctx) {
     // ストリートビューは右に大きく、答えと結果は左に
     main.innerHTML = `${head(`第 ${game.i + 1} 問 / ${game.questions.length} の答え`)}${sv ? `<div class="sv-split"><div class="bt-left">${rest}</div>${cardHtml}</div>` : `${cardHtml}${rest}`}`;
     bindExit();
+    ctx.attachZoom(host.querySelector('.quiz-card .front-img'));
     main.querySelector('#bt-next')?.addEventListener('click', () => { // ホスト: 続けるボタンですぐに次へ
       if (!isHost || phase !== 'reveal') return;
       clearHostTimers();

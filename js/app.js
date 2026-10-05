@@ -2143,7 +2143,7 @@ function renderBattle() {
     mountQuizMap, mountPinMap, distanceBetween, resolveCountryCode,
     factTopics: FACT_TOPICS.map((id) => ({ id, name: modeDef(id).name, icon: modeDef(id).icon })),
     setSvHide: (v) => { svHide = v; },
-    setFit,
+    setFit, attachZoom,
     regions: REGIONS.map((r) => ({ id: r.id, name: r.name })),
     categories: allCats().map((c) => ({ key: c.id, name: c.name, vars: catVars(c) })),
     scopeCounts: battleCounts,
