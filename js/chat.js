@@ -19,9 +19,33 @@ let unread = false;
 const NAME_KEY = 'geo-cards-chat-name';
 const getName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } };
 const setName = (n) => { try { localStorage.setItem(NAME_KEY, n); } catch { /* 保存できなくても続行 */ } };
-function askName() {
+// 名前の入力。ブラウザでは prompt()、exe（Electron）では prompt() が使えないので、ページ内のダイアログで代用する
+function ask(title, def) {
+  try {
+    return Promise.resolve(prompt(title, def));
+  } catch {
+    return new Promise((resolve) => {
+      const d = document.createElement('dialog');
+      d.className = 'modal modal-sm';
+      d.innerHTML = '<div class="modal-inner"><h3 class="ask-title"></h3><input class="input ask-input" maxlength="20"><div class="modal-foot"><button type="button" class="btn btn-ghost" data-c>キャンセル</button><span class="grow"></span><button type="button" class="btn btn-primary" data-ok>OK</button></div></div>';
+      d.querySelector('.ask-title').textContent = title;
+      const input = d.querySelector('.ask-input');
+      input.value = def || '';
+      const done = (v) => { d.close(); d.remove(); resolve(v); };
+      d.querySelector('[data-ok]').addEventListener('click', () => done(input.value));
+      d.querySelector('[data-c]').addEventListener('click', () => done(null));
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); done(input.value); } });
+      d.addEventListener('cancel', () => done(null));
+      document.body.appendChild(d);
+      d.showModal();
+      input.focus();
+      input.select();
+    });
+  }
+}
+async function askName() {
   const def = getName() || (user && !user.isViewer && user.email ? user.email.split('@')[0] : '');
-  const n = (prompt('メモに表示するあなたの名前（この端末に保存されます）', def) ?? '').trim().slice(0, 20);
+  const n = ((await ask('メモに表示するあなたの名前（この端末に保存されます）', def)) ?? '').trim().slice(0, 20);
   if (n) setName(n);
   return getName();
 }
@@ -132,7 +156,7 @@ function build() {
   document.body.appendChild(panel);
 
   panel.querySelector('.chat-close').addEventListener('click', closePanel);
-  panel.querySelector('.chat-me').addEventListener('click', () => { askName(); updateMe(); renderList(false); });
+  panel.querySelector('.chat-me').addEventListener('click', async () => { await askName(); updateMe(); renderList(false); });
   const input = panel.querySelector('.chat-input');
   const form = panel.querySelector('.chat-form');
   const autosize = () => { input.style.height = 'auto'; input.style.height = `${Math.min(140, input.scrollHeight)}px`; };
@@ -148,7 +172,7 @@ function build() {
     input.value = '';
     autosize();
     try {
-      const row = await api.addMemo(body, getName() || askName() || displayAuthor(user.email));
+      const row = await api.addMemo(body, getName() || (await askName()) || displayAuthor(user.email));
       memos.push(row);
       renderList(true);
     } catch (ex) {
@@ -176,7 +200,7 @@ function updateMe() {
 }
 
 async function openPanel() {
-  if (!getName()) askName(); // 初めて開いたときに表示名を決める
+  if (!getName()) await askName(); // 初めて開いたときに表示名を決める
   updateMe();
   panel.classList.add('open');
   btn.classList.add('active');

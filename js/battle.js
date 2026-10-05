@@ -301,6 +301,8 @@ export function mountBattle(host, ctx) {
   const segHtml = (id, opts, cur) => `<div class="seg ${opts.length > 4 ? 'seg-wrap' : ''}" id="${id}">${opts.map(([v, label]) => `<button type="button" class="${cur === v ? 'on' : ''}" data-v="${v}">${label}</button>`).join('')}</div>`;
   function renderLobby() {
     if (!alive()) return;
+    host.classList.remove('bt-play');
+    ctx.setFit('scroll');
     const list = [...players.values()];
     if (!modesOf(cfg.kind).includes(cfg.mode)) cfg.mode = modesOf(cfg.kind)[0];
     const counts = isHost ? ctx.scopeCounts(cfg) : { regions: new Map(), cats: new Map() };
@@ -351,14 +353,17 @@ export function mountBattle(host, ctx) {
 
   function renderPlay() {
     const Q = game.questions[game.i];
-    const top = `${head(`第 ${game.i + 1} 問 / ${game.questions.length}`)}
-      <div class="toolbar"><span class="counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span></div>`;
+    // 単独プレイと同じ見た目・大きさ（画面いっぱいの問題カード、下に選択肢）
+    const top = `<div class="toolbar"><span class="counter">第 ${game.i + 1} 問 / ${game.questions.length}</span><span class="counter qt-counter">⏱ <b id="bt-timer">${game.perQ}</b> 秒</span><span class="muted small" id="bt-status"></span><span class="muted small" id="bt-mine"></span><span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" id="bt-exit">退出</button></div>
+      <div class="progress"><div class="progress-bar" style="width:${(game.i / game.questions.length) * 100}%"></div></div>`;
+    host.classList.add('bt-play');
+    ctx.setFit(true);
     ctx.setSvHide(true);
     if (Q.k === 'fact') {
       const item = Q.item;
       main.innerHTML = `${top}<div class="quiz-card fact-card"><img class="fact-flag" src="${esc(ctx.flagUrl(item.code))}" alt=""><div class="fact-country">${esc(countryName(item.code))}</div></div>
-        <p class="quiz-prompt">この国の${esc(Q.topicIcon)} ${esc(Q.topicName)}は？</p>
-        <div class="choices bt-choices fact-choices">${item.options.map((o, i) => `<button type="button" class="choice" data-key="${esc(o.key)}"><span class="kbd">${i + 1}</span>${o.swatch}<span>${esc(o.label)}</span></button>`).join('')}</div>`;
+        <div class="quiz-bottom"><p class="quiz-prompt">この国の${esc(Q.topicIcon)} ${esc(Q.topicName)}は？</p>
+        <div class="choices bt-choices fact-choices">${item.options.map((o, i) => `<button type="button" class="choice" data-key="${esc(o.key)}"><span class="kbd">${i + 1}</span>${o.swatch}<span>${esc(o.label)}</span></button>`).join('')}</div></div>`;
       bindExit();
       host.querySelectorAll('.bt-choices .choice').forEach((b) => b.addEventListener('click', () => {
         const res = b.dataset.key === item.answer ? 'ok' : 'ng';
@@ -371,7 +376,7 @@ export function mountBattle(host, ctx) {
     if (!card) { main.innerHTML = `${top}<p class="muted">この問題のカードを読み込めませんでした。次の問題をお待ちください。</p>`; bindExit(); return; }
     const front = `<div class="quiz-card">${frontHtml(card, false, false)}</div>`;
     if (Q.mode === 'choice') {
-      main.innerHTML = `${top}${front}<div class="choices bt-choices">${Q.options.map((code, i) => `<button type="button" class="choice" data-code="${code}"><span class="key">${i + 1}</span>${flagImg(code)}<span>${esc(countryName(code))}</span></button>`).join('')}</div>`;
+      main.innerHTML = `${top}${front}<div class="quiz-bottom"><div class="choices bt-choices">${Q.options.map((code, i) => `<button type="button" class="choice" data-code="${code}"><span class="key">${i + 1}</span>${flagImg(code)}<span>${esc(countryName(code))}</span></button>`).join('')}</div></div>`;
       bindExit();
       host.querySelectorAll('.bt-choices .choice').forEach((b) => b.addEventListener('click', () => {
         const res = card.countries.includes(b.dataset.code) ? 'ok' : 'ng';
@@ -380,9 +385,9 @@ export function mountBattle(host, ctx) {
     } else if (Q.mode === 'input') {
       const need = card.countries.length;
       const draft = [];
-      main.innerHTML = `${top}${front}<div class="bt-input-row"><div class="bt-chips" id="bt-chips"></div>
+      main.innerHTML = `${top}${front}<div class="quiz-bottom"><div class="bt-input-row"><div class="bt-chips" id="bt-chips"></div>
         <input type="text" id="bt-input" class="input" list="country-list" placeholder="${need > 1 ? `国名を入力して Enter で追加（${need} か国）` : '国名を入力して Enter（例: ポーランド / Poland）'}" autocomplete="off">
-        <button type="button" class="btn btn-primary" id="bt-send">回答</button></div>`;
+        <button type="button" class="btn btn-primary" id="bt-send">回答</button></div></div>`;
       bindExit();
       const chips = () => { host.querySelector('#bt-chips').innerHTML = draft.map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join(''); };
       const finish = () => {
@@ -436,6 +441,8 @@ export function mountBattle(host, ctx) {
   }
 
   function renderReveal() {
+    host.classList.remove('bt-play');
+    ctx.setFit('scroll');
     const Q = game.questions[game.i];
     const got = game.answers.get(game.i) || new Map();
     ctx.setSvHide(false);
@@ -470,6 +477,8 @@ export function mountBattle(host, ctx) {
     });
   }
   function renderFinal() {
+    host.classList.remove('bt-play');
+    ctx.setFit('scroll');
     main.innerHTML = `${head('結果発表')}
       <div class="bt-final">${boardHtml()}</div>
       <div class="bt-row">${isHost ? '<button type="button" class="btn btn-primary" id="bt-again">もう一度（ロビーへ）</button>' : '<span class="muted small">ホストが「もう一度」を押すと、ロビーに戻ります</span>'}</div>`;
