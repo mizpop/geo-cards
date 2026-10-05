@@ -252,6 +252,15 @@ function createSupabaseApi(sb) {
       return () => sb.removeChannel(ch);
     },
 
+    // リアルタイム対戦の通信（Supabase Realtime の Broadcast / Presence。テーブルは使わない）。on.msg: メッセージ受信、on.presence: 今いる人の一覧
+    async battleChannel(room, me, on) {
+      const ch = sb.channel(`battle:${room}`, { config: { broadcast: { self: true }, presence: { key: me.id } } });
+      ch.on('broadcast', { event: 'm' }, ({ payload }) => on.msg(payload));
+      ch.on('presence', { event: 'sync' }, () => on.presence(Object.values(ch.presenceState()).map((a) => a[0]).filter(Boolean)));
+      await new Promise((resolve, reject) => ch.subscribe((st) => { if (st === 'SUBSCRIBED') resolve(); else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') reject(new Error('対戦の通信に接続できませんでした')); }));
+      await ch.track({ id: me.id, name: me.name, host: !!me.host });
+      return { send: (payload) => ch.send({ type: 'broadcast', event: 'm', payload }), leave: () => sb.removeChannel(ch) };
+    },
     // 国ごとのメモ: Map(code -> note)
     // 国ごとの情報（地図のインフォグラフィック）: Map(topic → Map(code → value))
     async listFacts() {
@@ -452,6 +461,31 @@ function createDemoApi() {
       const onStorage = (e) => { if (e.key === MEMOS_KEY) handler('RELOAD'); };
       window.addEventListener('storage', onStorage);
       return () => window.removeEventListener('storage', onStorage);
+    },
+    // リアルタイム対戦の通信（デモモード: 同じブラウザの別タブどうし。BroadcastChannel で代用）
+    async battleChannel(room, me, on) {
+      const bc = new BroadcastChannel(`geo-battle-${room}`);
+      const peers = new Map([[me.id, { ...me, seen: Date.now() }]]);
+      let sig = '';
+      const emit = () => { // 顔ぶれが変わったときだけ通知（毎秒描き直さないように）
+        for (const [id, p] of peers) if (Date.now() - p.seen > 3500) peers.delete(id);
+        const list = [...peers.values()].map(({ id, name, host }) => ({ id, name, host }));
+        const s = JSON.stringify(list);
+        if (s !== sig) { sig = s; on.presence(list); }
+      };
+      const hello = () => bc.postMessage({ hello: { id: me.id, name: me.name, host: !!me.host } });
+      bc.onmessage = (e) => {
+        if (e.data.hello) { const known = peers.has(e.data.hello.id); peers.set(e.data.hello.id, { ...e.data.hello, seen: Date.now() }); if (!known) hello(); emit(); }
+        else if (e.data.bye) { peers.delete(e.data.bye); emit(); }
+        else if (e.data.m) on.msg(e.data.m);
+      };
+      const beat = setInterval(() => { peers.get(me.id).seen = Date.now(); hello(); emit(); }, 1000);
+      hello();
+      setTimeout(emit, 50);
+      return {
+        send: (m) => { bc.postMessage({ m }); setTimeout(() => on.msg(m), 0); },
+        leave: () => { clearInterval(beat); bc.postMessage({ bye: me.id }); bc.close(); },
+      };
     },
     subscribeCards(handler) {
       const keys = { [KEY]: 'cards', [CAT_KEY]: 'categories', [NOTES_KEY]: 'country_notes', [FACTS_KEY]: 'country_facts' };

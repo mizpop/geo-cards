@@ -12,6 +12,7 @@ import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSn
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
+import { mountBattle } from './battle.js';
 import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo } from './refimages.js';
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
@@ -2115,9 +2116,25 @@ function quizEligible(regions) {
   return state.cards.filter((c) => !off.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
 }
 
+// ---- リアルタイム対戦（js/battle.js） ----
+let battle = null;
+function renderBattle() {
+  if (battle && $('#battle-root')?.isConnected) return; // 対戦中は、描き直さない（通信を保つ）
+  if (battle) { battle.leave(); battle = null; }
+  setFit('scroll');
+  $('#view').innerHTML = '<section class="panel battle" id="battle-root"></section>';
+  battle = mountBattle($('#battle-root'), {
+    api, esc, play, toast, countryName, flagImg, cardById, frontHtml,
+    getCards: () => quizEligible(state.quiz.regions).filter((c) => !c.sv && c.countries.length),
+    makeOptions: (card) => makeOptions(card, state.quiz.regions),
+    onExit: () => { battle = null; state.quiz.kind = 'cards'; renderQuiz(); },
+  });
+}
 function renderQuiz() {
   const q = state.quiz;
   setFit(q.phase === 'question' ? true : 'scroll');
+  if (battle && (q.kind !== 'battle' || q.phase !== 'setup')) { battle.leave(); battle = null; } // 対戦の画面から離れたら、部屋を抜ける
+  if (q.kind === 'battle' && q.phase === 'setup') return renderBattle();
   if (q.phase === 'question') { armQuestionTimer(q); return renderQuestion(); }
   if (q.phase === 'result') return renderQuizResult();
 
@@ -2146,6 +2163,7 @@ function renderQuiz() {
           <button class="${isPhoto ? 'on' : ''}" data-kind="photo">📷 参考写真（GeoHints の写真から国を当てる）</button>
           <button class="${isFact ? 'on' : ''}" data-kind="fact">🗺 国の特徴・基本データ</button>
           <button class="${isSv ? 'on' : ''}" data-kind="sv">🧍 ストリートビュー（実際の道路から当てる）</button>
+          <button class="${q.kind === 'battle' ? 'on' : ''}" data-kind="battle">👥 リアルタイム対戦（友達と同時に解く）</button>
         </div>
       </div>
       ${isPhoto ? `

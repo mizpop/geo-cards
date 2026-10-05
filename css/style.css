@@ -1904,3 +1904,26 @@ body[data-split] .view { padding-left: 14px; padding-right: 14px; }
 
 .qm-side .qm-guess { flex: none; width: 100%; }
 @media (min-width: 900px) and (hover: hover) and (pointer: fine) { .qm-layout.qm-float .qm-side .qm-guess { order: 3; margin-top: 6px; pointer-events: auto; } }
+
+/* リアルタイム対戦 */
+.battle { max-width: 760px; margin: 0 auto; }
+.bt-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.bt-head h2 { margin: 0; font-size: 18px; }
+.bt-room { font-family: ui-monospace, monospace; letter-spacing: .15em; background: var(--surface-2); padding: 2px 10px; border-radius: 8px; color: var(--accent); }
+.bt-form { display: flex; flex-direction: column; gap: 12px; margin: 14px 0; }
+.bt-label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.bt-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bt-code { max-width: 220px; text-transform: uppercase; letter-spacing: .2em; font-family: ui-monospace, monospace; }
+.bt-players { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.bt-players li { padding: 6px 12px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); }
+.bt-players li.me, .bt-board li.me { border-color: var(--accent); color: var(--accent); }
+.bt-choices { margin-top: 12px; }
+.bt-choices .choice { display: flex; align-items: center; gap: 8px; }
+.bt-choices .choice.picked { outline: 2px solid var(--accent); }
+.bt-who { margin-left: auto; font-size: 12px; color: var(--muted); }
+.bt-sub { margin: 16px 0 6px; font-size: 14px; color: var(--muted); }
+.bt-board { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.bt-board li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
+.bt-rank { width: 2em; text-align: center; }
+.bt-pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-wait { text-align: center; padding: 40px 0; font-size: 18px; }
