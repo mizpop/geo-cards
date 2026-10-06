@@ -2431,3 +2431,7 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 /* 保存した場所の削除のポップアップ */
 .sv-pop.sv-pop-delete { width: 280px; padding: 12px; gap: 8px; }
 .sv-pop-msg { margin: 0; line-height: 1.5; }
+
+/* 「〜 付近」の題名は、押すと保存した場所へ移動できる */
+.sv-head .sv-title.is-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.sv-head .sv-title.is-link:hover { color: var(--accent); }

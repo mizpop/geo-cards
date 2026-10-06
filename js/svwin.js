@@ -175,6 +175,7 @@ function refreshButtons() {
   }
   panel.classList.toggle('is-named', !!row);
   panel.classList.toggle('is-nearby', !!near);
+  panel.querySelector('.sv-title')?.classList.toggle('is-link', !!near); // 「〜 付近」の題名は、押すとその場所へ移動できる
   const save = panel.querySelector('#sv-save');
   if (save) {
     save.hidden = false; // 保存できない（閲覧のみ）ときも、保存した一覧を開くために出す
@@ -218,6 +219,12 @@ function ensure() {
   panel.addEventListener('pointerdown', () => bringFront(panel), true); // 触ったウィンドウを手前に
 
   panel.querySelector('#sv-close').addEventListener('click', closeSvWindow);
+  // 「〜 付近」の題名を押すと、その保存した場所（保存したときの向き・ズームで）へ移動する
+  panel.querySelector('.sv-title').addEventListener('click', () => {
+    if (!point || !hooks.nearSaved) return;
+    const r = hooks.savedAt?.({ lat: point[0], lng: point[1], heading: view.heading }) ? null : hooks.nearSaved({ lat: point[0], lng: point[1], heading: view.heading }, 100);
+    if (r) openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
+  });
   // 矢印をたどって移動したあとの位置は、Google の埋め込みからは読み取れないので、「Google マップで見る」のリンク（今いる地点の URL）を貼り付けて取り込む
   panel.querySelector('#sv-paste').addEventListener('click', async () => {
     if (hooks.syncPosition) { hooks.toast((await hooks.syncPosition()) ? `今いる位置: ${point[0].toFixed(4)}, ${point[1].toFixed(4)}` : '位置を読み取れませんでした（映像の読み込み後にもう一度）'); return; } // Windows 版アプリ: 自動で読める
@@ -258,7 +265,7 @@ function ensure() {
   const head = panel.querySelector('#sv-head');
   let drag = null;
   head.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button, a') || mobile()) return;
+    if (e.target.closest('button, a, .sv-title.is-link') || mobile()) return;
     const pr = panel.getBoundingClientRect();
     drag = { dx: e.clientX - pr.left, dy: e.clientY - pr.top, w: pr.width, sx: e.clientX, sy: e.clientY, started: false };
     head.setPointerCapture(e.pointerId);
@@ -282,7 +289,7 @@ function ensure() {
   });
   // ヘッダーのダブルクリックで、大きく / 元の大きさ
   head.addEventListener('dblclick', (e) => {
-    if (e.target.closest('button, a')) return;
+    if (e.target.closest('button, a, .sv-title.is-link')) return;
     if (panel.classList.contains('is-min')) { setMin(false); return; }
     unsnapWindow(panel);
     saveRect();
