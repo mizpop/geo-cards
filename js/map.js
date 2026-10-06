@@ -1509,6 +1509,7 @@ export async function renderMap(view, ctx) {
   let cities = [];
   let hi = -1; // 候補の中で、矢印キーで選んでいる行
   let osmMode = false; // 候補が OpenStreetMap のものか
+  let sugQ = ''; // いま出している候補が、どの入力のものか（Enter を押したときに、入力と合っているか確かめる）
   let sugCtl = null;
   let sugTimer = null;
   let sugSeq = 0;
@@ -1534,6 +1535,7 @@ export async function renderMap(view, ctx) {
       const list = await suggestCities(q, { signal: sugCtl.signal });
       if (my !== sugSeq) return;
       cities = list;
+      sugQ = q;
       osmMode = false;
       hi = -1;
       if (document.activeElement === ms) renderSug(q);
@@ -1561,6 +1563,7 @@ export async function renderMap(view, ctx) {
       const list = await searchCitiesOSM(q, { signal: sugCtl.signal });
       if (my !== sugSeq) return;
       cities = list;
+      sugQ = q;
       if (!list.length) { renderSug(q, '見つかりませんでした'); ctx.toast('都市が見つかりません', 'error'); return; }
       if (autoPick) { pickCity(list[0]); return; }
       renderSug(q);
@@ -1606,10 +1609,34 @@ export async function renderMap(view, ctx) {
     ms.value = '';
     ms.dispatchEvent(new Event('input'));
   }
+  // Enter: 入力した言葉そのもので、すぐに都市を探して移動する（候補が更新されるのを待たない・前の入力の候補は使わない）
+  async function resolveCity(q) {
+    clearTimeout(sugTimer);
+    if (!(sugQ === q && cities.length && !osmMode)) { // 候補がこの入力のものでなければ、いますぐ取り直す
+      sugCtl?.abort();
+      sugCtl = new AbortController();
+      const my = ++sugSeq;
+      cities = [];
+      sugQ = '';
+      osmMode = false;
+      renderSug(q, '探しています…');
+      try {
+        const list = await suggestCities(q, { signal: sugCtl.signal });
+        if (my !== sugSeq) return; // その間に入力が変わった
+        if (list.length) { cities = list; sugQ = q; }
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+    }
+    // 人口のわかる都市が見つかっていれば、その先頭へ。なければ（小さな地名・漢字の名前など）OpenStreetMap で探す
+    if (cities.length && cities[0].pop > 0) pickCity(cities[0]);
+    else runOsm(q, true);
+  }
   ms.addEventListener('input', () => {
     clearTimeout(sugTimer);
     const q = ms.value.trim();
-    if (!q || /^(ww|ｗｗ|っw|っｗ)$/i.test(q)) { sugCtl?.abort(); sugSeq++; cities = []; closeSug(); return; }
+    hi = -1; // 入力が変わったら、矢印で選んでいた行は無効（候補が古くなるため）
+    if (!q || /^(ww|ｗｗ|っw|っｗ)$/i.test(q)) { sugCtl?.abort(); sugSeq++; cities = []; sugQ = ''; closeSug(); return; }
     sugTimer = setTimeout(() => runSuggest(q), 300);
   });
   ms.addEventListener('focus', () => { if (ms.value.trim() && (cities.length || osmMode)) renderSug(ms.value.trim()); });
@@ -1627,7 +1654,7 @@ export async function renderMap(view, ctx) {
     if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey) return;
     const q = ms.value.trim();
     if (!q) return;
-    if (hi >= 0) { // 矢印で選んだ行
+    if (hi >= 0 && sugQ === q) { // 矢印で選んだ行（いまの入力の候補のとき）
       e.preventDefault();
       e.stopImmediatePropagation();
       if (hi < cities.length) pickCity(cities[hi]); else runOsm(q);
@@ -1636,8 +1663,7 @@ export async function renderMap(view, ctx) {
     if (ctx.resolveCountry(ms.value)) return; // 国名ならこれまでどおり国へ
     e.preventDefault();
     e.stopImmediatePropagation();
-    // 漢字を含む名前（東京・福岡など）は、小さな同名の地名が先に出やすい Open-Meteo より、重要度で並べる OpenStreetMap を使う
-    if (cities.length && !osmMode && !/[\u3400-\u9fff]/.test(q)) pickCity(cities[0]); else runOsm(q, true);
+    resolveCity(q);
   }, true);
   sug.addEventListener('mousedown', (e) => e.preventDefault()); // 候補を押しても、入力欄から離れない
   sug.addEventListener('click', (e) => {

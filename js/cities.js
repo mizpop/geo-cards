@@ -41,6 +41,8 @@ const PLACE_BIG = /^(city|town|village|municipality|county|state|province|region
 //   oosaka / toukyou / kyouto → osaka / tokyo / kyoto（日本の都市の長音の書き方）
 export function queryVariants(query) {
   const q = query.trim();
+  // 漢字の短い都市名（京都・福岡・東京）は、「市」「都」を付けた形（京都市・福岡市・東京都）でも探す。Open-Meteo は、この形ならすぐ見つかる
+  if (/[\u3400-\u9fff]/.test(q) && isCjk(q) && q.length <= 4 && !hasSuffix(q)) return q.length === 2 ? [q, `${q}市`, `${q}都`] : [q, `${q}市`];
   if (!/^[A-Za-z][A-Za-z' -]*$/.test(q)) return [q];
   const lower = q.toLowerCase().replace(/[\s']+/g, '');
   const out = [q];
@@ -104,7 +106,7 @@ let lastOsm = 0;
 const osmCache = new Map();
 async function osmQuery(q, signal) {
   if (osmCache.has(q)) return osmCache.get(q);
-  const wait = lastOsm + 1100 - Date.now();
+  const wait = lastOsm + 1000 - Date.now(); // 前の問い合わせの開始から 1 秒（利用ポリシー）
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastOsm = Date.now();
   const res = await fetch(`${OSM}?q=${encodeURIComponent(q)}&format=jsonv2&accept-language=ja&limit=10&addressdetails=1&namedetails=1&dedupe=1`, { signal });
@@ -118,11 +120,8 @@ async function osmQuery(q, signal) {
 export async function searchCitiesOSM(query, { signal } = {}) {
   const q = query.trim();
   if (!q) return [];
-  const queries = queryVariants(q);
-  if (isCjk(q) && !hasSuffix(q) && q.length <= 4) queries.push(`${q}市`); // 京都 → 京都市（駅や集落より先に市が出るように）
-  const rows = [];
-  for (const one of queries) rows.push(...(await osmQuery(one, signal)));
-  const list = rows
+  const queries = queryVariants(q).filter((v) => !/^[\u30a0-\u30ff]+$/.test(v) || v === q).slice(0, 2); // 問い合わせは多くても 2 回（1 秒に 1 回までなので、続けると待たされる）
+  const toCities = (rows) => rows
     .filter((x) => (x.category === 'place' && PLACE_OK.test(x.type)) || (x.category === 'boundary' && x.type === 'administrative'))
     .filter((x) => x.category !== 'place' || PLACE_BIG.test(x.type) || Number(x.importance) > 0.3) // 小さな地名（集落・地区）は、重要なものだけ
     .sort((a, b) => Number(b.importance) - Number(a.importance))
@@ -141,9 +140,20 @@ export async function searchCitiesOSM(query, { signal } = {}) {
         lng: Number(x.lon),
         zoom: zoomForOSM(x),
         pop: 0,
+        kind: x.category === 'boundary' ? 'admin' : x.type,
+        imp: Number(x.importance) || 0,
         src: 'openstreetmap',
       };
     });
+  // 「ちゃんとした都市（市・町・行政区で、重要度が高い）」が見つかったら、残りの言い方は試さない
+  const good = (c) => /^(admin|city|town|municipality)$/.test(c.kind) && c.imp >= 0.4;
+  let rows = [];
+  let list = [];
+  for (const one of queries) {
+    rows = rows.concat(await osmQuery(one, signal));
+    list = toCities(rows);
+    if (list.some(good)) break;
+  }
   return dedupe(list).slice(0, 8);
 }
 
