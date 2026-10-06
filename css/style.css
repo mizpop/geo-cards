@@ -2272,3 +2272,11 @@ body:has(.sv-front) { overflow-x: clip; }
 .city-name small { font-size: 10.5px; color: var(--muted); }
 .city-x { width: 22px; height: 22px; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; font-size: 12px; }
 .city-x:hover { background: var(--surface-2); color: var(--text); }
+
+/* 都市の名前: 日本語に続けて、英語・現地の言語（薄い文字） */
+.sug-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.sug-title b { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
+.sug-alt, .city-alt { font-style: normal; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.sug-alt + .sug-alt::before, .city-alt + .city-alt::before { content: '·'; margin-right: 8px; color: var(--muted); }
+.city-title { display: flex; align-items: baseline; gap: 7px; }
+.city-title b { font-size: 13px; }

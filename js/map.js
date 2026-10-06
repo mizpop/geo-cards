@@ -1,7 +1,7 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
 import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { COUNTRY_BY_CODE } from './countries.js';
-import { suggestCities, searchCitiesOSM } from './cities.js';
+import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
 import { REF_IMAGES, REF_BASE, REF_PAGES } from './refimages.js';
 import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml, MATCH_TOPICS, matchOptions, matchAll } from './infomap.js';
@@ -1518,7 +1518,7 @@ export async function renderMap(view, ctx) {
   function renderSug(q, status = '') {
     const rows = cities.map((c, i) => `<button type="button" role="option" class="sug-row ${i === hi ? 'is-hi' : ''}" data-i="${i}">
         ${c.code ? ctx.flagImg(c.code) : '<span class="sug-ico">🏙</span>'}
-        <span class="sug-main"><b>${ctx.esc(c.name)}</b><small>${ctx.esc([c.sub, c.code ? ctx.countryName(c.code) : ''].filter(Boolean).join('・'))}</small></span>
+        <span class="sug-main"><span class="sug-title"><b>${ctx.esc(c.name)}</b>${altNames(c).map((n) => `<em class="sug-alt">${ctx.esc(n)}</em>`).join('')}</span><small>${ctx.esc([c.sub, c.code ? ctx.countryName(c.code) : ''].filter(Boolean).join('・'))}</small></span>
         ${c.pop ? `<span class="sug-pop">${fmtPop(c.pop)}</span>` : ''}
       </button>`).join('');
     const more = osmMode ? '' : `<button type="button" class="sug-row sug-more ${hi === cities.length ? 'is-hi' : ''}" data-more="1"><span class="sug-ico">🔎</span><span class="sug-main"><b>OpenStreetMap で「${ctx.esc(q)}」を探す</b><small>東京・大阪・京都など、漢字の地名はこちら（Enter でも）</small></span></button>`;
@@ -1537,9 +1537,17 @@ export async function renderMap(view, ctx) {
       osmMode = false;
       hi = -1;
       if (document.activeElement === ms) renderSug(q);
+      fillSugNames(q, my);
     } catch (e) {
       if (e.name !== 'AbortError' && my === sugSeq) { cities = []; osmMode = false; renderSug(q); } // 候補が取れなくても、「OpenStreetMap で探す」は使える
     }
+  }
+  // 候補の英語・現地の言語の名前を、上から順に取ってきて、そろったら一度だけ描き直す
+  function fillSugNames(q, my) {
+    const top = cities.slice(0, 6);
+    Promise.allSettled(top.map((c) => fillNames(c, { signal: sugCtl?.signal }))).then(() => {
+      if (my === sugSeq && !sug.hidden && document.activeElement === ms) renderSug(q);
+    });
   }
   async function runOsm(q, autoPick = false) {
     sugCtl?.abort();
@@ -1565,7 +1573,7 @@ export async function renderMap(view, ctx) {
     const place = [c.sub, c.code ? ctx.countryName(c.code) : ''].filter(Boolean).join('・');
     return L.divIcon({
       className: 'city-pin',
-      html: `<span class="city-dot"></span><div class="city-card">${c.code ? ctx.flagImg(c.code) : ''}<span class="city-name"><b>${ctx.esc(c.name)}</b>${place ? `<small>${ctx.esc(place)}</small>` : ''}</span><button type="button" class="city-x" aria-label="目印を消す" title="目印を消す（Esc）">✕</button></div>`,
+      html: `<span class="city-dot"></span><div class="city-card">${c.code ? ctx.flagImg(c.code) : ''}<span class="city-name"><span class="city-title"><b>${ctx.esc(c.name)}</b>${altNames(c).map((n) => `<em class="city-alt">${ctx.esc(n)}</em>`).join('')}</span>${place ? `<small>${ctx.esc(place)}</small>` : ''}</span><button type="button" class="city-x" aria-label="目印を消す" title="目印を消す（Esc）">✕</button></div>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
     });
@@ -1575,7 +1583,10 @@ export async function renderMap(view, ctx) {
     cityPoint = c;
     cityMarker?.remove();
     cityMarker = L.marker([c.lat, c.lng], { icon: cityIcon(c), keyboard: false, zIndexOffset: 4500 }).addTo(map);
-    cityMarker.getElement()?.querySelector('.city-x')?.addEventListener('click', (e) => { e.stopPropagation(); clearCity(); });
+    const bindX = () => cityMarker?.getElement()?.querySelector('.city-x')?.addEventListener('click', (e) => { e.stopPropagation(); clearCity(); });
+    bindX();
+    // 英語・現地の言語の名前がまだなければ取ってきて、目印のカードを描き直す
+    if (!c.filled) fillNames(c).then(() => { if (cityPoint === c && cityMarker) { cityMarker.setIcon(cityIcon(c)); bindX(); } }).catch(() => {});
     if (move) fly([c.lat, c.lng], c.zoom);
     if (c.code && GEO.has(c.code)) { setFocused(c.code); renderPanel(); } // 移動前の表示範囲にその国の図形がなくても選べる（着いたあとの描き直しで色がつく）
   }

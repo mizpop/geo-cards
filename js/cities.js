@@ -3,9 +3,11 @@
 //     「東京」「大阪」「京都」のような漢字だけの名前は見つからないことがある
 //  2. OpenStreetMap の Nominatim: Enter や「もっと探す」を押したときだけ問い合わせる（入力のたびには送らない・1 秒に 1 回まで）
 //     漢字だけの名前は、「市」を付けた名前（京都 → 京都市）でも探す
-// 戻り値の都市: { id, name, sub（県・国など）, code（国コード・大文字）, lat, lng, zoom, pop, src }
+// 戻り値の都市: { id, name（日本語）, en（英語）, local（現地の言語）, sub（県・国など）, code（国コード・大文字）, lat, lng, zoom, pop, src }
+//   en・local は、OpenStreetMap の結果ならすぐに入り、Open-Meteo の結果は fillNames() で（候補が出たあとに）取りに行く
 
 import { romajiToKana } from './countries.js';
+import { COUNTRY_INFO } from './countryinfo.js';
 
 const OM = 'https://geocoding-api.open-meteo.com/v1/search';
 const OSM = 'https://nominatim.openstreetmap.org/search';
@@ -73,6 +75,7 @@ async function omOne(q, signal, count) {
     .filter((x) => /^(PPL(?![XHQW])|ADM[123]|ISL)/.test(x.feature_code || ''))
     .map((x) => ({
       id: `om${x.id}`,
+      omId: x.id,
       name: x.name,
       sub: [x.admin1 && x.admin1 !== x.name ? x.admin1 : '', x.admin2 && !/^(PPLC|ADM)/.test(x.feature_code || '') && x.admin2 !== x.name ? x.admin2 : ''].filter(Boolean).join('・'),
       code: (x.country_code || '').toUpperCase(),
@@ -104,7 +107,7 @@ async function osmQuery(q, signal) {
   const wait = lastOsm + 1100 - Date.now();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastOsm = Date.now();
-  const res = await fetch(`${OSM}?q=${encodeURIComponent(q)}&format=jsonv2&accept-language=ja&limit=10&addressdetails=1&dedupe=1`, { signal });
+  const res = await fetch(`${OSM}?q=${encodeURIComponent(q)}&format=jsonv2&accept-language=ja&limit=10&addressdetails=1&namedetails=1&dedupe=1`, { signal });
   if (!res.ok) throw new Error(`OpenStreetMap の検索に失敗しました（${res.status}）`);
   const data = await res.json();
   osmCache.set(q, data);
@@ -130,6 +133,8 @@ export async function searchCitiesOSM(query, { signal } = {}) {
       return {
         id: `osm${x.osm_type}${x.osm_id}`,
         name,
+        en: x.namedetails?.['name:en'] || '',
+        local: x.namedetails?.name || '', // OpenStreetMap の name は、現地の言語の名前
         sub: region && region !== name ? region : (a.county && a.county !== name ? a.county : ''),
         code: (a.country_code || '').toUpperCase(),
         lat: Number(x.lat),
@@ -140,4 +145,56 @@ export async function searchCitiesOSM(query, { signal } = {}) {
       };
     });
   return dedupe(list).slice(0, 8);
+}
+
+// ---- 英語・現地の言語の名前 ----
+// 国の公用語（ISO 639-3）→ Open-Meteo の言語コード（ISO 639-1）
+const LANG1 = {
+  pol: 'pl', deu: 'de', fra: 'fr', spa: 'es', ita: 'it', por: 'pt', rus: 'ru', ukr: 'uk', bel: 'be', tur: 'tr', ara: 'ar', zho: 'zh', kor: 'ko',
+  tha: 'th', vie: 'vi', ind: 'id', msa: 'ms', hin: 'hi', ben: 'bn', urd: 'ur', fas: 'fa', heb: 'he', nld: 'nl', swe: 'sv', nor: 'no', nob: 'nb', dan: 'da',
+  fin: 'fi', isl: 'is', ell: 'el', hun: 'hu', ces: 'cs', slk: 'sk', ron: 'ro', bul: 'bg', srp: 'sr', hrv: 'hr', slv: 'sl', bos: 'bs', mkd: 'mk', sqi: 'sq',
+  lit: 'lt', lav: 'lv', est: 'et', kat: 'ka', hye: 'hy', aze: 'az', kaz: 'kk', uzb: 'uz', mon: 'mn', nep: 'ne', sin: 'si', khm: 'km', lao: 'lo', mya: 'my',
+  amh: 'am', swa: 'sw', afr: 'af', gle: 'ga', cat: 'ca', eus: 'eu', glg: 'gl', mlt: 'mt', tam: 'ta', tel: 'te', kan: 'kn', mal: 'ml', mar: 'mr', guj: 'gu',
+  pan: 'pa', tgl: 'tl', fil: 'tl', cym: 'cy', ltz: 'lb', que: 'qu', grn: 'gn', hat: 'ht', jpn: 'ja', eng: 'en',
+};
+/** その国の現地の言語（Open-Meteo の言語コード）。英語・日本語しかない国や、分からない国は空 */
+export function localLangOf(code) {
+  for (const l of COUNTRY_INFO[code]?.lang || []) {
+    const c = LANG1[l];
+    if (c && c !== 'ja' && c !== 'en') return c;
+  }
+  return '';
+}
+const nameCache = new Map(); // 'id|言語' → 名前
+async function omName(id, lang, signal) {
+  const key = `${id}|${lang}`;
+  if (nameCache.has(key)) return nameCache.get(key);
+  try {
+    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/get?id=${id}&language=${lang}`, { signal });
+    if (!res.ok) return '';
+    const name = (await res.json()).name || '';
+    nameCache.set(key, name);
+    return name;
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    return '';
+  }
+}
+/** 英語・現地の言語の名前を取ってきて、c.en・c.local に入れる（Open-Meteo の結果。OpenStreetMap の結果はすでにある）。同じ名前は重ねない */
+export async function fillNames(c, { signal } = {}) {
+  if (c.filled) return c;
+  if (c.omId) {
+    const lang = localLangOf(c.code);
+    const [en, local] = await Promise.all([omName(c.omId, 'en', signal), lang ? omName(c.omId, lang, signal) : '']);
+    c.en = en;
+    c.local = local;
+  }
+  c.filled = true;
+  return c;
+}
+/** 日本語の名前に続けて表示する、英語・現地の言語の名前（同じ綴りは 1 つに、日本語と同じものは省く） */
+export function altNames(c) {
+  const out = [];
+  for (const n of [c.en, c.local]) if (n && n !== c.name && !out.includes(n)) out.push(n);
+  return out;
 }
