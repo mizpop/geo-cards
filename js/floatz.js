@@ -82,7 +82,10 @@ let preview = null;
 const bars = { left: null, right: null };
 
 // 画面の端で離したときの動作: 左右の端は分割、上の端は最大化（'left' / 'right' / 'top'）
-export const dropEdgeAt = (x, y) => snapSideAt(x) || (y <= EDGE ? 'top' : null);
+// 左下の角は、ウィンドウをしまう場所（'dock'）。左右の端より優先する
+export const DOCK_CORNER = 88;
+export const inDockCorner = (x, y) => x <= DOCK_CORNER && y >= window.innerHeight - DOCK_CORNER;
+export const dropEdgeAt = (x, y) => (inDockCorner(x, y) ? 'dock' : snapSideAt(x) || (y <= EDGE ? 'top' : null));
 export const snapSideAt = (x) => (x <= EDGE ? 'left' : x >= window.innerWidth - EDGE ? 'right' : null);
 const sideOf = (el) => (slots.left?.el === el ? 'left' : slots.right?.el === el ? 'right' : null);
 export const isSnapped = (el) => !!sideOf(el);
@@ -108,6 +111,12 @@ export function showSnapPreview(side) {
     preview.className = 'snap-preview';
     document.body.appendChild(preview);
   }
+  preview.classList.toggle('is-dock', side === 'dock');
+  if (side === 'dock') { // 左下の角: しまう場所
+    Object.assign(preview.style, { left: '0', top: '', bottom: '0', width: `${DOCK_CORNER + 8}px`, height: `${DOCK_CORNER + 8}px` });
+    return;
+  }
+  preview.style.bottom = '';
   if (side === 'top') { // 最大化したときの大きさ（画面の四方に 12px 残す）
     Object.assign(preview.style, { left: '12px', top: '12px', width: 'calc(100vw - 24px)', height: 'calc(100vh - 24px)' });
     return;

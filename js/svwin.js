@@ -1,7 +1,8 @@
 // ストリートビューのウィンドウ（どのタブからでも開ける、画面に固定して浮かぶウィンドウ）
 // 地図のストリートビューモード・参考写真・保存したストリートビューのタブから共通で使う。
 // ヘッダーのドラッグで移動・左右への分割・縮小・拡大・保存・カード作成ができる
-import { bringFront, snapSideAt, dropEdgeAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap, setPopOrigin, flipAnimate } from './floatz.js';
+import { dockAdd, dockRemove, dockHas } from './dock.js';
+import { bringFront, snapSideAt, dropEdgeAt, popWindow, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap, setPopOrigin, flipAnimate } from './floatz.js';
 
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
 // zoom: 視野（fov。小さいほど拡大）から求めた拡大の段階。cbp=12,向き,0,ズーム,傾き
@@ -153,7 +154,7 @@ function place() {
   });
 }
 function saveRect() {
-  if (!panel || mobile() || panel.hidden || panel.classList.contains('is-max') || panel.classList.contains('is-min') || panel.classList.contains('is-snap')) return;
+  if (!panel || mobile() || panel.hidden || panel.classList.contains('is-docked') || !panel.offsetWidth || panel.classList.contains('is-max') || panel.classList.contains('is-min') || panel.classList.contains('is-snap')) return;
   rect = { left: panel.offsetLeft, top: panel.offsetTop, width: panel.offsetWidth, height: panel.offsetHeight }; // アニメーション（transform）の途中でも、本来の位置と大きさ
 }
 function setMinNow(on) {
@@ -312,7 +313,8 @@ function ensure() {
   const endDrag = (e) => {
     if (drag?.started) {
       const side = e.type === 'pointerup' ? dropEdgeAt(e.clientX, e.clientY) : null;
-      if (side === 'top') flipAnimate(panel, () => { setMinNow(false); panel.classList.add('is-max'); }); // 画面の上のはしで離したら、最大化（元の位置・大きさは覚えたまま）
+      if (side === 'dock') dockPanel(); // 左下の角で離したら、しまう（バックグラウンドで保持）
+      else if (side === 'top') flipAnimate(panel, () => { setMinNow(false); panel.classList.add('is-max'); }); // 画面の上のはしで離したら、最大化（元の位置・大きさは覚えたまま）
       else if (side) snapWindow(panel, side, () => { panel.classList.remove('is-snap'); place(); }); // 画面の左右のはしで離したら、画面を分割
       else saveRect();
     }
@@ -327,9 +329,25 @@ function ensure() {
   return panel;
 }
 
+// ウィンドウをしまう・取り出す（左下の角。js/dock.js）
+const DOCK_KEY = 'sv-window';
+function undockPanel() { if (!panel) return; panel.classList.remove('is-docked'); dockRemove(DOCK_KEY); }
+function dockPanel() {
+  if (!panel || dockHas(DOCK_KEY)) return;
+  panel.classList.add('is-docked');
+  dockAdd({
+    key: DOCK_KEY,
+    label: () => { const t = panel.querySelector('#sv-title-text')?.textContent || ''; return t && t !== 'ストリートビュー' ? `ストリートビュー: ${t}` : `ストリートビュー ${panel.querySelector('#sv-coord')?.textContent || ''}`.trim(); },
+    thumb: () => ({ emoji: '🧍' }),
+    restore: (rect) => { undockPanel(); if (!panel.classList.contains('is-max') && !isSnapped(panel)) place(); bringFront(panel); popWindow(panel, rect); }, // ドラッグ前の位置・大きさに戻す
+    close: () => { undockPanel(); closeSvWindow(); },
+  });
+}
+
 /** その地点のストリートビューを、ウィンドウで開く（開いていれば、場所だけ切り替える） */
 export function openSvWindow(lat, lng, opts = {}) {
   ensure();
+  if (panel.classList.contains('is-docked')) { undockPanel(); if (!panel.classList.contains('is-max') && !isSnapped(panel)) place(); bringFront(panel); } // しまってあったら、取り出して開く（ドラッグ前の位置・大きさで）
   point = [lat, lng];
   setMin(false); // 縮小していても、新しい場所を開いたら戻す
   panel.classList.remove('is-closing');
@@ -347,6 +365,7 @@ export function openSvWindow(lat, lng, opts = {}) {
 
 export function closeSvWindow() {
   if (!panel) return;
+  undockPanel();
   releaseSnap(panel);
   point = null;
   setMin(false);

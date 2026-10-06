@@ -16,6 +16,7 @@ import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from '.
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
+import { dockAdd, dockRemove } from './dock.js';
 import { bringFront, setPopOrigin, popWindow, flipAnimate, snapSideAt, dropEdgeAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
@@ -28,7 +29,9 @@ import { REF_PAGES, REF_IMAGES, REF_BASE, refInfo, refInfoLoaded, ensureRefInfo 
 import { setFacts, setCards as setInfoCards, CHEV_COLORS, typesOf, chevSignSvg, factOf, modeDef, MAP_MODES, classify, legendGroups, factPanelHtml } from './infomap.js';
 
 /* ================= ユーティリティ ================= */
-const $ = (sel, root = document) => root.querySelector(sel);
+// 複数のウィンドウが同じ id の要素（#card-prev など）を持つので、操作中のウィンドウ（scopeRoot）の中を先に探す
+let scopeRoot = null;
+const $ = (sel, root) => (root ? root.querySelector(sel) : (scopeRoot && sel[0] === '#' && scopeRoot.querySelector(sel)) || document.querySelector(sel));
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
@@ -185,6 +188,7 @@ applySettings();
 async function doLogout() {
   sessionReady = false;
   clearSession();
+  for (const w of [...wins]) { w.docked = false; w.el.classList.remove('is-docked'); if (w.main) { if (w.el.open) w.el.close(); } else { w.el.close(); destroyWin(w); } } // 追加のウィンドウ・しまっていたウィンドウも閉じる
   await api.logout();
   teardownChat();
   teardownAssistant();
@@ -280,7 +284,7 @@ function openSettings() {
   $('#set-changelog')?.addEventListener('click', () => openChangelog());
   $('#set-logout')?.addEventListener('click', () => { closeModal(); doLogout(); });
   { // 左の目次: 見出しから作る。押すとその見出しへ動き、見ている位置を強調する（狭い画面では隠す）
-    const m = $('#modal');
+    const m = W.el;
     const titles = $$('.set-group-title', m);
     const toc = $('#set-toc');
     toc.innerHTML = titles.map((t, i) => `<button type="button" class="set-toc-item" data-i="${i}">${esc(t.textContent)}</button>`).join('');
@@ -350,8 +354,8 @@ function openSettings() {
   };
   renderSyncBox();
   const changed = () => { saveSettings(); };
-  $$('#modal .switch input').forEach((cb) => cb.addEventListener('change', () => { settings[cb.dataset.key] = cb.checked; changed(); }));
-  $$('#modal .seg').forEach((g) => g.addEventListener('click', (e) => {
+  $$('.switch input', W.el).forEach((cb) => cb.addEventListener('change', () => { settings[cb.dataset.key] = cb.checked; changed(); }));
+  $$('.seg', W.el).forEach((g) => g.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
     settings[g.dataset.key] = b.dataset.v;
@@ -365,7 +369,7 @@ function openSettings() {
     const count = {};
     for (const k of Object.values(keys)) count[k] = (count[k] || 0) + 1;
     let dup = false;
-    $$('#modal .keycap').forEach((x) => {
+    $$('.keycap', W.el).forEach((x) => {
       if (x.classList.contains('is-capturing')) return;
       const code = keys[x.dataset.act];
       x.textContent = keyLabel(code);
@@ -375,12 +379,12 @@ function openSettings() {
       dup = dup || isDup;
     });
     // 初期設定と違う操作だけ個別リセットを押せるように
-    $$('#modal .key-reset').forEach((r) => { r.disabled = keys[r.dataset.reset] === DEFAULT_KEYS[r.dataset.reset]; });
+    $$('.key-reset', W.el).forEach((r) => { r.disabled = keys[r.dataset.reset] === DEFAULT_KEYS[r.dataset.reset]; });
     $('#key-reset-all').disabled = Object.keys(DEFAULT_KEYS).every((k) => keys[k] === DEFAULT_KEYS[k]);
     $('#key-dup-warn').hidden = !dup;
   };
   drawKeycaps();
-  $$('#modal .key-reset').forEach((r) => r.addEventListener('click', () => {
+  $$('.key-reset', W.el).forEach((r) => r.addEventListener('click', () => {
     const keys = { ...settings.keys };
     delete keys[r.dataset.reset];
     settings.keys = keys;
@@ -393,7 +397,7 @@ function openSettings() {
     drawKeycaps();
     toast('キー設定を初期状態に戻しました');
   });
-  $$('#modal .keycap').forEach((b) => b.addEventListener('click', () => {
+  $$('.keycap', W.el).forEach((b) => b.addEventListener('click', () => {
     if (capturingKey) return;
     capturingKey = true;
     b.classList.add('is-capturing');
@@ -420,7 +424,7 @@ function openSettings() {
   }));
   $('#set-reset').addEventListener('click', () => { settings = { ...DEFAULT_SETTINGS }; saveSettings(); openSettings(); });
   // 閉じたら現在の画面に反映
-  $('#modal').addEventListener('close', () => {
+  W.el.addEventListener('close', () => {
     if (state.user) {
       if (state.view === 'study') { state.study.flipped = settings.studyStart === 'back'; }
       render();
@@ -514,8 +518,8 @@ function snapshotSession() {
   if (!sessionReady || !state.user) return;
   const q = state.quiz;
   const s = state.study;
-  const m = $('#modal');
-  const cur = modalCurrent;
+  const m = W0.el; // 再読み込みで引き継ぐのは、主ウィンドウ
+  const cur = W0.current;
   let modal = null;
   if (m?.open && cur) {
     if (cur.kind === 'card') modal = { kind: 'card', id: cur.id, list: cur.list || null };
@@ -605,7 +609,7 @@ function restoreOverlays(sn) {
     else if (ui.dialog === 'settings') openSettings();
     else if (ui.dialog === 'changelog') openChangelog();
     // ウィンドウの縮小・拡大・左右への分割
-    const w = $('#modal').__win;
+    const w = W.el.__win;
     if (e && ui.win && modalIsWindow() && w) {
       if (ui.win.snap) w.snap(ui.win.snap);
       else if (ui.win.min) w.setMin(true);
@@ -667,7 +671,7 @@ async function enterApp() {
   }
   // 学習記録の同期（引き継ぎコードを設定している場合）: 起動時と、記録が変わったあと自動で
   startAutoSync(api, {
-    onMerged: () => { if ((!$('#modal').open || modalIsWindow()) && !(state.view === 'quiz' && state.quiz.phase === 'question')) { rebuildStudyDeck(true); renderView(); } toast('ほかの端末の学習記録を取り込みました'); },
+    onMerged: () => { if ((!W.el.open || modalIsWindow()) && !(state.view === 'quiz' && state.quiz.phase === 'question')) { rebuildStudyDeck(true); renderView(); } toast('ほかの端末の学習記録を取り込みました'); },
     onError: (e) => console.warn('学習記録の同期に失敗しました', e),
   });
 }
@@ -766,7 +770,7 @@ function bindGlobal() {
   $('#sound-btn').addEventListener('click', () => {
     settings.sound = !settings.sound;
     saveSettings();
-    const cb = $('#modal .switch input[data-key="sound"]');
+    const cb = $('.switch input[data-key="sound"]', W.el);
     if (cb) cb.checked = settings.sound;
   });
   // ボタン全般を押したときの小さな音（めくる・正解などの専用の音が鳴ったときは重ねない）
@@ -820,30 +824,55 @@ function bindGlobal() {
     closeModal();
     if (state.view === 'map') render(); else location.hash = '#map';
   }, true);
-  const modal = $('#modal');
-  modal.addEventListener('click', (e) => { if (e.target === modal && !modalIsWindow()) closeModal(); });
-  // カード詳細・国の詳細では、右クリックで前のカード / 国に戻る（履歴がなければ閉じる）
-  // 右ボタンを押し始めた場所を記録（地図で右ボタンを押したまま Alt+クリックで詳細を開き、
-  // その後に右ボタンを離したときの contextmenu で詳細が閉じないように）
-  let rightPressInModal = false;
-  document.addEventListener('pointerdown', (e) => { if (e.button === 2) rightPressInModal = !!e.target.closest?.('#modal'); }, true);
-  modal.addEventListener('contextmenu', (e) => {
-    if (!modalCurrent || modalCurrent.kind === 'editor') return; // 編集画面などでは通常の右クリックメニュー
-    if (!rightPressInModal) { e.preventDefault(); return; } // 詳細の外で押した右ボタンを離しただけ
-    if (e.target.closest('a, input, textarea')) return; // リンクや入力欄はブラウザのメニューを使えるように
+  bindWinEvents(W0);
+  // PC のみ: 右クリックを左クリックの代わりに使うと、今のウィンドウを置き換えずに、新しいウィンドウで開く（カード・国・参考写真）
+  const OPENERS = '[data-related], [data-card-open], [data-info], [data-lang-country], .pphoto, .cfacts-photo, #study-view, #q-view, #q-info, .fw-country, .tile[data-id]';
+  document.addEventListener('contextmenu', (e) => {
+    if (!state.user || !canWindow() || e.defaultPrevented || blockingDialogOpen()) return;
+    const t = e.target;
+    if (!(t instanceof Element) || t.closest('input, textarea, select, [contenteditable="true"], .leaflet-container, dialog.viewer, .sv-panel, #spotlight')) return;
+    const op = t.closest(OPENERS);
+    if (!op) return;
+    const inner = t.closest('button, a, input, select, textarea, label');
+    if (inner && inner !== op && op.contains(inner)) return; // 中のボタンなど（削除・編集など）は、そのまま
+    const before = wins.length;
+    forceNewWin = true;
+    try { op.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX: e.clientX, clientY: e.clientY })); } finally { forceNewWin = false; }
+    for (const w of wins.filter((x) => !x.main && !x.el.open && !x.docked)) destroyWin(w); // 開かなかったウィンドウは片付ける
+    if (wins.length > before) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+  document.addEventListener('paste', (e) => { if (W.paste) W.paste(e); });
+  // ウィンドウを触ったら、そのウィンドウが「操作中のウィンドウ」。ウィンドウの外をクリックしたら、キー操作はページ側へ
+  document.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest?.('dialog.modal');
+    const hit = el && winOfEl(el);
+    if (hit && !hit.docked) activate(hit);
+    for (const w of wins) w.focused = !!hit && w === hit;
+  }, true);
+}
+// 1 つのウィンドウ（<dialog>）の、開閉・右クリックなどのイベント
+function bindWinEvents(w) {
+  const modal = w.el;
+  modal.addEventListener('click', (e) => { if (e.target === modal && !modal.classList.contains('is-window')) { activate(w); closeModal(); } });
+  // カード詳細・国の詳細では、ホイールクリック（中ボタン）で前のカード / 国に戻る（履歴がなければ閉じる）。右クリックは、新しいウィンドウで開くのに使う
+  const midOk = (e) => w.current && w.current.kind !== 'editor' && !e.target.closest('a, input, textarea, select');
+  modal.addEventListener('mousedown', (e) => { if (e.button === 1 && midOk(e)) e.preventDefault(); }); // 中ボタンの自動スクロールを出さない
+  modal.addEventListener('auxclick', (e) => {
+    if (e.button !== 1 || !midOk(e)) return;
     e.preventDefault();
-    if (modalStack.length) modalBack();
+    activate(w);
+    if (w.stack.length) modalBack();
     else closeModal();
   });
   // Esc（ダイアログの cancel）: 編集の途中で詳細を開いていたら、編集の画面へ戻る
-  modal.addEventListener('cancel', (e) => { if (returnToEditor()) e.preventDefault(); });
+  modal.addEventListener('cancel', (e) => { activate(w); if (returnToEditor()) e.preventDefault(); });
   // close イベントは非同期に届くため、閉じた直後に別の画面（編集など）を開いた場合は片付けない
   modal.addEventListener('close', () => {
     if (modal.open) return;
-    releaseSnap(modal); modal.innerHTML = ''; modal.className = 'modal'; modal.removeAttribute('style'); delete modal.dataset.winFront; winFocused = false; modalPasteHandler = null; modalStack = []; modalCurrent = null;
+    releaseSnap(modal); modal.innerHTML = ''; modal.className = 'modal'; modal.removeAttribute('style'); delete modal.dataset.winFront;
+    w.focused = false; w.paste = null; w.stack = []; w.current = null;
+    if (!w.main) destroyWin(w); // 追加のウィンドウは、閉じたら片付ける
   });
-  document.addEventListener('paste', (e) => { if (modalPasteHandler) modalPasteHandler(e); });
-  document.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('#modal')) winFocused = false; }, true); // ウィンドウの外をクリックしたら、キー操作はページ側へ
 }
 
 function fillDatalists() {
@@ -997,14 +1026,14 @@ function onKeydown(e) {
     return;
   }
   // 浮かぶウィンドウ: Esc で閉じる（モーダルのように自動では閉じないので）
-  if (modalIsWindow() && $('#modal').open && winFocused && e.key === 'Escape') { e.preventDefault(); if (!returnToEditor()) closeModal(); return; }
+  if (modalIsWindow() && W.el.open && W.focused && e.key === 'Escape') { e.preventDefault(); if (!returnToEditor()) closeModal(); return; }
   // カード詳細・国の詳細
-  if ($('#modal').open && !winBackground()) {
-    if (!modalCurrent || modalCurrent.kind === 'editor') return; // 編集・設定などの画面では無効
-    const card = modalCurrent.kind === 'card' ? cardById(modalCurrent.id) : null;
-    if (act === 'back') { e.preventDefault(); if (modalStack.length) modalBack(); else closeModal(); }
-    else if (modalCurrent.kind === 'photo' && (e.key === 'ArrowLeft' || act === 'prev')) { e.preventDefault(); stepPhoto(-1); }
-    else if (modalCurrent.kind === 'photo' && (e.key === 'ArrowRight' || act === 'next')) { e.preventDefault(); stepPhoto(1); }
+  if (W.el.open && !winBackground()) {
+    if (!W.current || W.current.kind === 'editor') return; // 編集・設定などの画面では無効
+    const card = W.current.kind === 'card' ? cardById(W.current.id) : null;
+    if (act === 'back') { e.preventDefault(); if (W.stack.length) modalBack(); else closeModal(); }
+    else if (W.current.kind === 'photo' && (e.key === 'ArrowLeft' || act === 'prev')) { e.preventDefault(); stepPhoto(-1); }
+    else if (W.current.kind === 'photo' && (e.key === 'ArrowRight' || act === 'next')) { e.preventDefault(); stepPhoto(1); }
     else if (card && (e.key === 'ArrowLeft' || act === 'prev')) { e.preventDefault(); stepCard(-1); }
     else if (card && (e.key === 'ArrowRight' || act === 'next')) { e.preventDefault(); stepCard(1); }
     else if (act === 'country' && card) { e.preventDefault(); openCountryInfo(card.countries[0]); }
@@ -1189,31 +1218,40 @@ function tileHtml(card, extra = '') {
     </article>`;
 }
 
+/* ---- ウィンドウの実体: 複数のウィンドウを同時に開ける（右クリックで、新しいウィンドウに開く）。
+   W0 = 主ウィンドウ（#modal。編集・設定などのモーダルにも使う）。W = 今操作しているウィンドウ（触る・開くたびに切り替わる） ---- */
+const makeWin = (el, main = false) => ({ el, main, stack: [], current: null, paste: null, focused: false, rect: null, docked: false });
+const W0 = makeWin(document.getElementById('modal'), true);
+const wins = [W0];
+let W = W0;
+function activate(w) { W = w; scopeRoot = w.el; }
+const winOfEl = (el) => wins.find((x) => x.el === el);
+activate(W0);
+
 /* ---- カード詳細 ⇄ 国の基本情報 の行き来（戻るボタン用の履歴） ---- */
-let modalStack = [];
-let modalCurrent = null;
 
 function navModal(entry) {
-  const m = $('#modal');
+  if (entry.kind !== 'editor') claimNewWin(); // 右クリックで開くときは、先に新しいウィンドウを用意する（今のウィンドウの履歴を触らないように）
+  const m = W.el;
   // 検索パネルを詳細・編集の手前に開いていたら、閉じてから詳細を表示（奥の画面に描くため）
   if ($('#spotlight').open && ((m.open && spotOverModal) || (canWindow() && entry.kind !== 'editor'))) $('#spotlight').close(); // 浮かぶウィンドウは、モーダルの検索の後ろに隠れてしまうので検索を閉じる
   // モーダルでカード詳細・国情報・編集を表示中なら履歴に積む。それ以外は新しく開く
-  if (m.open && modalCurrent) {
+  if (m.open && W.current) {
     // 編集中の画面は、入力内容ごと（DOM のまま）取っておいて「戻る」で元に戻す
-    if (modalCurrent.kind === 'editor') Object.assign(modalCurrent, { node: m.firstElementChild, cls: m.className, paste: modalPasteHandler });
-    modalStack.push(modalCurrent);
-  } else modalStack = [];
+    if (W.current.kind === 'editor') Object.assign(W.current, { node: m.firstElementChild, cls: m.className, paste: W.paste });
+    W.stack.push(W.current);
+  } else W.stack = [];
   showNav(entry);
 }
 function showNav(entry) {
   if (entry.kind === 'editor') {
-    const m = $('#modal');
+    const m = W.el;
     if (m.classList.contains('is-window')) { m.close(); releaseSnap(m); m.removeAttribute('style'); delete m.dataset.winFront; m.className = entry.cls; m.showModal(); } // 編集はモーダルで開き直す
     else m.className = entry.cls;
     m.style.removeProperty('--cat');
     m.replaceChildren(entry.node);
-    modalPasteHandler = entry.paste;
-    modalCurrent = entry;
+    W.paste = entry.paste;
+    W.current = entry;
     return;
   }
   if (entry.kind === 'card') {
@@ -1225,18 +1263,19 @@ function showNav(entry) {
   } else {
     renderCountryModal(entry);
   }
-  modalCurrent = entry;
+  W.current = entry;
   // 参考写真の説明・撮影地点は大きいデータなので、必要になったときに読み込んで表示し直す
   if ((entry.kind === 'photo' || (entry.kind === 'card' && String(entry.id).startsWith('ref|'))) && !refInfoLoaded()) {
-    ensureRefInfo().then(() => { if (modalCurrent === entry && $('#modal').open) showNav(entry); }).catch(() => {});
+    const w = W; // 読み込み中に別のウィンドウへ移っても、このウィンドウに描き直す
+    ensureRefInfo().then(() => { if (w.current === entry && w.el.open) { const prev = W; activate(w); showNav(entry); if (!prev.docked && wins.includes(prev)) activate(prev); } }).catch(() => {});
   }
 }
 function modalBack() {
-  const prev = modalStack.pop();
+  const prev = W.stack.pop();
   if (prev) showNav(prev);
 }
 function backBtnHtml() {
-  const prev = modalStack[modalStack.length - 1];
+  const prev = W.stack[W.stack.length - 1];
   if (!prev) return '';
   const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
   return `<button class="btn btn-ghost btn-sm modal-back" id="modal-back" type="button">← ${esc(label)}</button>`;
@@ -1244,15 +1283,16 @@ function backBtnHtml() {
 function bindModalNav() {
   const b = $('#modal-back');
   if (b) b.addEventListener('click', modalBack);
-  $$('#modal [data-info]').forEach((x) => x.addEventListener('click', () => openCountryInfo(x.dataset.info)));
+  $$('[data-info]', W.el).forEach((x) => x.addEventListener('click', () => openCountryInfo(x.dataset.info)));
 }
 
 // src: クリックされたタイル等。そこから飛び出すように開く
 // list: 開いた場所に並んでいたカードの id。あれば ← → / 矢印ボタンで前後のカードへ移れる
 function openCardModal(card, src = null, list = null) {
-  const fresh = !$('#modal').open;
+  claimNewWin();
+  const fresh = !W.el.open;
   navModal({ kind: 'card', id: card.id, list: list && list.length > 1 && list.includes(card.id) ? list : null });
-  if (src && fresh) popFrom($('#modal'), src);
+  if (src && fresh) popFrom(W.el, src);
 }
 
 // 要素 src の位置・大きさから el を拡大して表示するアニメーション
@@ -1279,7 +1319,7 @@ function popFrom(el, src) {
 
 // 並びの中で前 / 次のカードへ（履歴には積まず、今の表示を差し替える）
 function stepCard(delta) {
-  const entry = modalCurrent;
+  const entry = W.current;
   if (entry?.kind !== 'card' || !entry.list) return false;
   const ids = entry.list.filter((id) => cardById(id)); // 削除されたカードは飛ばす
   const i = ids.indexOf(entry.id) + delta;
@@ -1342,9 +1382,10 @@ function countryFactsHtml(code) {
 /* ---- 地図の参考写真（GeoHints）: カード詳細と同じ画面で開く ---- */
 // entry: { kind: 'photo', topic, code, srcs: [...], i }
 function openPhotoModal(topic, code, srcs, i, src = null) {
-  const fresh = !$('#modal').open;
+  claimNewWin();
+  const fresh = !W.el.open;
   navModal({ kind: 'photo', topic, code, srcs, i });
-  if (src && fresh) popFrom($('#modal'), src);
+  if (src && fresh) popFrom(W.el, src);
 }
 // 写真メモの一覧・検索（参考写真に書いたメモをまとめて見る）
 function photoNoteEntries() {
@@ -1425,7 +1466,7 @@ async function photoToCard(topic, code, src, btn) {
   }
 }
 function stepPhoto(delta) {
-  const e = modalCurrent;
+  const e = W.current;
   if (e?.kind !== 'photo') return;
   const i = e.i + delta;
   if (i < 0 || i >= e.srcs.length) return;
@@ -1494,7 +1535,7 @@ function renderPhotoModal(entry) {
     };
     pin.addEventListener('input', () => { $('#pnote-status').textContent = ''; clearTimeout(timer); timer = setTimeout(save, 800); });
     pin.addEventListener('blur', save);
-    $('#modal').addEventListener('close', save, { once: true });
+    W.el.addEventListener('close', save, { once: true });
   }
   $('#photo-prev')?.addEventListener('click', () => stepPhoto(-1));
   $('#photo-next')?.addEventListener('click', () => stepPhoto(1));
@@ -1533,11 +1574,11 @@ function renderCardModal(card, entry = {}) {
     ${card.sv ? '' : `<div class="modal-foot"><button class="btn btn-ghost" id="detail-ai" type="button" title="このカードの画像と内容を読み取って、AI が答えます">✨ AI に質問</button><span class="grow"></span>${state.user.isEditor && !card.photo ? '<button class="btn" id="detail-edit">編集する</button>' : ''}</div>`}
   `, 'modal-wide', true);
   // カード詳細の背景もカテゴリーの色を薄く
-  $('#modal').classList.add('modal-card');
-  $('#modal').style.setProperty('--cat', catOf(card).color);
+  W.el.classList.add('modal-card');
+  W.el.style.setProperty('--cat', catOf(card).color);
   attachZoom($('.detail-front .front-img'), pager ? { onSwipe: (d) => stepCard(d) } : {});
-  bindCardFacts($('#modal'));
-  bindRelated($('#modal'));
+  bindCardFacts(W.el);
+  bindRelated(W.el);
   $('#card-prev')?.addEventListener('click', () => stepCard(-1));
   $('#card-next')?.addEventListener('click', () => stepCard(1));
   delete entry.enter;
@@ -1857,17 +1898,17 @@ function openStats() {
       <button class="btn btn-ghost btn-sm" id="st-reset" type="button">記録をリセット</button>
       <button class="btn btn-primary" data-close type="button">閉じる</button>
     </div>`, 'modal-md');
-  const tip = $('#modal .st-tip');
-  $$('#modal .st-bar').forEach((g) => {
+  const tip = $('.st-tip', W.el);
+  $$('.st-bar', W.el).forEach((g) => {
     g.addEventListener('pointerenter', () => { tip.textContent = g.dataset.tip; tip.hidden = false; const r = g.getBoundingClientRect(); const c = g.closest('.st-chart').getBoundingClientRect(); tip.style.left = `${r.left - c.left + r.width / 2}px`; });
     g.addEventListener('pointerleave', () => { tip.hidden = true; });
   });
-  $$('#modal [data-pair-cmp]').forEach((b) => b.addEventListener('click', () => {
+  $$('[data-pair-cmp]', W.el).forEach((b) => b.addEventListener('click', () => {
     state.compare.codes = b.dataset.pairCmp.split('|');
     closeModal();
     if (state.view === 'compare') render(); else location.hash = '#compare';
   }));
-  $$('#modal [data-pair-quiz]').forEach((b) => b.addEventListener('click', () => startPairQuiz(b.dataset.pairQuiz.split('|'))));
+  $$('[data-pair-quiz]', W.el).forEach((b) => b.addEventListener('click', () => startPairQuiz(b.dataset.pairQuiz.split('|'))));
   $('#st-goal').addEventListener('change', (e) => { settings.dailyGoal = Math.max(1, Number(e.target.value) || 30); saveSettings(); openStats(); });
   $('#st-reset').addEventListener('click', () => { if (confirm('学習記録（毎日の回数・地域ごとの正答率）をリセットしますか？カードの覚え具合はそのままです')) { resetActivity(); openStats(); } });
 }
@@ -1934,33 +1975,32 @@ function openFactEditor(topic, code) {
 }
 
 /* ================= モーダル ================= */
-let modalPasteHandler = null;
 
 /* ---- カード・国・写真の詳細は、PC ではストリートビューと同じ「浮かぶウィンドウ」で開く ----
    モーダルではないので、後ろの地図や一覧もそのまま操作できる。ヘッダーのドラッグで動かし、角で大きさを変え、
    ダブルクリックで拡大、「—」でヘッダーだけに縮小。位置と大きさは覚える。スマホなど狭い画面では今までどおりのモーダル */
 const winMq = window.matchMedia('(min-width: 900px) and (pointer: fine)');
 const canWindow = () => winMq.matches;
-const modalIsWindow = () => $('#modal').classList.contains('is-window');
-let winFocused = false; // キーボード操作がウィンドウの側か（ページをクリックしたら false）
-let winRect = (() => { try { return JSON.parse(localStorage.getItem('geo-cards-win-rect-v1')); } catch { return null; } })();
-const saveWinRect = () => { try { if (winRect) localStorage.setItem('geo-cards-win-rect-v1', JSON.stringify(winRect)); } catch { /* 無視 */ } };
+const modalIsWindow = () => W.el.classList.contains('is-window');
+W0.rect = (() => { try { return JSON.parse(localStorage.getItem('geo-cards-win-rect-v1')); } catch { return null; } })(); // 主ウィンドウの位置と大きさは覚える（追加のウィンドウは、ずらして開く）
+const saveWinRect = (w) => { try { if (w.main && w.rect) localStorage.setItem('geo-cards-win-rect-v1', JSON.stringify(w.rect)); } catch { /* 無視 */ } };
 // ウィンドウが開いているが操作の対象はページ側（ウィンドウの外をクリックした）
-const winBackground = () => modalIsWindow() && $('#modal').open && !winFocused;
+const winBackground = () => modalIsWindow() && W.el.open && !W.focused;
 // キー操作を止めるべきダイアログが開いているか（浮かぶウィンドウは、フォーカスが外にあるときは数えない）
 // 本物のダイアログ（モーダル）だけ。浮かぶウィンドウは含めない（ウィンドウを開いていても、タブの移動などは効くように）
-const blockingDialogOpen = () => Array.from(document.querySelectorAll('dialog[open]')).some((d) => !(d.id === 'modal' && d.classList.contains('is-window')));
-const dialogOpen = () => Array.from(document.querySelectorAll('dialog[open]')).some((d) => !(d.id === 'modal' && d.classList.contains('is-window') && !winFocused));
+const blockingDialogOpen = () => Array.from(document.querySelectorAll('dialog[open]')).some((d) => !(d.classList.contains('modal') && d.classList.contains('is-window')));
+const dialogOpen = () => Array.from(document.querySelectorAll('dialog[open]')).some((d) => !(d.classList.contains('modal') && d.classList.contains('is-window') && !(winOfEl(d)?.focused)));
 
 function setupWindow(m) {
+  const win = winOfEl(m);
   const head = $('.modal-inner > .modal-head:first-child', m);
   const place = () => {
-    if (!winRect) {
+    if (!win.rect) {
       const w = 720;
       const h = Math.min(820, window.innerHeight - 100);
-      winRect = { left: Math.max(12, window.innerWidth - w - 28), top: 84, width: w, height: h };
+      win.rect = { left: Math.max(12, window.innerWidth - w - 28), top: 84, width: w, height: h };
     }
-    const r = winRect;
+    const r = win.rect;
     Object.assign(m.style, {
       position: 'fixed', inset: 'auto', margin: '0', maxHeight: 'none',
       left: `${Math.max(0, Math.min(window.innerWidth - 120, r.left))}px`, top: `${Math.max(0, Math.min(window.innerHeight - 50, r.top))}px`,
@@ -1968,15 +2008,15 @@ function setupWindow(m) {
     });
   };
   const remember = () => {
-    if (!m.open || m.classList.contains('is-max') || m.classList.contains('is-min') || m.classList.contains('is-snap')) return;
-    winRect = { left: m.offsetLeft, top: m.offsetTop, width: m.offsetWidth, height: m.offsetHeight }; // 開く・動かすアニメーション（transform）の途中でも、本来の位置と大きさを覚える
-    saveWinRect();
+    if (m.classList.contains('is-docked') || !m.offsetWidth || !m.open || m.classList.contains('is-max') || m.classList.contains('is-min') || m.classList.contains('is-snap')) return;
+    win.rect = { left: m.offsetLeft, top: m.offsetTop, width: m.offsetWidth, height: m.offsetHeight }; // 開く・動かすアニメーション（transform）の途中でも、本来の位置と大きさを覚える
+    saveWinRect(win);
   };
   if (!m.dataset.winBound) { // 同じ要素なので、最初の 1 回だけ
     m.dataset.winBound = '1';
-    m.addEventListener('pointerdown', () => { winFocused = true; bringFront(m); }, true);
+    m.addEventListener('pointerdown', () => { activate(win); win.focused = true; bringFront(m); }, true);
     let foldTimer = null;
-    if ('ResizeObserver' in window) new ResizeObserver(() => { if (modalIsWindow()) { remember(); clearTimeout(foldTimer); foldTimer = setTimeout(() => foldChipRows(m), 120); } }).observe(m); // 幅が変わると行数も変わる
+    if ('ResizeObserver' in window) new ResizeObserver(() => { if (m.classList.contains('is-window')) { remember(); clearTimeout(foldTimer); foldTimer = setTimeout(() => foldChipRows(m), 120); } }).observe(m); // 幅が変わると行数も変わる
     m.__remember = remember;
   }
   if (!m.classList.contains('is-max') && !m.classList.contains('is-min') && !isSnapped(m)) place();
@@ -2022,8 +2062,8 @@ function setupWindow(m) {
       drag.started = true;
       // 分割・最大化から外すと元の大きさに戻る。見出しの上でのカーソルの相対的な位置（左から何割か）が変わらないよう、カーソルを中心に縮む
       const rel = drag.w ? drag.dx / drag.w : 0.5;
-      if (isSnapped(m)) { unsnapWindow(m); drag.w = winRect.width; drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w)); } // 分割から外す
-      else if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.w = winRect.width; drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w)); }
+      if (isSnapped(m)) { unsnapWindow(m); drag.w = win.rect.width; drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w)); } // 分割から外す
+      else if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.w = win.rect.width; drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w)); }
     }
     showSnapPreview(dropEdgeAt(e.clientX, e.clientY)); // 画面の左右のはしは分割、上のはしは最大化: 離したときの場所を見せる
     m.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`;
@@ -2032,7 +2072,8 @@ function setupWindow(m) {
   const end = (e) => {
     if (drag?.started) {
       const side = e.type === 'pointerup' ? dropEdgeAt(e.clientX, e.clientY) : null;
-      if (side === 'top') flipAnimate(m, () => { setMin(false); m.classList.add('is-max'); }); // 画面の上のはしで離したら、最大化（元の位置・大きさは覚えたまま）
+      if (side === 'dock') dockWin(win); // 左下の角で離したら、しまう（バックグラウンドで保持。位置・大きさは、ドラッグ前のものを覚えたまま）
+      else if (side === 'top') flipAnimate(m, () => { setMin(false); m.classList.add('is-max'); }); // 画面の上のはしで離したら、最大化（元の位置・大きさは覚えたまま）
       else if (side) snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }); // 画面の左右のはしで離したら、画面を分割
       else remember();
     }
@@ -2048,25 +2089,97 @@ function setupWindow(m) {
   });
 }
 
+// ---- 追加のウィンドウ（右クリックで開く）と、しまう・取り出す ----
+let forceNewWin = false; // 次に開く詳細を、新しいウィンドウにする（右クリック）
+function claimNewWin() { if (forceNewWin && canWindow()) { forceNewWin = false; activate(createWin()); } }
+function createWin() {
+  const el = document.createElement('dialog');
+  el.className = 'modal';
+  document.body.appendChild(el);
+  const w = makeWin(el);
+  // 前のウィンドウから少しずらして重ねる（画面の外に出るときは、左上に戻す）
+  const base = W.rect || W0.rect || { left: Math.max(12, window.innerWidth - 748), top: 84, width: 720, height: Math.min(820, window.innerHeight - 100) };
+  let left = base.left + 36;
+  let top = base.top + 36;
+  if (left + base.width > window.innerWidth - 12 || top + base.height > window.innerHeight - 12) { left = 24 + (wins.length % 4) * 36; top = 84 + (wins.length % 4) * 24; }
+  w.rect = { left, top, width: base.width, height: base.height };
+  wins.push(w);
+  bindWinEvents(w);
+  return w;
+}
+function destroyWin(w) {
+  if (w.main) return;
+  w.el.remove();
+  const i = wins.indexOf(w);
+  if (i >= 0) wins.splice(i, 1);
+  removeDockItem?.(w);
+  if (W === w) activate(wins.filter((x) => !x.docked).pop() || W0);
+}
+const removeDockItem = dockRemove; // しまっているウィンドウの一覧から外す
+function undockWin(w) { w.docked = false; w.el.classList.remove('is-docked'); removeDockItem(w); bringFront(w.el); activate(w); w.focused = true; }
+// ウィンドウをしまう（左下の角で離したとき）。しまうウィンドウは、ほかの画面を開いても、そのまま残る
+function dockWin(w0) {
+  let w = w0;
+  if (w.main) { // 主ウィンドウ（#modal）は、編集・設定などにも使うので、中身（カード・国・写真）を追加のウィンドウに移してから、しまう
+    const x = createWin();
+    x.rect = w.rect; x.stack = w.stack; x.current = w.current;
+    const entry = x.current;
+    activate(x);
+    showNav(entry);
+    w.el.classList.remove('is-max', 'is-min', 'is-snap');
+    w.el.close();
+    w = x;
+  }
+  w.docked = true;
+  w.focused = false;
+  w.el.classList.add('is-docked');
+  dockAdd({
+    key: w,
+    label: () => dockLabel(w),
+    thumb: () => dockThumb(w),
+    restore: (rect) => { undockWin(w); popWindow(w.el, rect); },
+    close: () => { w.docked = false; w.el.classList.remove('is-docked'); closeModal(w); },
+  });
+  if (W === w || W.docked) activate(wins.filter((x) => !x.docked && x.el.open).pop() || W0);
+}
+function dockLabel(w) {
+  const e = w.current;
+  if (e?.kind === 'card') { const c = cardById(e.id); return c ? `${c.countries[0] ? countryName(c.countries[0]) : ''} ${c.description || catOf(c).name}`.trim() : 'カード'; }
+  if (e?.kind === 'country') return `国の情報: ${countryName(e.code)}`;
+  if (e?.kind === 'photo') return `写真: ${countryName(e.code)}`;
+  return 'ウィンドウ';
+}
+function dockThumb(w) {
+  const e = w.current;
+  if (e?.kind === 'card') { const c = cardById(e.id); if (c) return { src: thumbUrl(c) || imgUrl(c), style: catStyle(c) }; }
+  if (e?.kind === 'country') return { src: flagUrl(e.code) };
+  if (e?.kind === 'photo') return { src: e.srcs?.[e.i] };
+  return { emoji: '🗂' };
+}
+
 function openModal(html, cls = '', nav = false) {
-  const m = $('#modal');
-  finishModalClose(); // 閉じるアニメーションの途中なら、先に閉じきる
   const asWindow = nav && canWindow();
+  if (!asWindow) activate(W0); // モーダル（編集・設定など）は、主ウィンドウで開く
+  else if (forceNewWin) claimNewWin(); // 右クリックで開いたときは、新しいウィンドウに
+  else if (W.docked) undockWin(W, false); // しまってあったウィンドウに開くときは、取り出す
+  const m = W.el;
+  finishModalClose(); // 閉じるアニメーションの途中なら、先に閉じきる
   const wasWindow = m.classList.contains('is-window');
   const keep = asWindow && wasWindow ? ['is-max', 'is-min', 'is-snap'].filter((c) => m.classList.contains(c)) : []; // ウィンドウの中で移るときは、拡大・縮小の状態を保つ
-  if (!nav) { modalStack = []; modalCurrent = null; }
+  if (!nav) { W.stack = []; W.current = null; }
   if (m.open && wasWindow !== asWindow) m.close(); // モーダルとウィンドウを行き来するときは開き直す
   m.className = `modal ${cls}${asWindow ? ' is-window' : ''}${keep.length ? ` ${keep.join(' ')}` : ''}`;
   if (!asWindow) { releaseSnap(m); m.removeAttribute('style'); delete m.dataset.winFront; }
   m.style.removeProperty('--cat');
   if (!m.open) play('open'); // 詳細の中で移るとき（戻る・国へ）はタップ音だけ
   m.innerHTML = `<div class="modal-inner">${html}</div>`;
-  modalPasteHandler = null;
-  $$('[data-close]', m).forEach((b) => b.addEventListener('click', closeModal));
+  W.paste = null;
+  const thisWin = W;
+  $$('[data-close]', m).forEach((b) => b.addEventListener('click', () => closeModal(thisWin)));
   const keepY = window.scrollY;
   const opening = !m.open;
   if (!m.open) {
-    if (asWindow) { m.show(); winFocused = true; } else m.showModal();
+    if (asWindow) { m.show(); W.focused = true; } else m.showModal();
     spotOverModal = false;
   }
   if (asWindow) setupWindow(m);
@@ -2076,31 +2189,32 @@ function openModal(html, cls = '', nav = false) {
   raiseChat(); // メモのボタン・欄をモーダルの手前に
   raiseAssistant(); // AI アシスタントも同じく
 }
-function closeModal() {
-  const m = $('#modal');
+function closeModal(w = W) {
+  const m = w.el;
+  if (w !== W) activate(w);
   if (m.open && returnToEditor()) return;
   if (!m.open) return;
   // 浮かぶウィンドウは、小さく消えるアニメーションを再生してから閉じる（その間に別の画面を開くときは、すぐ閉じる）
   if (m.classList.contains('is-window') && settings.animations && !m.classList.contains('is-closing')) {
     m.classList.add('is-closing');
-    setTimeout(finishModalClose, 170);
+    setTimeout(() => finishModalClose(w), 170);
     return;
   }
   if (!m.classList.contains('is-closing')) m.close();
 }
-function finishModalClose() {
-  const m = $('#modal');
+function finishModalClose(w = W) {
+  const m = w.el;
   if (!m.classList.contains('is-closing')) return;
   m.classList.remove('is-closing');
   if (m.open) m.close();
 }
 // 編集中に検索などで詳細を開いていたら、閉じる代わりに編集の画面へ戻る（入力内容を失わないように）
 function returnToEditor() {
-  if (!modalCurrent || modalCurrent.kind === 'editor') return false;
-  const i = modalStack.findIndex((x) => x.kind === 'editor');
+  if (!W.current || W.current.kind === 'editor') return false;
+  const i = W.stack.findIndex((x) => x.kind === 'editor');
   if (i < 0) return false;
-  const entry = modalStack[i];
-  modalStack = modalStack.slice(0, i);
+  const entry = W.stack[i];
+  W.stack = W.stack.slice(0, i);
   showNav(entry);
   return true;
 }
@@ -3710,7 +3824,7 @@ function openSpotlight() {
   renderSearchResults();
   drawGhost();
   sp.classList.remove('closing');
-  if (!sp.open) { sp.showModal(); spotOverModal = $('#modal').open; }
+  if (!sp.open) { sp.showModal(); spotOverModal = W.el.open; }
   raiseChat();
   raiseAssistant();
   input.focus();
@@ -3853,7 +3967,7 @@ function makeHScroll(row) {
 
 // 検索パネルを、開いているカード・国の詳細（#modal）の手前に開いたか
 let spotOverModal = false;
-const spotOnTop = () => $('#spotlight').open && (spotOverModal || !$('#modal').open);
+const spotOnTop = () => $('#spotlight').open && (spotOverModal || !W.el.open);
 
 function closeSpotlight() {
   const sp = $('#spotlight');
@@ -4216,7 +4330,7 @@ function openEditor(card, preset = {}) {
       <button class="btn btn-primary" id="ed-save" type="button">保存</button>
     </div>
   `, 'modal-wide');
-  modalCurrent = { kind: 'editor' }; // 検索から詳細を開いても、戻ると編集を続けられるように
+  W.current = { kind: 'editor' }; // 検索から詳細を開いても、戻ると編集を続けられるように
 
   const showBack = () => {
     const b = $('#ed-back');
@@ -4246,7 +4360,7 @@ function openEditor(card, preset = {}) {
     const btn = $('#ed-annot');
     btn.disabled = true;
     try {
-      const out = await editImage(ed.preview, { backSrc: ed.backPreview, host: $('#modal'), ...opts });
+      const out = await editImage(ed.preview, { backSrc: ed.backPreview, host: W.el, ...opts });
       if (!out) return;
       if (out.image) await setImage(out.image, true);
       if (out.back instanceof Blob) { ed.back = out.back; ed.backPreview = await blobToDataUrl(out.back); }
@@ -4289,7 +4403,7 @@ function openEditor(card, preset = {}) {
       toast(ex.name === 'NotAllowedError' ? 'クリップボードへのアクセスが許可されませんでした。Ctrl+V で貼り付けてください' : ex.message, 'error');
     }
   });
-  modalPasteHandler = (e) => {
+  W.paste = (e) => {
     const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith('image/'));
     if (!item) return; // 文字の貼り付けはそのまま
     e.preventDefault();
@@ -4589,7 +4703,7 @@ function openCategoryManager() {
   };
   draw();
   // 閉じたら色・名前の変更を反映
-  $('#modal').addEventListener('close', () => { reloadCards().then(render); }, { once: true });
+  W.el.addEventListener('close', () => { reloadCards().then(render); }, { once: true });
 }
 
 /* ================= 国の基本情報 ================= */
@@ -4602,9 +4716,10 @@ function langCountries(l) {
 }
 function openCountryInfo(code, src = null, lang = null) {
   if (!COUNTRY_BY_CODE.get(code) || !COUNTRY_INFO[code]) return;
-  const fresh = !$('#modal').open;
+  claimNewWin();
+  const fresh = !W.el.open;
   navModal({ kind: 'country', code, cat: null, lang });
-  if (src && fresh) popFrom($('#modal'), src);
+  if (src && fresh) popFrom(W.el, src);
 }
 
 function renderCountryModal(entry) {
@@ -4678,18 +4793,18 @@ function renderCountryModal(entry) {
 
   $('#cinfo-compare').addEventListener('click', () => openCompare(code));
   // 地図のデータ: 写真を押すとカードと同じ画面で開く・開閉を覚える
-  $$('#modal .cfacts-photo').forEach((b) => b.addEventListener('click', () => {
+  $$('.cfacts-photo', W.el).forEach((b) => b.addEventListener('click', () => {
     const t = b.dataset.topic;
     openPhotoModal(t, code, (REF_IMAGES[t]?.[code] || []).map((r) => REF_BASE + r), Number(b.dataset.i), b);
   }));
-  $$('#modal .cfacts-map').forEach((b) => b.addEventListener('click', () => {
+  $$('.cfacts-map', W.el).forEach((b) => b.addEventListener('click', () => {
     settings.mapMode = b.dataset.topic;
     saveSettings();
     focusOnNextRender(code);
     closeModal();
     if (state.view === 'map') render(); else location.hash = '#map';
   }));
-  $('#modal .cinfo-facts')?.addEventListener('toggle', (e) => { settings.countryFactsOpen = e.currentTarget.open; saveSettings(); });
+  $('.cinfo-facts', W.el)?.addEventListener('toggle', (e) => { settings.countryFactsOpen = e.currentTarget.open; saveSettings(); });
 
   // 言語の見分け方
   const guide = $('#lang-guide');
@@ -4731,11 +4846,11 @@ function renderCountryModal(entry) {
     guide.style.setProperty('--arrow-x', `${bx - left}px`);
   };
   // 吹き出しの外をクリック / Esc で閉じる（Esc はモーダル全体を閉じる前に吹き出しだけ閉じる）
-  $('#modal .modal-inner').addEventListener('click', (e) => {
+  $('.modal-inner', W.el).addEventListener('click', (e) => {
     // 吹き出しの中身を描き直したときは、押した要素が外れているので外側とみなさない
     if (entry.lang && e.target.isConnected && !e.target.closest('.lang-pop, .lang-btn')) showLang(null);
   });
-  $('#modal').oncancel = (e) => {
+  W.el.oncancel = (e) => {
     if (entry.lang && $('#lang-guide') && !$('#lang-guide').hidden) { e.preventDefault(); showLang(null); }
   };
   $$('.lang-btn').forEach((b) => b.addEventListener('click', () => showLang(entry.lang === b.dataset.lang ? null : b.dataset.lang)));
@@ -4765,7 +4880,7 @@ function renderCountryModal(entry) {
     };
     memo.addEventListener('input', () => { status.textContent = ''; clearTimeout(timer); timer = setTimeout(save, 800); });
     memo.addEventListener('blur', save);
-    $('#modal').addEventListener('close', save, { once: true });
+    W.el.addEventListener('close', save, { once: true });
   }
 
   // カード一覧（カテゴリーで絞り込み）
@@ -5018,7 +5133,7 @@ function openBulkAdd() {
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); add([...e.dataTransfer.files]); });
-  modalPasteHandler = (e) => {
+  W.paste = (e) => {
     const its = [...(e.clipboardData?.items || [])].filter((i) => i.type.startsWith('image/'));
     if (!its.length) return;
     e.preventDefault();
