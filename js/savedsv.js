@@ -51,7 +51,17 @@ export const savedSvById = (id) => list?.find((x) => x.id === id) || null;
 export async function saveSv({ lat, lng, heading = 0, pitch = 0, fov = 0 }) {
   await loadSavedSv().catch((e) => { deps.toast(e.message, 'error'); throw e; });
   const dup = savedSvAt({ lat, lng, heading });
-  if (dup) { deps.toast('この場所（この向き）は、すでに保存してあります'); return dup; } // 少し動いたり、30 度以上向きを変えたりしていれば、別の場所として保存する
+  if (dup) {
+    // 同じ場所とみなされる範囲（約 3m・向き 30 度未満）で、もう一度保存したときは、保存した場所の位置・向き・ズームを今の状態に更新する（名前・地名・関連付けはそのまま）
+    const changed2 = Math.abs(Number(dup.lat) - lat) > 1e-7 || Math.abs(Number(dup.lng) - lng) > 1e-7 || Math.abs((Number(dup.heading) || 0) - heading) > 0.5 || Math.abs((Number(dup.pitch) || 0) - pitch) > 0.5 || Math.abs((Number(dup.fov) || 0) - fov) > 0.5;
+    if (!changed2) { deps.toast('この場所は、すでに今の状態で保存してあります'); return dup; }
+    const row = await deps.api().updateSavedSv(dup.id, { lat, lng, heading, pitch, fov }).catch((e) => { deps.toast(e.message || '更新できませんでした', 'error'); throw e; });
+    Object.assign(dup, row);
+    changed();
+    refreshSvWindow();
+    deps.toast(`保存した場所を更新しました: ${svLabel(dup)}`);
+    return dup;
+  }
   deps.toast('地名を調べています…');
   const [place, code] = await Promise.all([
     reversePlace(lat, lng).catch(() => null), // 大まかな地名（OpenStreetMap）。調べられなくても保存は続ける
