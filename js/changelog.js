@@ -15,7 +15,7 @@ export const CHANGELOG = [
       },
       {
         title: '地名の検索',
-        items: ['ハイフン・スペース・ピリオド・中黒（・）は、あってもなくても同じ地名として探す（saint-denis / Saint Denis、ニュー ヨーク / ニューヨークなど）'],
+        items: ['ハイフン・スペース・ピリオド・中黒（・）は、あってもなくても同じ地名として探す。portauprince や newyork のように区切りなしで打っても、有名な都市は見つかる（saint-denis / Saint Denis、ニュー ヨーク / ニューヨークなど）'],
       },
     ],
   },
