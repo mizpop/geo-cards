@@ -803,7 +803,7 @@ export async function renderMap(view, ctx) {
     const hide = () => { if (!svPanel.classList.contains('is-closing')) return; svPanel.classList.remove('is-closing'); if (svPoint) return; svPanel.hidden = true; svFrame.src = 'about:blank'; };
     if (svPanel.hidden || document.documentElement.classList.contains('no-anim') || mobileSv()) { svPanel.classList.add('is-closing'); hide(); return; }
     svPanel.classList.add('is-closing'); // 小さく消えるアニメーションのあとで隠す
-    setTimeout(hide, 190);
+    setTimeout(hide, 170);
   }
   function openSv(lat, lng) {
     svPoint = [lat, lng];

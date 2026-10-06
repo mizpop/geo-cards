@@ -23,6 +23,15 @@ export function flipAnimate(el, change) {
   try { change(); } finally { flipBusy = false; }
   const b = el.getBoundingClientRect();
   if (!b.width || !b.height || (Math.abs(a.left - b.left) < 1 && Math.abs(a.top - b.top) < 1 && Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1)) return;
+  // 縮小・元に戻す（高さだけが変わる）ときに拡大・縮小すると、見出しが縦に伸びて見えるので、中身は伸ばさずに動かす
+  if (Math.abs(a.left - b.left) < 1 && Math.abs(a.width - b.width) < 1) {
+    const grow = b.height > a.height;
+    el.animate(
+      grow ? [{ clipPath: `inset(0 0 ${b.height - a.height}px 0)` }, { clipPath: 'inset(0 0 0 0)' }] : [{ opacity: 0.55, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 200, easing: 'cubic-bezier(.2, .8, .3, 1)' },
+    );
+    return;
+  }
   el.animate(
     [{ transformOrigin: 'top left', transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width}, ${a.height / b.height})` }, { transformOrigin: 'top left', transform: 'none' }],
     { duration: 240, easing: 'cubic-bezier(.2, .8, .3, 1)' },

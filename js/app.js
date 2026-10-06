@@ -2017,7 +2017,7 @@ function closeModal() {
   // 浮かぶウィンドウは、小さく消えるアニメーションを再生してから閉じる（その間に別の画面を開くときは、すぐ閉じる）
   if (m.classList.contains('is-window') && settings.animations && !m.classList.contains('is-closing')) {
     m.classList.add('is-closing');
-    setTimeout(finishModalClose, 190);
+    setTimeout(finishModalClose, 170);
     return;
   }
   if (!m.classList.contains('is-closing')) m.close();
