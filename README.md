@@ -189,3 +189,17 @@ supabase/country-facts.sql 地図のインフォグラフィックの値を保�
 ```
 
 画像はアップロード時に、長辺 1600px の WebP に圧縮されます（1 枚あたり約 100〜250KB）。無料枠のストレージ 1GB で、数千枚を保存できます。
+
+### Windows 版の自動公開（GitHub Actions）
+
+`electron/` の中を変えて `main` に push すると、`.github/workflows/desktop-release.yml` が Windows 上でインストーラーをビルドして、公開リポジトリ `mizpop/geochecker-releases` の Releases に自動で公開します（`electron/package.json` の `version` を上げておくと、新しい版として公開され、インストール済みのアプリが起動時に自動で更新します）。Actions の画面から手動で実行もできます。
+
+**最初に 1 回だけ**、次の準備が必要です（トークンはあなた自身が作ります。私や他の人には渡さないでください）:
+
+1. GitHub の **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**
+   - Repository access: **Only select repositories** → `geochecker-releases` だけ
+   - Permissions → Repository permissions → **Contents: Read and write**
+2. このリポジトリ（`geo-cards`）の **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `RELEASES_TOKEN` / Secret: 作ったトークン
+
+手元でビルドして公開したいときは、`electron/` で `GH_TOKEN`（同じトークン）を環境変数に入れて `npm run release` を実行します。

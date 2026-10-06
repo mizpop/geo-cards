@@ -39,7 +39,8 @@
       {
         "provider": "github",
         "owner": "mizpop",
-        "repo": "geochecker-releases"
+        "repo": "geochecker-releases",
+        "releaseType": "release"
       }
     ],
     "directories": {

@@ -1,0 +1,33 @@
+# Windows 版アプリ（electron/）を自動でビルドして、公開リポジトリ mizpop/geochecker-releases の Releases に公開する。
+# 動くとき: electron/ の中を変えて push したとき（electron/package.json の version を上げておく）／ Actions から手動で実行したとき。
+# 事前準備（1 回だけ）: geochecker-releases に書き込める個人用アクセストークンを、このリポジトリのシークレット RELEASES_TOKEN に登録する（README の「Windows 版の自動公開」）。
+name: desktop-release
+
+on:
+  push:
+    branches: [main]
+    paths: ['electron/**', '.github/workflows/desktop-release.yml']
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: electron
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: トークンの確認
+        shell: bash
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ -z "$RELEASES_TOKEN" ]; then echo "::error::シークレット RELEASES_TOKEN が未設定です（README の「Windows 版の自動公開」を参照）"; exit 1; fi
+      - run: npm install --no-audit --no-fund
+      - name: ビルドして Releases に公開
+        run: npx electron-builder --win nsis --publish always
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
