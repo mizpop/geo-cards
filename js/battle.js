@@ -627,7 +627,7 @@ export function mountBattle(host, ctx) {
 
   function renderReveal() {
     host.classList.add('bt-play'); // 単独プレイと同じ画面構成（画面いっぱいの問題カード＋スクロールできる下の欄）
-    ctx.setFit(true);
+    ctx.setFit(window.matchMedia('(max-width: 900px)').matches ? 'scroll' : true); // スマホは、下の地図まで縦にスクロールできるように
     const Q = game.questions[game.i];
     const got = game.answers.get(game.i) || new Map();
     const mine = got.get(me.id);
@@ -644,7 +644,7 @@ export function mountBattle(host, ctx) {
     } else {
       const card = ctx.cardFor(Q);
       cardHtml = `<div class="quiz-card">${card ? frontHtml(card, false, true) : ''}</div>`;
-      info = card ? `${ctx.answerHtml(card, 'sm', true)}${ctx.cardInfoHtml(card)}` : '';
+      info = card ? `${ctx.answerHtml(card, 'sm', true)}${ctx.cardInfoHtml(card)}${ctx.relatedHtml(card)}` : '';
       sv = !!card?.sv;
     }
     // 現在の順位に、この問題の結果（○✗・答え・得点）を並べる。答え合わせと一緒に、スクロールせずに見える位置に置く
@@ -672,6 +672,7 @@ export function mountBattle(host, ctx) {
     // 画像・ストリートビューは右に大きく、答えと結果は左に（答え合わせでも画像が小さくならないように）
     main.innerHTML = `${toolbar}${Q.k !== 'fact' ? `<div class="sv-split">${bottom}${mediaHtml}</div>` : `${cardHtml}${bottom}`}`;
     bindExit();
+    ctx.bindRelated(main);
     ctx.attachZoom(host.querySelector('.quiz-card .front-img'));
     if (showMap) {
       const el = host.querySelector('#bt-rmap');

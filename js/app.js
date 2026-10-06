@@ -2247,7 +2247,7 @@ function renderBattle() {
     mountQuizMap, mountPinMap, distanceBetween, resolveCountryCode,
     factTopics: FACT_TOPICS.map((id) => ({ id, name: modeDef(id).name, icon: modeDef(id).icon })),
     setSvHide: (v) => { svHide = v; },
-    setFit, attachZoom,
+    setFit, attachZoom, relatedHtml, bindRelated,
     regions: REGIONS.map((r) => ({ id: r.id, name: r.name })),
     categories: allCats().map((c) => ({ key: c.id, name: c.name, vars: catVars(c) })),
     scopeCounts: battleCounts,
@@ -2899,6 +2899,7 @@ const RESULT_LABEL = { ok: '○ 正解！', partial: '△ 部分正解', ng: '�
 
 function renderQuestion() {
   const q = state.quiz;
+  setFit(q.answered && window.matchMedia('(max-width: 900px)').matches ? 'scroll' : true); // スマホの答え合わせは、下の地図まで縦にスクロールできるように
   if (q.kind === 'fact') { renderFactQuestion(); return; }
   const item = q.questions[q.i];
   const card = cardById(item.cardId);
@@ -2965,6 +2966,7 @@ function renderQuestion() {
           ${q.mode === 'choice' || a.result !== 'ok' ? answerHtml(card, 'sm', true) : ''}
           ${notesHtml(card)}
           ${cardInfoHtml(card)}
+            ${relatedHtml(card)}
         </div>` : ''}
     </div>
     ${card.sv && a ? '<div class="bt-media"><div class="quiz-map bt-rmap bt-rmap-big" id="sv-ans-map"><div class="map-loading">地図を読み込み中…</div></div></div>' : ''}
@@ -2978,6 +2980,7 @@ function renderQuestion() {
     renderQuiz();
   });
   if (a) {
+    bindRelated($('.feedback'));
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
     if (card.sv) { // ストリートビューの問題: 今まで映像があった所に、正解の場所の地図。映像は地図の上の吹き出し（初めは閉じている）
@@ -3088,6 +3091,7 @@ function exportOpenGuessr(cards, name) {
 // 撮影地点を当てる（参考写真）: 地図のどこでもクリック。距離で採点（GeoGuessr のように最大 5000 点）
 function renderPinQuestion(card) {
   const q = state.quiz;
+  setFit(q.answered && window.matchMedia('(max-width: 900px)').matches ? 'scroll' : true); // スマホの答え合わせは、下の地図まで縦にスクロールできるように
   const a = q.answered;
   const total = q.answers.reduce((n, x) => n + (x.points || 0), 0);
   $('#view').innerHTML = `
@@ -3111,6 +3115,7 @@ function renderPinQuestion(card) {
             </div>
             ${answerHtml(card, 'sm', true)}
             ${cardInfoHtml(card)}
+            ${relatedHtml(card)}
           </div>` : `<button class="btn btn-primary qm-guess" id="q-guess" type="button" disabled>📍 この場所で回答</button>`}
       </div>
     </div>`;
@@ -3145,6 +3150,7 @@ function renderPinQuestion(card) {
   });
   $('#q-guess')?.addEventListener('click', () => { if (pending) submit(pending); });
   if (a) {
+    bindRelated($('.feedback'));
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-next').focus({ preventScroll: true });
   }
@@ -3153,6 +3159,7 @@ function renderPinQuestion(card) {
 // 地図で答えるクイズ: 左に問題の画像、右に地図（スマホでは上下）
 function renderMapQuestion(card) {
   const q = state.quiz;
+  setFit(q.answered && window.matchMedia('(max-width: 900px)').matches ? 'scroll' : true); // スマホの答え合わせは、下の地図まで縦にスクロールできるように
   const a = q.answered;
   const okN = q.answers.filter((x) => x.result === 'ok').length;
   const partN = q.answers.filter((x) => x.result === 'partial').length;
@@ -3182,6 +3189,7 @@ function renderMapQuestion(card) {
             ${answerHtml(card, 'sm', true)}
             ${notesHtml(card)}
             ${cardInfoHtml(card)}
+            ${relatedHtml(card)}
           </div>` : ''}
       </div>
     </div>`;
@@ -3200,6 +3208,7 @@ function renderMapQuestion(card) {
     if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`;
   });
   if (a) {
+    bindRelated($('.feedback'));
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
     $('#q-next').focus({ preventScroll: true });
