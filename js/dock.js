@@ -30,17 +30,58 @@ function build() {
   fan.addEventListener('mouseleave', leave);
   hot.addEventListener('mouseleave', leave);
   stack.addEventListener('mouseleave', leave);
+  // ✕ は、クリックで閉じる
   fan.addEventListener('click', (e) => {
     const x = e.target.closest('.dock-x');
-    const card = e.target.closest('.dock-card');
-    if (!card) return;
-    const it = items.get(card._key);
-    if (!it) return;
-    if (x) { e.stopPropagation(); it.close(); return; }
-    const rect = card.getBoundingClientRect();
-    closeFan(true);
-    it.restore({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    const card = x && x.closest('.dock-card');
+    const it = card && items.get(card._key);
+    if (it) { e.stopPropagation(); it.close(); }
   });
+  // 取り出しは、カードをドラッグして、画面の好きな場所で離す（クリックでは取り出さない）
+  let drag = null;
+  fan.addEventListener('pointerdown', (e) => {
+    const card = e.target.closest('.dock-card');
+    if (!card || e.target.closest('.dock-x') || e.button !== 0) return;
+    const r = card.getBoundingClientRect();
+    drag = { card, key: card._key, sx: e.clientX, sy: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, rect: r, started: false, ghost: null };
+    card.setPointerCapture(e.pointerId);
+  });
+  fan.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    if (!drag.started) {
+      if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return;
+      drag.started = true;
+      const g = drag.card.cloneNode(true);
+      g.classList.add('dock-ghost');
+      g.removeAttribute('style');
+      g.setAttribute('style', drag.card.getAttribute('style') || '');
+      document.body.appendChild(g);
+      bringFront(g);
+      drag.ghost = g;
+      drag.card.style.visibility = 'hidden';
+      root.classList.add('is-dragging');
+    }
+    drag.ghost.style.left = `${e.clientX - drag.dx}px`;
+    drag.ghost.style.top = `${e.clientY - drag.dy}px`;
+  });
+  const endDrag = (e) => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    d.card.style.visibility = '';
+    root.classList.remove('is-dragging');
+    if (!d.started) return;
+    d.ghost.remove();
+    const back = e.type === 'pointercancel' || (e.clientX <= 220 && e.clientY >= window.innerHeight - 240); // 角のあたりで離したら、取り出さない
+    if (back) return;
+    const it = items.get(d.key);
+    closeFan(true);
+    // 離した場所に、見出しをつかんでいる位置のあたりが来るように置く
+    if (it) it.restore({ left: e.clientX - d.dx, top: e.clientY - d.dy, width: d.rect.width, height: d.rect.height }, { x: e.clientX, y: e.clientY });
+  };
+  fan.addEventListener('pointerup', endDrag);
+  fan.addEventListener('pointercancel', endDrag);
+  // 画像の標準のドラッグ（ブラウザの機能）が始まると、ウィンドウやカードのドラッグが途中で取り消されてしまうので、止める
   window.addEventListener('resize', layout);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen) closeFan(); });
 }
@@ -79,6 +120,7 @@ function render() {
     c.innerHTML = `<button type="button" class="dock-x" aria-label="閉じる" title="このウィンドウを閉じる">✕</button>
       <div class="dock-thumb">${thumb.src ? `<img src="${esc(thumb.src)}" alt="">` : `<span class="dock-emoji">${esc(thumb.emoji || '🗂')}</span>`}</div>
       <div class="dock-label">${esc(it.label?.() || '')}</div>`;
+    c.title = 'ドラッグして取り出す';
     if (thumb.style) c.setAttribute('style', thumb.style);
     fan.appendChild(c);
   }

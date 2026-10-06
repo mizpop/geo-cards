@@ -2501,3 +2501,9 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .dock-label { padding: 7px 9px; font-size: 12px; line-height: 1.4; font-weight: 700; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .dock-x { position: absolute; right: 4px; top: 4px; z-index: 2; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; font-size: 11px; cursor: pointer; opacity: 0; }
 .dock-card:hover .dock-x { opacity: 1; }
+
+/* しまったウィンドウは、ドラッグして取り出す */
+.dock-card { cursor: grab; touch-action: none; }
+.dock-ghost { position: fixed !important; left: 0; top: 0; bottom: auto !important; width: 150px; height: 198px; z-index: 99995 !important; pointer-events: none; opacity: 1 !important; transform: rotate(-3deg) scale(1.04) !important; cursor: grabbing; box-shadow: 0 18px 44px rgba(0, 0, 0, .6); }
+#win-dock.is-dragging { cursor: grabbing; }
+#win-dock img, .dock-ghost img { -webkit-user-drag: none; user-select: none; }

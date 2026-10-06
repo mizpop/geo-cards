@@ -331,6 +331,7 @@ function ensure() {
 
 // ウィンドウをしまう・取り出す（左下の角。js/dock.js）
 const DOCK_KEY = 'sv-window';
+function rectAt(drop) { if (rect) rect = { ...rect, left: Math.max(0, Math.min(window.innerWidth - 160, drop.x - 100)), top: Math.max(0, Math.min(window.innerHeight - 80, drop.y - 20)) }; }
 function undockPanel() { if (!panel) return; panel.classList.remove('is-docked'); dockRemove(DOCK_KEY); }
 function dockPanel() {
   if (!panel || dockHas(DOCK_KEY)) return;
@@ -339,7 +340,13 @@ function dockPanel() {
     key: DOCK_KEY,
     label: () => { const t = panel.querySelector('#sv-title-text')?.textContent || ''; return t && t !== 'ストリートビュー' ? `ストリートビュー: ${t}` : `ストリートビュー ${panel.querySelector('#sv-coord')?.textContent || ''}`.trim(); },
     thumb: () => ({ emoji: '🧍' }),
-    restore: (rect) => { undockPanel(); if (!panel.classList.contains('is-max') && !isSnapped(panel)) place(); bringFront(panel); popWindow(panel, rect); }, // ドラッグ前の位置・大きさに戻す
+    restore: (rect, drop) => { // 離した場所に出す（大きさは、しまう前のまま）
+      undockPanel();
+      if (drop && !mobile()) rectAt(drop);
+      if (!panel.classList.contains('is-max') && !isSnapped(panel)) place();
+      bringFront(panel);
+      popWindow(panel, rect);
+    },
     close: () => { undockPanel(); closeSvWindow(); },
   });
 }

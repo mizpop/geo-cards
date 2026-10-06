@@ -841,6 +841,8 @@ function bindGlobal() {
     if (state.view === 'map') render(); else location.hash = '#map';
   }, true);
   bindWinEvents(W0);
+  // 画像の標準のドラッグ（ブラウザの機能）が始まると、ウィンドウやカードをドラッグしている途中で取り消されてしまうので、画像はドラッグさせない
+  document.addEventListener('dragstart', (e) => { if (e.target instanceof HTMLImageElement) e.preventDefault(); }, true);
   // PC のみ: 右クリックを左クリックの代わりに使うと、今のウィンドウを置き換えずに、新しいウィンドウで開く（カード・国・参考写真）
   const OPENERS = '[data-related], [data-card-open], [data-info], [data-lang-country], .pphoto, .cfacts-photo, #study-view, #q-view, #q-info, .fw-country, .tile[data-id]';
   document.addEventListener('contextmenu', (e) => {
@@ -2155,7 +2157,12 @@ function dockWin(w0) {
     key: w,
     label: () => dockLabel(w),
     thumb: () => dockThumb(w),
-    restore: (rect) => { undockWin(w); popWindow(w.el, rect); },
+    restore: (rect, drop) => { // 離した場所に、ウィンドウを出す（大きさは、しまう前のまま）
+      if (drop && w.rect) w.rect = { ...w.rect, left: Math.max(0, Math.min(window.innerWidth - 160, drop.x - 100)), top: Math.max(0, Math.min(window.innerHeight - 80, drop.y - 20)) };
+      undockWin(w);
+      w.el.__win?.place?.();
+      popWindow(w.el, rect);
+    },
     close: () => { w.docked = false; w.el.classList.remove('is-docked'); closeModal(w); },
   });
   if (W === w || W.docked) activate(wins.filter((x) => !x.docked && x.el.open).pop() || W0);
