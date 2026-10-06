@@ -4853,8 +4853,11 @@ function openCardLinkPop(getCurrent, anchor) {
     const pt = svWindowPoint();
     const here = pt ? savedSvAt({ lat: pt[0], lng: pt[1], heading: svWindowView().heading }) : null;
     const hits = sortCards(matchCards(input.value)).filter((c) => !c.photo && !c.sv).slice(0, 40);
-    // カードタブと同じタイル（画像の下にテキスト）を、小さくして並べる
-    list.innerHTML = hits.length ? hits.map((c) => tileHtml(c, here && (c.sv_ids || []).includes(here.id) ? '<p class="tile-given sv-pop-linked">🔗 関連付け済み</p>' : '')).join('') : '<p class="muted small sv-pop-empty">カードが見つかりません</p>';
+    // カードタブと同じタイル（画像の下にテキスト）を、小さくして並べる。関連付け済みは薄暗くして、もう一度押すと解除できる
+    list.innerHTML = hits.length ? hits.map((c) => {
+      const linked = here && (c.sv_ids || []).includes(here.id);
+      return tileHtml(c, linked ? '<p class="tile-given sv-pop-linked">🔗 関連付け済み（もう一度押すと解除）</p>' : '').replace('class="tile"', `class="tile${linked ? ' is-linked' : ''}"`);
+    }).join('') : '<p class="muted small sv-pop-empty">カードが見つかりません</p>';
   };
   input.addEventListener('input', draw);
   list.addEventListener('click', async (e) => {
@@ -4865,12 +4868,14 @@ function openCardLinkPop(getCurrent, anchor) {
       const p = await getCurrent(); // いる位置（Windows 版は、動かしたあとの位置を読み取り直す）
       if (!p) { toast('ストリートビューの位置が分かりません', 'error'); return; }
       const row = savedSvAt(p) || await saveSv(p); // まだ保存していなければ、保存してから
-      if ((card.sv_ids || []).includes(row.id)) { toast('すでに関連付けてあります'); return; }
-      await api.updateCard(card, { ...card, sv_ids: [...(card.sv_ids || []), row.id] });
-      closeSvPop();
+      const label = `カード（${card.countries[0] ? countryName(card.countries[0]) : ''} ${card.description || catOf(card).name}）`;
+      const linked = (card.sv_ids || []).includes(row.id);
+      // 関連付け済みなら解除、まだなら関連付け
+      await api.updateCard(card, { ...card, sv_ids: linked ? (card.sv_ids || []).filter((x) => x !== row.id) : [...(card.sv_ids || []), row.id] });
       await reloadCards();
       if (state.view !== 'map') render();
-      toast(`カード（${card.countries[0] ? countryName(card.countries[0]) : ''} ${card.description || catOf(card).name}）に関連付けました`);
+      draw(); // 薄暗い表示を更新（続けて、ほかのカードも選べるように、ポップアップは開いたまま）
+      toast(linked ? `${label}との関連付けを解除しました` : `${label}に関連付けました`);
     } catch (err) { toast(err.message || '関連付けできませんでした', 'error'); }
   });
   draw();
