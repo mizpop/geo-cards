@@ -143,7 +143,7 @@ export function buildContext({ question, history = [], deps, pinned = null }) {
     refs.set(id, { kind: 'card', id: card.id });
     const label = `${deps.catOf(card).name}・${card.countries.map((c) => deps.countryName(c)).join('・')}`;
     sources.push({ id, label });
-    cardLines.push(`[${id}] ${label}${card.area ? `（${clip(card.area, 40)}）` : ''}／説明: ${clip(card.description, 160) || 'なし'}／解説: ${clip(card.notes, 300) || 'なし'}${extra}`);
+    cardLines.push(`[${id}] ${label}${card.area ? `（${clip(card.area, 40)}）` : ''}${card.places?.length ? `／地名: ${card.places.map((p) => [p.name, p.en, p.local].filter(Boolean).join('・')).join('、')}` : ''}／説明: ${clip(card.description, 160) || 'なし'}／解説: ${clip(card.notes, 300) || 'なし'}${extra}`);
   };
   for (const { card } of scored) addCard(card);
   if (cardLines.length) sections.push(['ユーザーのカード', cardLines.join('\n')]);

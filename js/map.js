@@ -46,6 +46,7 @@ let map = null;
 let lastView = null; // 再描画時に表示位置を保つ
 let renderSeq = 0;
 let cityPoint = null; // 検索で選んだ都市（地図を描き直しても目印を残す）
+let cityFly = false; // 次に描いたとき、その都市へ移動するか（カードの地名から開いたとき）
 let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 // ストリートビュー: ボタンで入る「クリックで開くモード」と、最後に開いた地点（地図を描き直しても開き直す）
 let svOn = false;
@@ -253,6 +254,8 @@ let currentFocus = null; // 選んでいる国（データ更新で描き直す�
 let restoreFocus = null;
 let pendingFocus = null; // 次に地図を描いたときに移動する国（カードの「地図で見る」から）
 export function focusOnNextRender(code) { pendingFocus = code; }
+// カードの地名を地図で見る: 次に地図を描いたとき、その地名へ移動して目印を置く
+export function showCityOnNextRender(place) { cityPoint = place; cityFly = true; }
 // カードが更新されたときの描き直し: 表示位置に加えて、選んでいる国もそのまま
 export function refreshMap(view, ctx) {
   restoreFocus = currentFocus;
@@ -1672,7 +1675,9 @@ export async function renderMap(view, ctx) {
     if (row.dataset.more) runOsm(ms.value.trim());
     else pickCity(cities[Number(row.dataset.i)]);
   });
-  if (cityPoint) showCity(cityPoint, false); // 地図を描き直したときも、目印を残す
+  if (cityPoint) { showCity(cityPoint, cityFly); cityFly = false; } // 地図を描き直したときも、目印を残す（カードの地名から開いたときは移動もする）
+  // 地図の他の場所（国・海など）をクリックしたら、地名の表示を消す（目印の上のクリックは、地図には伝わらない）
+  map.on('click', () => { if (cityPoint) clearCity(); });
 
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
   // 右パネル（国の情報）を隠す・表示する（選んだ状態は覚えておく）

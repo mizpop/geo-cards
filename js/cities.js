@@ -208,3 +208,14 @@ export function altNames(c) {
   for (const n of [c.en, c.local]) if (n && n !== c.name && !out.includes(n)) out.push(n);
   return out;
 }
+
+/** 入力した言葉に一番合う都市を 1 つ（Enter で決めるとき用）。人口のわかる都市があればそれ、なければ OpenStreetMap で探す */
+export async function findCity(query, { signal } = {}) {
+  const q = query.trim();
+  if (!q) return null;
+  let list = [];
+  try { list = await suggestCities(q, { signal }); } catch (e) { if (e.name === 'AbortError') throw e; }
+  if (list.length && list[0].pop > 0) return list[0];
+  const osm = await searchCitiesOSM(q, { signal });
+  return osm[0] || list[0] || null;
+}

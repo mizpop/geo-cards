@@ -5,7 +5,8 @@ import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
 import { initAssistant, teardownAssistant, raiseAssistant, openAssistant } from './assistant.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, showCityOnNextRender, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
+import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from './cities.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
@@ -640,6 +641,17 @@ function bindGlobal() {
   $('#changelog-btn').title = `更新履歴（現在 ${APP_VERSION}）`;
   $('#changelog-btn').addEventListener('click', openChangelog);
   document.addEventListener('keydown', onKeydown);
+  // カードの地名を押したら、地図でその場所を見る
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest?.('[data-place-card]');
+    if (!b) return;
+    const place = cardById(b.dataset.placeCard)?.places?.[Number(b.dataset.place)];
+    if (!place) return;
+    e.stopPropagation();
+    showCityOnNextRender(place);
+    closeModal();
+    if (state.view === 'map') render(); else location.hash = '#map';
+  }, true);
   const modal = $('#modal');
   modal.addEventListener('click', (e) => { if (e.target === modal && !modalIsWindow()) closeModal(); });
   // カード詳細・国の詳細では、右クリックで前のカード / 国に戻る（履歴がなければ閉じる）
@@ -909,6 +921,11 @@ function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
     ${card.description && showDesc ? `<p class="front-desc">${nl2br(card.description)}</p>` : ''}`;
 }
 
+// 地名（都市・町）: 日本語に続けて英語・現地の言語の名前。押すと地図でその場所を見る
+function placesHtml(card) {
+  if (!card.places?.length) return '';
+  return `<div class="answer-places">${card.places.map((p, i) => `<button type="button" class="place-link" data-place-card="${card.id}" data-place="${i}" title="地図でこの場所を見る">📍${p.code ? flagImg(p.code) : ''}<b>${esc(p.name)}</b>${altNames(p).map((n) => `<em>${esc(n)}</em>`).join('')}</button>`).join('')}</div>`;
+}
 function answerHtml(card, size = 'lg', linkCountries = false) {
   const many = card.countries.length > 3;
   return `
@@ -918,6 +935,7 @@ function answerHtml(card, size = 'lg', linkCountries = false) {
         : `<span class="answer-country">${flagImg(c, 'flag flag-answer')}${esc(countryName(c))}</span>`)).join('')}
     </div>
     ${card.area ? `<p class="answer-area">${esc(card.area)}</p>` : ''}
+    ${placesHtml(card)}
     <p class="answer-regions">${[...cardRegions(card)].map((r) => esc(REGION_BY_ID.get(r).name)).join(' · ')}</p>`;
 }
 
@@ -3350,7 +3368,7 @@ function renderQuizResult() {
 /* ================= 検索 ================= */
 // 検索: 国名・地域名に当てはまるカードを先に、続けて説明文・解説・詳細エリア・カテゴリー名に含むカード
 // （文の検索はスペース区切りの語をすべて含むもの）
-const cardText = (card) => `${card.description || ''}\n${card.notes || ''}\n${card.area || ''}\n${catOf(card).id === 'none' ? '' : catOf(card).name}`.toLowerCase();
+const cardText = (card) => `${card.description || ''}\n${card.notes || ''}\n${card.area || ''}\n${(card.places || []).map((p) => [p.name, p.en, p.local, p.sub].filter(Boolean).join(' ')).join(' ')}\n${catOf(card).id === 'none' ? '' : catOf(card).name}`.toLowerCase();
 function matchCards(query) {
   const q = query.trim().toLowerCase();
   if (!q) return state.cards;
@@ -3881,6 +3899,7 @@ function openEditor(card, preset = {}) {
     back: null, // 裏面だけの書き込み: null（変更なし）/ Blob（新しく保存）/ 'clear'（消す）
     backPreview: card ? backUrl(card) : '',
     related: new Set((card?.related || []).filter((id) => state.cards.some((c) => c.id === id))),
+    places: Array.isArray(card?.places) ? card.places.map((p) => ({ ...p })) : [],
   };
 
   openModal(`
@@ -3952,6 +3971,12 @@ function openEditor(card, preset = {}) {
           <span>詳細エリア（任意）</span>
           <input type="text" id="ed-area" class="input" placeholder="例: 北部 / 東海岸 / ○○州" value="${esc(card?.area)}">
         </label>
+        <div class="field">
+          <span>地名（都市・町。複数可）</span>
+          <div class="ed-places" id="ed-places"></div>
+          <input type="search" id="ed-place-q" class="input" placeholder="地名を検索して追加（東京 / Paris / berurin など。Enter で一番上を追加）" autocomplete="off" enterkeyhint="done">
+          <div class="ed-place-results" id="ed-place-results"></div>
+        </div>
         <label class="field">
           <span>解説</span>
           <textarea id="ed-notes" rows="4" placeholder="見分け方や注意点など">${esc(card?.notes)}</textarea>
@@ -4120,6 +4145,77 @@ function openEditor(card, preset = {}) {
   });
   renderChips();
 
+  // 地名（都市・町）: 検索して追加。日本語・英語・現地の言語の名前と座標をカードに保存する（地図で見られる）
+  const renderPlaces = () => {
+    $('#ed-places').innerHTML = ed.places.length
+      ? ed.places.map((p, i) => `<span class="chip chip-removable place-chip">${p.code ? flagImg(p.code) : '📍'}<b>${esc(p.name)}</b>${altNames(p).map((n) => `<em>${esc(n)}</em>`).join('')}<button type="button" data-place-rm="${i}" aria-label="この地名を外す">✕</button></span>`).join('')
+      : '<span class="muted small">まだありません</span>';
+    $$('#ed-places [data-place-rm]').forEach((b) => b.addEventListener('click', () => { ed.places.splice(Number(b.dataset.placeRm), 1); renderPlaces(); }));
+  };
+  const addPlace = async (c) => {
+    await fillNames(c).catch(() => {}); // 英語・現地の言語の名前
+    const near = (p) => Math.abs(p.lat - c.lat) < 0.05 && Math.abs(p.lng - c.lng) < 0.05;
+    if (!ed.places.some(near)) ed.places.push({ name: c.name, en: c.en || '', local: c.local || '', sub: c.sub || '', code: c.code || '', lat: c.lat, lng: c.lng, zoom: c.zoom || 11 });
+    // その国が選ばれていなければ、国も追加する
+    if (c.code && COUNTRY_BY_CODE.has(c.code) && !ed.countries.has(c.code)) {
+      ed.countries.add(c.code);
+      const cb = $(`#ed-picker input[value="${c.code}"]`);
+      if (cb) { cb.checked = true; cb.closest('details').open = true; }
+      renderChips();
+      toast(`国（${countryName(c.code)}）も追加しました`);
+    }
+    renderPlaces();
+    $('#ed-place-q').value = '';
+    $('#ed-place-results').innerHTML = '';
+  };
+  {
+    const input = $('#ed-place-q');
+    const box = $('#ed-place-results');
+    let list = [];
+    let ctl = null;
+    let timer = null;
+    let seq = 0;
+    const draw = (q, status = '', osm = false) => {
+      box.innerHTML = `${status ? `<p class="muted small">${esc(status)}</p>` : ''}${list.map((c, i) => `<button type="button" class="pl-hit" data-pl="${i}">${c.code ? flagImg(c.code) : '<span>🏙</span>'}<span class="pl-main"><span class="pl-title"><b>${esc(c.name)}</b>${altNames(c).map((n) => `<em>${esc(n)}</em>`).join('')}</span><small>${esc([c.sub, c.code ? countryName(c.code) : ''].filter(Boolean).join('・'))}</small></span></button>`).join('')}${osm || !q ? '' : `<button type="button" class="pl-hit pl-more" data-more="1">🔎 OpenStreetMap で「${esc(q)}」を探す</button>`}`;
+      $$('#ed-place-results [data-pl]').forEach((b) => b.addEventListener('click', () => addPlace(list[Number(b.dataset.pl)])));
+      $('#ed-place-results [data-more]')?.addEventListener('click', () => runOsm(q));
+    };
+    const runOsm = async (q) => {
+      ctl?.abort(); ctl = new AbortController(); const my = ++seq;
+      list = []; draw(q, 'OpenStreetMap で探しています…', true);
+      try { const r = await searchCitiesOSM(q, { signal: ctl.signal }); if (my === seq) { list = r; draw(q, r.length ? '' : '見つかりませんでした', true); } } catch (e) { if (e.name !== 'AbortError' && my === seq) draw(q, e.message || '検索できませんでした', true); }
+    };
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (!q) { ctl?.abort(); seq++; list = []; box.innerHTML = ''; return; }
+      timer = setTimeout(async () => {
+        ctl?.abort(); ctl = new AbortController(); const my = ++seq;
+        try {
+          const r = await suggestCities(q, { signal: ctl.signal });
+          if (my !== seq) return;
+          list = r;
+          draw(q);
+          Promise.allSettled(r.slice(0, 6).map((c) => fillNames(c, { signal: ctl.signal }))).then(() => { if (my === seq) draw(q); });
+        } catch (e) { if (e.name !== 'AbortError' && my === seq) { list = []; draw(q); } }
+      }, 300);
+    });
+    // Enter: 入力した言葉に一番合う地名をすぐ追加（候補の更新を待たない）
+    input.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (!q) return;
+      box.innerHTML = '<p class="muted small">探しています…</p>';
+      try {
+        const c = await findCity(q);
+        if (c) await addPlace(c); else { box.innerHTML = ''; toast('地名が見つかりません', 'error'); }
+      } catch (ex) { box.innerHTML = ''; toast(ex.message || '検索できませんでした', 'error'); }
+    });
+  }
+  renderPlaces();
+
   // 関連カード: 検索して追加（検索パネルと同じ一致のしかた）
   const renderRelated = () => {
     const list = [...ed.related].map((id) => state.cards.find((c) => c.id === id)).filter(Boolean);
@@ -4161,6 +4257,7 @@ function openEditor(card, preset = {}) {
       notes: $('#ed-notes').value.trim(),
       category_id: (() => { const v = $('input[name=ed-cat]:checked')?.value; return v && v !== 'none' ? v : null; })(),
       related: [...ed.related],
+      places: ed.places,
     };
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -4580,7 +4677,7 @@ async function exportBackup() {
       if (url) image = url.startsWith('data:') ? url : await blobToDataUrl(await (await fetch(url)).blob());
       const bu = backUrl(c);
       const back = bu ? (bu.startsWith('data:') ? bu : await blobToDataUrl(await (await fetch(bu)).blob())) : '';
-      out.push({ description: c.description, countries: c.countries, area: c.area, notes: c.notes, category: catOf(c) === UNCAT ? '' : catOf(c).name, created_at: c.created_at, image, ...(back ? { back } : {}) });
+      out.push({ description: c.description, countries: c.countries, area: c.area, places: c.places || [], notes: c.notes, category: catOf(c) === UNCAT ? '' : catOf(c).name, created_at: c.created_at, image, ...(back ? { back } : {}) });
     }
     const json = JSON.stringify({ app: 'geo-cards', version: 1, exportedAt: new Date().toISOString(), cards: out, countryNotes: Object.fromEntries(state.countryNotes) });
     const a = document.createElement('a');

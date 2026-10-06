@@ -43,6 +43,7 @@ alter table public.cards add column if not exists category_id uuid references pu
 alter table public.cards add column if not exists back_path text;
 alter table public.cards add column if not exists thumb_path text;
 alter table public.cards add column if not exists related uuid[] not null default '{}';
+alter table public.cards add column if not exists places jsonb not null default '[]'::jsonb;
 
 -- 初期カテゴリー（まだ1つもない場合のみ）
 insert into public.categories (name, color, sort)
