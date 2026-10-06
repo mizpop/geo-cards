@@ -11,7 +11,7 @@ import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from '.
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
+import { bringFront, snapSideAt, showSnapPreview, snapWindow, finishRestore, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
@@ -627,6 +627,7 @@ async function enterApp() {
   const restored = restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
   await route();
   restoreOverlays(restored); // 開いていたウィンドウなど
+  finishRestore();
   sessionReady = true;
   startLive();
   if (!lobbyWatching) { // 公開された対戦の部屋のお知らせ（ポップアップから参加できる）
