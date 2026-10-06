@@ -1985,6 +1985,7 @@ function setupWindow(m) {
 
 function openModal(html, cls = '', nav = false) {
   const m = $('#modal');
+  finishModalClose(); // 閉じるアニメーションの途中なら、先に閉じきる
   const asWindow = nav && canWindow();
   const wasWindow = m.classList.contains('is-window');
   const keep = asWindow && wasWindow ? ['is-max', 'is-min', 'is-snap'].filter((c) => m.classList.contains(c)) : []; // ウィンドウの中で移るときは、拡大・縮小の状態を保つ
@@ -2011,6 +2012,19 @@ function openModal(html, cls = '', nav = false) {
 function closeModal() {
   const m = $('#modal');
   if (m.open && returnToEditor()) return;
+  if (!m.open) return;
+  // 浮かぶウィンドウは、小さく消えるアニメーションを再生してから閉じる（その間に別の画面を開くときは、すぐ閉じる）
+  if (m.classList.contains('is-window') && settings.animations && !m.classList.contains('is-closing')) {
+    m.classList.add('is-closing');
+    setTimeout(finishModalClose, 170);
+    return;
+  }
+  if (!m.classList.contains('is-closing')) m.close();
+}
+function finishModalClose() {
+  const m = $('#modal');
+  if (!m.classList.contains('is-closing')) return;
+  m.classList.remove('is-closing');
   if (m.open) m.close();
 }
 // 編集中に検索などで詳細を開いていたら、閉じる代わりに編集の画面へ戻る（入力内容を失わないように）

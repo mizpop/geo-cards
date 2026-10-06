@@ -800,13 +800,16 @@ export async function renderMap(view, ctx) {
     releaseSnap(svPanel);
     svPoint = null;
     setMin(false);
-    svPanel.hidden = true;
-    svFrame.src = 'about:blank';
     if (svMarker) { svMarker.remove(); svMarker = null; }
+    const hide = () => { if (!svPanel.classList.contains('is-closing')) return; svPanel.classList.remove('is-closing'); if (svPoint) return; svPanel.hidden = true; svFrame.src = 'about:blank'; };
+    if (svPanel.hidden || document.documentElement.classList.contains('no-anim') || mobileSv()) { svPanel.classList.add('is-closing'); hide(); return; }
+    svPanel.classList.add('is-closing'); // 小さく消えるアニメーションのあとで隠す
+    setTimeout(hide, 170);
   }
   function openSv(lat, lng) {
     svPoint = [lat, lng];
     setMin(false); // 縮小していても、新しい場所を開いたら戻す
+    svPanel.classList.remove('is-closing');
     if (svPanel.hidden) { svPanel.hidden = false; placePanel(); bringFront(svPanel); }
     svFrame.src = svEmbedUrl(lat, lng);
     svPanel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
