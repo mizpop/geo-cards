@@ -246,10 +246,13 @@ export async function randomSvPoint(code, attempts = 8) {
 }
 // パネルの位置と大きさ（画面全体の中で動かせる。開き直しても引き継ぐ）
 let svRect = null; // { left, top, width, height }
+let svRestoreWin = null; // 再読み込みから戻すパネルの状態（最初に描くときだけ使う）
 // 再読み込みしても引き継ぐための、地図の状態（表示位置・選んでいる国・都市の目印・ストリートビュー）の取り出しと復元
 export function getMapSession() {
   const view = map ? { center: [map.getCenter().lat, map.getCenter().lng], zoom: map.getZoom() } : lastView ? { center: Array.isArray(lastView.center) ? lastView.center : [lastView.center.lat, lastView.center.lng], zoom: lastView.zoom } : null;
-  return { view, focus: currentFocus, city: cityPoint, sv: { on: svOn && !svTemp, point: svPoint, rect: svRect } };
+  const p = document.getElementById('sv-panel');
+  const win = p && !p.hidden ? { side: snappedSide(p), min: p.classList.contains('is-min'), max: p.classList.contains('is-max') } : null; // 分割・縮小・拡大の状態
+  return { view, focus: currentFocus, city: cityPoint, sv: { on: svOn && !svTemp, point: svPoint, rect: svRect, win } };
 }
 export function setMapSession(s) {
   if (!s) return;
@@ -257,7 +260,7 @@ export function setMapSession(s) {
   restoreFocus = s.focus || null;
   cityPoint = s.city || null;
   cityFly = false;
-  if (s.sv) { svOn = !!s.sv.on; svPoint = s.sv.point || null; if (s.sv.rect) svRect = s.sv.rect; }
+  if (s.sv) { svOn = !!s.sv.on; svPoint = s.sv.point || null; if (s.sv.rect) svRect = s.sv.rect; svRestoreWin = s.sv.win ? { ...s.sv.win, open: true } : null; }
 }
 export function removeSvPanel() { const p = document.getElementById('sv-panel'); if (p) { releaseSnap(p); p.remove(); } }
 
@@ -739,7 +742,8 @@ export async function renderMap(view, ctx) {
   const mobileSv = () => window.matchMedia('(max-width: 760px)').matches;
   // 地図を描き直す（タブを移って戻る・表示を切り替える）ときは、前のパネルの分割・縮小・拡大を引き継ぐ
   const oldPanel = document.getElementById('sv-panel');
-  const carry = oldPanel ? { side: snappedSide(oldPanel), min: oldPanel.classList.contains('is-min'), max: oldPanel.classList.contains('is-max'), style: oldPanel.getAttribute('style') || '', open: !oldPanel.hidden } : null;
+  const carry = oldPanel ? { side: snappedSide(oldPanel), min: oldPanel.classList.contains('is-min'), max: oldPanel.classList.contains('is-max'), style: oldPanel.getAttribute('style') || '', open: !oldPanel.hidden } : svRestoreWin;
+  svRestoreWin = null;
   removeSvPanel();
   const svPanel = document.createElement('div');
   svPanel.className = 'sv-panel';

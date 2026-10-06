@@ -39,6 +39,16 @@ const PLACE_BIG = /^(city|town|village|municipality|county|state|province|region
 //   tokyo / osaka / kyoto → そのまま（英語のローマ字の名前でも、日本語の名前で見つかる）
 //   berurin / warushawa / nyuuyooku → ベルリン / ワルシャワ / ニューヨーク（外国の都市のカタカナ名）
 //   oosaka / toukyou / kyouto → osaka / tokyo / kyoto（日本の都市の長音の書き方）
+// 区切りの多い有名な都市名（Open-Meteo は、ハイフンやスペースが違うと見つけられないため、正しい綴りでも探す）。区切りなし・途中までの入力（portauprince・newyo）でも当たる
+const BIG_NAMES = ['New York City', 'Port-au-Prince', 'Los Angeles', 'San Francisco', 'San Diego', 'San Jose', 'San Antonio', 'Las Vegas', 'Salt Lake City', 'New Orleans', 'Washington D.C.', 'Mexico City', 'Rio de Janeiro', 'Sao Paulo', 'Buenos Aires', 'Santo Domingo', 'San Juan', 'San Salvador', 'San Jose Costa Rica', 'Panama City', 'Guatemala City', 'Quebec City', 'Hong Kong', 'Kuala Lumpur', 'Ho Chi Minh City', 'Phnom Penh', 'Abu Dhabi', 'Tel Aviv', 'Cape Town', 'Addis Ababa', 'Dar es Salaam', 'Port Louis', 'Port Moresby', 'Port of Spain', 'Port Elizabeth', 'Santa Fe', 'Santa Cruz', 'La Paz', 'Santiago de Chile', 'Ciudad Juarez', 'Puerto Rico', 'Saint Petersburg', 'Saint Denis', 'Saint-Etienne', 'Aix-en-Provence', 'Stoke-on-Trent', 'Newcastle upon Tyne', 'Frankfurt am Main', 'Rostock', 'Palma de Mallorca', 'Las Palmas', 'Vitoria-Gasteiz', 'Rio Branco', 'Nur-Sultan', 'Ulan Bator', 'Dushanbe', 'Bandar Seri Begawan', 'Colombo', 'Sri Jayawardenepura Kotte', 'New Delhi', 'Navi Mumbai', 'Kuala Terengganu', 'Johor Bahru', 'Kota Kinabalu', 'Alice Springs', 'Gold Coast', 'Wellington', 'Christchurch', 'Tierra del Fuego', 'Punta Arenas', 'Puerto Montt', 'Montego Bay', 'Baton Rouge', 'Oklahoma City', 'Kansas City', 'Virginia Beach', 'Fort Worth', 'St. Louis', 'St. John\'s', 'Mar del Plata', 'Cabo San Lucas', 'Puerto Vallarta', 'Playa del Carmen', 'Santiago de Compostela', 'Villa Nueva', 'Dar Es Salaam', 'Bobo-Dioulasso', 'Ouagadougou', 'Port Harcourt', 'Port Said', 'Port Sudan', 'Port Vila', 'Pointe-Noire', 'Pointe-a-Pitre', 'Fort-de-France', 'Cap-Haitien', 'Pointe-à-Pitre'];
+const sepless = (t) => t.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const BIG_KEYS = BIG_NAMES.map((n) => [sepless(n), n]);
+function bigNameMatches(joined) {
+  const k = sepless(joined);
+  if (k.length < 4) return [];
+  return BIG_KEYS.filter(([key]) => key.startsWith(k)).map(([, n]) => n).slice(0, 2);
+}
+
 export function queryVariants(query) {
   const q = query.normalize('NFKC').trim().replace(/\s+/g, ' ');
   // ハイフン・スペース・ピリオド・中黒などの区切りは、あってもなくても同じ地名として探す（Saint-Denis / Saint Denis / SaintDenis、ニュー ヨーク / ニューヨーク）
@@ -46,11 +56,12 @@ export function queryVariants(query) {
     const spaced = q.replace(/[\-‐-―・･]+/g, ' ').replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
     const joined = q.replace(/[\s\-‐-―・･.,'’]+/g, '');
     const base = queryVariants(joined);
-    return [...new Set([q, spaced, ...base, joined])].filter((v) => v.length >= 2).slice(0, 5);
+    return [...new Set([q, ...bigNameMatches(joined), spaced, ...base, joined])].filter((v) => v.length >= 2).slice(0, 5);
   }
   // 漢字の短い都市名（京都・福岡・東京）は、「市」「都」を付けた形（京都市・福岡市・東京都）でも探す。Open-Meteo は、この形ならすぐ見つかる
   if (/[\u3400-\u9fff]/.test(q) && isCjk(q) && q.length <= 4 && !hasSuffix(q)) return q.length === 2 ? [q, `${q}市`, `${q}都`] : [q, `${q}市`];
   if (!/^[A-Za-z][A-Za-z' -]*$/.test(q)) return [q];
+  const big = bigNameMatches(q);
   const lower = q.toLowerCase().replace(/[\s']+/g, '');
   const out = [q];
   const roman = lower.replace(/([aiueo])\1/g, '$1-'); // nyuuyooku → nyu-yo-ku（長音）
@@ -58,7 +69,7 @@ export function queryVariants(query) {
   if (kana && kana.length >= 2) out.push(kana);
   const collapsed = lower.replace(/oo|ou/g, 'o').replace(/uu/g, 'u');
   if (collapsed !== lower) out.push(collapsed);
-  return [...new Set(out)].slice(0, 3);
+  return [...new Set([...out, ...big])].slice(0, 4);
 }
 
 // 「大阪市」「福岡県」のように、市・区・県などの語尾をふくむか（「京都」の「都」は都市名の一部なので、2 文字のときは語尾とみなさない。「東京都」は語尾）
