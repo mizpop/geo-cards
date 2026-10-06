@@ -270,12 +270,14 @@ function ensure() {
     if (!drag.started) { // 少し動かしてから動かし始める（ダブルクリックで拡大するときに、位置が動かないように）
       if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
       drag.started = true;
-      if (isSnapped(panel)) { unsnapWindow(panel); drag.dx = Math.min(drag.dx, rect.width / 2); drag.w = rect.width; } // 分割から外す
-      else if (panel.classList.contains('is-max')) { // 大きくしている途中で動かしたら元の大きさに戻す
+      // 分割・最大化から外すと元の大きさに戻る。見出しの上でのカーソルの相対的な位置（左から何割か）が変わらないよう、カーソルを中心に縮む
+      const rel = drag.w ? drag.dx / drag.w : 0.5;
+      if (isSnapped(panel)) { unsnapWindow(panel); drag.w = rect.width; drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w)); } // 分割から外す
+      else if (panel.classList.contains('is-max')) {
         panel.classList.remove('is-max');
         place();
-        drag.dx = Math.min(drag.dx, rect.width - 40);
         drag.w = rect.width;
+        drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w));
       }
     }
     showSnapPreview(dropEdgeAt(e.clientX, e.clientY)); // 画面の左右のはしは分割、上のはしは最大化: 離したときの場所を見せる

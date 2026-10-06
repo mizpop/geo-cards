@@ -2015,8 +2015,10 @@ function setupWindow(m) {
     if (!drag.started) {
       if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
       drag.started = true;
-      if (isSnapped(m)) { unsnapWindow(m); drag.dx = Math.min(drag.dx, winRect.width / 2); drag.w = winRect.width; } // 分割から外す（元の大きさに戻る）
-      else if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.dx = Math.min(drag.dx, winRect.width - 40); drag.w = winRect.width; }
+      // 分割・最大化から外すと元の大きさに戻る。見出しの上でのカーソルの相対的な位置（左から何割か）が変わらないよう、カーソルを中心に縮む
+      const rel = drag.w ? drag.dx / drag.w : 0.5;
+      if (isSnapped(m)) { unsnapWindow(m); drag.w = winRect.width; drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w)); } // 分割から外す
+      else if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.w = winRect.width; drag.dx = Math.max(20, Math.min(drag.w - 20, rel * drag.w)); }
     }
     showSnapPreview(dropEdgeAt(e.clientX, e.clientY)); // 画面の左右のはしは分割、上のはしは最大化: 離したときの場所を見せる
     m.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`;
