@@ -4850,12 +4850,16 @@ function openCardLinkPop(getCurrent, anchor) {
     const hits = sortCards(matchCards(input.value)).filter((c) => !c.photo && !c.sv).slice(0, 40);
     list.innerHTML = hits.length ? hits.map((c) => {
       const linked = here && (c.sv_ids || []).includes(here.id);
-      return `<button type="button" class="sv-pop-item" data-id="${esc(c.id)}">${thumbUrl(c) ? `<img class="sv-pop-thumb" src="${esc(thumbUrl(c))}" alt="">` : ''}${c.countries[0] ? flagImg(c.countries[0]) : ''}<span class="sv-pop-text"><b>${esc(c.countries[0] ? countryName(c.countries[0]) : '国なし')}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</b><span class="muted small">${esc(c.description || catOf(c).name)}${linked ? ' ・関連付け済み' : ''}</span></span></button>`;
+      // 編集画面の関連カードの検索結果と同じ見た目（カテゴリーの色・サムネイル・国・カテゴリー）
+      return `<button type="button" class="rel-hit sv-pop-card" data-id="${esc(c.id)}" style="${catStyle(c)}" title="${esc(c.description || '')}">
+        <span class="related-thumb">${thumbUrl(c) ? `<img src="${esc(thumbUrl(c))}" alt="" loading="lazy">` : ''}</span>
+        <span class="related-text"><span class="related-country">${c.countries[0] ? flagImg(c.countries[0]) : ''}${esc(c.countries[0] ? countryName(c.countries[0]) : '国なし')}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}${c.description ? `・${esc(c.description)}` : ''}${linked ? ' ・関連付け済み' : ''}</span></span>
+      </button>`;
     }).join('') : '<p class="muted small sv-pop-empty">カードが見つかりません</p>';
   };
   input.addEventListener('input', draw);
   list.addEventListener('click', async (e) => {
-    const b = e.target.closest('.sv-pop-item');
+    const b = e.target.closest('.sv-pop-card');
     const card = b && cardById(b.dataset.id);
     if (!card) return;
     try {

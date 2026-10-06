@@ -2393,3 +2393,12 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-pop-text b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sv-pop-text .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sv-pop-empty { margin: 8px; }
+
+/* カードの選択（関連付け）: 編集画面の関連カードと同じ見た目。ポップアップの幅いっぱいに並べる */
+.sv-pop-cards .sv-pop-list { gap: 4px; }
+.sv-pop-card { width: 100%; }
+.sv-pop-card .related-cat { max-width: 200px; }
+/* ストリートビューのウィンドウのヘッダー: ボタンが増えても、題名・座標が折り返さない（座標は入りきらなければ省略） */
+.sv-head .sv-title { white-space: nowrap; flex: none; }
+.sv-head .sv-coord { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-head .sv-btn { flex: none; }
