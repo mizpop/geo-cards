@@ -169,7 +169,8 @@ export function mountBattle(host, ctx) {
   function renderChat() {
     if (!alive() || phase === 'entry') return;
     const list = [...players.values()];
-    chat.innerHTML = `<button type="button" class="bt-chat-toggle" id="bt-chat-toggle">💬 チャット・参加者${unread && !chatOpen ? ` <b class="bt-unread">${unread}</b>` : ''}<span class="bt-chat-arrow">${chatOpen ? '▾' : '▴'}</span></button>
+    chat.classList.toggle('open', chatOpen);
+    chat.innerHTML = `<button type="button" class="bt-chat-toggle" id="bt-chat-toggle">💬<span class="bt-chat-label"> チャット・参加者</span>${unread && !chatOpen ? ` <b class="bt-unread">${unread}</b>` : ''}<span class="bt-chat-arrow">${chatOpen ? '▾' : '▴'}</span></button>
       <div class="bt-chat-body" ${chatOpen ? '' : 'hidden'}>
         <ul class="bt-members">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-mname">${p.id === hostId ? '👑 ' : ''}${p.spec ? '👁 ' : ''}${esc(p.name)}</span>${isHost && p.id !== me.id ? `${p.spec ? '' : `<button type="button" class="bt-mbtn" data-act="host" data-id="${p.id}" title="ホストを譲る">👑 譲る</button>`}<button type="button" class="bt-mbtn bt-kick" data-act="kick" data-id="${p.id}" title="退出させる">✕ キック</button>` : ''}</li>`).join('')}</ul>
         <div class="bt-msgs" id="bt-msgs">${chatLog.map((m) => (m.sys ? `<div class="bt-sys">${esc(m.text)}</div>` : `<div class="bt-msg ${m.mine ? 'mine' : ''}"><b>${esc(m.name)}</b> ${esc(m.text)}</div>`)).join('')}</div>
@@ -479,7 +480,7 @@ export function mountBattle(host, ctx) {
           <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ)}</div>
           <div class="setup-block"><div class="setup-label"><span>答え合わせから次の問題へ</span></div>${sliderHtml('bt-an', 0, 60, 5, cfg.autoNext)}</div>
           <div class="setup-block"><div class="setup-label"><span>対戦の形式</span></div>${segHtml('bt-teams', [[0, '個人戦'], [1, 'チーム戦（赤 vs 青）']], cfg.teams ? 1 : 0)}</div>
-          <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（全員が要求すると表示・得点が下がる）']], cfg.hints ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（全員が要求すると表示）']], cfg.hints ? 1 : 0)}</div>
           <div class="setup-block"><div class="setup-label"><span>パスワード（空なら誰でも入れる）</span></div><input id="bt-pw" class="input" type="text" maxlength="20" placeholder="なし" value="${esc(cfg.password)}" autocomplete="off"></div>
         </div>
         <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${act().length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${act().length} 人）`}</button></div>` : ''}`;
@@ -576,12 +577,17 @@ export function mountBattle(host, ctx) {
       });
       host.querySelector('#bt-send').addEventListener('click', finish);
     } else { // map / pin: 左に問題、右下に地図
-      main.innerHTML = `${top}<div class="qm-layout qm-float bt-qm"><div class="quiz-card">${frontHtml(card, false, false)}</div>
+      main.innerHTML = `${top}<div class="qm-layout qm-float bt-qm">${card.sv ? '<button type="button" class="qm-maptoggle" id="qm-maptoggle">🗺 地図を開く</button>' : ''}<div class="quiz-card">${frontHtml(card, false, false)}</div>
         <div class="qm-side"><div class="quiz-map" id="bt-map"><div class="map-loading">地図を読み込み中…</div></div>
 
         ${Q.mode === 'pin' ? '<button class="btn btn-primary qm-guess" id="bt-guess" type="button" disabled>📍 この場所で回答</button>' : ''}</div></div>`;
       bindExit();
       const at = game.i;
+      host.querySelector('#qm-maptoggle')?.addEventListener('click', (e) => { // スマホ: 地図の開閉
+        const open = host.querySelector('.qm-layout').classList.toggle('map-open');
+        e.currentTarget.textContent = open ? '🗺 地図を閉じる' : '🗺 地図を開く';
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+      });
       if (Q.mode === 'map') {
         ctx.mountQuizMap(host.querySelector('#bt-map'), { answers: card.countries, answered: null, qid: `bt${at}`, animate: false, onPick: (code) => {
           if (game.i !== at) return;

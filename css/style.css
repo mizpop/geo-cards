@@ -2115,3 +2115,60 @@ body:has(.sv-front) { overflow-x: clip; }
 .bt-final-note { font-size: 18px; font-weight: 800; text-align: center; margin: 6px 0 10px; }
 .bt-spec .bt-choices, .bt-spec .bt-input-row, .bt-spec .qm-side .quiz-map, .bt-spec .qm-guess { pointer-events: none; opacity: .6; }
 @media (max-width: 700px) { .bt-stats { grid-template-columns: repeat(3, 1fr); } }
+
+/* ===== スマホ向けの調整（v3） ===== */
+@media (max-width: 760px) {
+  /* 上のバー: 1 段目にロゴ・検索・ボタン、2 段目にタブ（ボタンが増えても重ならない） */
+  .topbar { flex-wrap: wrap !important; padding: 6px 10px; gap: 4px 8px; }
+  .brand { order: 0; }
+  .user-area { order: 1; margin-left: auto; }
+  .tabs { order: 2; flex: 1 1 100% !important; justify-content: space-between; overflow-x: auto; }
+  .tabs a { flex: 1 1 0; justify-content: center; }
+  .user-area .icon-btn { width: 34px; height: 34px; }
+  /* 対戦: チャットは画面の下に細く置き、内容が隠れないよう下に余白を取る */
+  .battle { padding-bottom: 76px; }
+  .battle.bt-play { padding-bottom: 0; }
+  .bt-chat { left: 8px; right: 8px; bottom: 8px; width: auto; }
+  .bt-chat-body { max-height: min(52dvh, 380px); }
+  .battle .seg { flex-wrap: wrap; }
+  .battle .seg button { flex: 1 1 auto; white-space: nowrap; }
+  .bt-settings .setup-row { display: block; }
+  .bt-head { flex-wrap: wrap; gap: 6px; }
+  .bt-head-actions { flex-wrap: wrap; }
+  .bt-pubroom { flex-wrap: wrap; }
+  .bt-code, .bt-pass { max-width: none; flex: 1 1 120px; }
+  .bt-row { flex-wrap: wrap; }
+  /* 対戦の問題画面の上のバー */
+  .battle.bt-play .toolbar { flex-wrap: wrap; row-gap: 4px; }
+  .bt-results li, .bt-board li { gap: 6px; padding: 6px 8px; }
+  .bt-label { display: none; }
+  .bt-popups { top: auto; bottom: 70px; right: 8px; left: 8px; width: auto; }
+  .chat-panel { inset: 96px 8px auto 8px; }
+}
+
+@media (max-width: 760px) {
+  /* チャットは、閉じているときは丸いボタンだけにする */
+  .bt-chat:not(.open) { left: auto; right: 10px; bottom: 10px; width: auto; border-radius: 999px; }
+  .bt-chat:not(.open) .bt-chat-toggle { padding: 10px 14px; background: var(--accent); color: var(--accent-text); border-radius: 999px; }
+  .bt-chat:not(.open) .bt-chat-label, .bt-chat:not(.open) .bt-chat-arrow { display: none; }
+  .battle, .battle.bt-play { padding-bottom: 64px; }
+}
+
+/* スマホ: ストリートビューの問題（地図・ピン）は、映像を画面いっぱいにして、地図は開閉式（開くと下から出る） */
+.qm-maptoggle { display: none; }
+@media (max-width: 900px), (pointer: coarse) {
+  .qm-layout.qm-float:has(.sv-front) { display: block; position: relative; height: calc(100dvh - var(--topbar-h, 110px) - 120px); min-height: 380px; }
+  .qm-layout.qm-float:has(.sv-front) > .quiz-card { position: absolute; inset: 0; left: 0 !important; transform: none !important; width: 100% !important; height: 100% !important; min-height: 0 !important; max-height: none !important; margin: 0; }
+  .qm-layout.qm-float:has(.sv-front) .qm-side { position: absolute !important; left: 0; right: 0; bottom: 0; top: auto; width: auto !important; height: 54%; z-index: 8; display: none; flex-direction: column; gap: 6px; padding: 8px; background: var(--surface); border-top: 2px solid var(--accent); border-radius: 14px 14px 0 0; pointer-events: auto; }
+  .qm-layout.qm-float.map-open:has(.sv-front) .qm-side { display: flex; }
+  .qm-layout.qm-float:has(.sv-front) .qm-side .quiz-map { flex: 1; height: auto !important; min-height: 0; opacity: 1; box-shadow: none; }
+  .qm-layout.qm-float:has(.sv-front) .qm-side .qm-guess { order: 3; margin: 0; }
+  .qm-maptoggle { display: block; position: absolute; right: 10px; bottom: 10px; z-index: 9; padding: 10px 14px; border: 0; border-radius: 999px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 700; box-shadow: 0 4px 14px rgba(0, 0, 0, .5); cursor: pointer; }
+  .qm-layout.map-open .qm-maptoggle { bottom: calc(54% + 10px); }
+}
+@media (max-width: 760px) { .user-area .icon-btn { width: 32px; height: 32px; } }
+@media (max-width: 760px) {
+  .quiz-setup .seg { flex-wrap: wrap; }
+  .quiz-setup .seg button { flex: 1 1 auto; }
+  #q-kind button { flex: 1 1 100%; text-align: left; }
+}

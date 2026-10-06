@@ -2343,6 +2343,17 @@ function bindSlider(id, apply, fmt) {
   r.addEventListener('input', () => { $(`#${id}-v`).textContent = fmt(Number(r.value)); });
   r.addEventListener('change', () => apply(Number(r.value)));
 }
+// スマホ: ストリートビューの問題では、地図を開閉式にして、映像を大きく見せる
+function bindMapToggle() {
+  const btn = $('#qm-maptoggle');
+  const box = $('.qm-layout');
+  if (!btn || !box) return;
+  btn.addEventListener('click', () => {
+    const open = box.classList.toggle('map-open');
+    btn.textContent = open ? '🗺 地図を閉じる' : '🗺 地図を開く';
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 50); // 地図の大きさを合わせ直す
+  });
+}
 function renderQuiz() {
   const q = state.quiz;
   setFit(q.phase === 'question' ? true : 'scroll');
@@ -3087,6 +3098,7 @@ function renderPinQuestion(card) {
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
     <div class="qm-layout ${a ? '' : 'qm-float'}">
+    ${card.sv && !a ? '<button type="button" class="qm-maptoggle" id="qm-maptoggle">🗺 地図を開く</button>' : ''}
       <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
       <div class="qm-side">
         <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
@@ -3119,6 +3131,7 @@ function renderPinQuestion(card) {
     renderPinQuestion(card);
     afterAnswer(result);
   };
+  bindMapToggle();
   mountPinMap($('#quiz-map'), {
     answer: [card.lat, card.lng],
     guess: a?.guess,
@@ -3153,6 +3166,7 @@ function renderMapQuestion(card) {
     </div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
     <div class="qm-layout ${a ? '' : 'qm-float'}">
+    ${card.sv && !a ? '<button type="button" class="qm-maptoggle" id="qm-maptoggle">🗺 地図を開く</button>' : ''}
       <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
       <div class="qm-side">
         <div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>
@@ -3174,6 +3188,7 @@ function renderMapQuestion(card) {
   attachZoom($('.quiz-card .front-img'));
   $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
   const at = q.i;
+  bindMapToggle();
   mountQuizMap($('#quiz-map'), {
     answers: card.countries,
     answered: a,
