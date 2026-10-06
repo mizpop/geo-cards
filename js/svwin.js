@@ -45,6 +45,24 @@ export function parseLatLng(text) {
   return null;
 }
 
+// ---- ウィンドウの実体: ストリートビューのウィンドウを、複数同時に開ける。
+//  下の panel / frame / point / view / rect … は「今操作しているウィンドウ（cur）」の作業用のコピー。
+//  ウィンドウのイベントは、先に use(inst) で、そのウィンドウに切り替えてから処理する ----
+const svs = []; // すべてのウィンドウ（閉じたあとも、1 つは残して使い回す）
+let cur = null; // 作業用のコピーの持ち主
+let active = null; // 最後に触った・開いたウィンドウ（外から呼ばれる関数が操作する相手）
+let svSeq = 0;
+const newInst = () => ({ id: ++svSeq, panel: null, frame: null, point: null, readyTimer: null, acceptAfter: 0, frameReady: true, view: { heading: 0, pitch: 0, fov: 0 }, rect: null, req: null });
+function store() { if (cur) Object.assign(cur, { panel, frame, point, readyTimer, acceptAfter, frameReady, view, rect }); }
+function use(inst) {
+  if (!inst || cur === inst) return;
+  store();
+  cur = inst;
+  ({ panel, frame, point, readyTimer, acceptAfter, frameReady, view, rect } = inst);
+}
+const useActive = () => { if (active) use(active); };
+const openInsts = () => { store(); return svs.filter((i) => i.panel && !i.panel.hidden && i.point); };
+
 let panel = null;
 let frame = null;
 let point = null; // [lat, lng]
@@ -53,10 +71,10 @@ let acceptAfter = 0; // 映像の読み込み完了から少しの間（Google �
 let frameReady = true; // 映像（iframe）の読み込みが終わるまでは false。読み込み中は、前の映像の位置が読み取られて、位置が元に戻らないように、位置の更新を受け付けない
 let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, renameSaved: null, placeName: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, renameSaved: null, placeName: null, toast: () => {}, readPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
-const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
+const notify = () => { const pts = openInsts().map((i) => [...i.point]); listeners.forEach((fn) => { try { fn(pts); } catch { /* 無視 */ } }); }; // 開いているすべてのウィンドウの地点
 
 // ポップアップ（保存した一覧・カードの選択）の共通部品: ボタンのそばに出して、外を押す・Esc で閉じる
 let pop = null;
@@ -121,23 +139,32 @@ function showSavedList(anchor) {
     const q = e.target.value.trim().toLowerCase();
     list.querySelectorAll('.sv-pop-item').forEach((b) => { b.hidden = !!q && !b.textContent.toLowerCase().includes(q); });
   });
-  list.addEventListener('click', (e) => {
+  const openRow = (e, newWindow) => {
     const b = e.target.closest('.sv-pop-item');
     const r = b && rows[Number(b.dataset.i)];
     if (!r) return;
+    e.preventDefault();
     closeSvPop();
-    openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
-  });
+    openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0, newWindow });
+  };
+  list.addEventListener('click', (e) => openRow(e, false));
+  list.addEventListener('contextmenu', (e) => openRow(e, true)); // 右クリックは、新しいウィンドウで開く
   el.querySelector('.sv-pop-q')?.focus();
 }
 
 /** 開いた・閉じたときに呼ばれる（地図の目印の表示に使う）。解除する関数を返す */
 export function onSvChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 /** 保存・カード作成などの動作を、アプリから渡す。{ isEditor, canSave, save({lat,lng}), isSaved({lat,lng}), createCard({lat,lng}) } */
-export function setSvHooks(h) { hooks = { ...hooks, ...h }; if (panel) refreshButtons(); }
-export const svWindowPoint = () => (point ? [...point] : null);
-export const svWindowView = () => ({ ...view });
-export const svWindowIsOpen = () => !!point && !!panel && !panel.hidden;
+export function setSvHooks(h) {
+  hooks = { ...hooks, ...h };
+  if (hooks.readPosition && !pollTimer) pollTimer = setInterval(syncAll, 1500); // Windows 版: 移動後の位置を自動で追いかける
+  refreshSvWindow();
+}
+let pollTimer = null;
+export const svWindowPoint = () => { useActive(); return point ? [...point] : null; };
+export const svWindowView = () => { useActive(); return { ...view }; };
+export const svWindowIsOpen = () => openInsts().length > 0;
+export const svWindowIsOpenPoints = () => openInsts().map((i) => [...i.point]); // 開いているすべてのウィンドウの地点
 
 function place() {
   if (!panel) return;
@@ -174,7 +201,7 @@ function refreshButtons() {
   if (card) card.hidden = !editor || !hooks.createCard;
   // Windows 版は、移動後の位置を自動で読み取れるので、貼り付けのボタンは出さない
   const paste = panel.querySelector('#sv-paste');
-  if (paste) paste.hidden = !!hooks.syncPosition;
+  if (paste) paste.hidden = !!hooks.readPosition;
   // 編集者: 既存のカードに関連付けるボタン（Google マップで開くボタンの代わり）
   const link = panel.querySelector('#sv-link');
   if (link) link.hidden = !editor || !hooks.linkCard;
@@ -204,15 +231,14 @@ function refreshButtons() {
   }
 }
 /** 保存の状態が変わったとき（保存済みの表示を更新する） */
-export const refreshSvWindow = () => refreshButtons();
+export function refreshSvWindow() { const keep = cur; for (const i of svs) { if (!i.panel) continue; use(i); refreshButtons(); } if (keep) use(keep); }
 
-function ensure() {
+function ensure(inst) {
+  use(inst);
   if (panel?.isConnected) return panel;
-  panel = document.getElementById('sv-panel');
-  if (panel) panel.remove(); // 古い版が残っていたら作り直す
   panel = document.createElement('div');
   panel.className = 'sv-panel';
-  panel.id = 'sv-panel';
+  panel.id = inst.id === 1 ? 'sv-panel' : `sv-panel-${inst.id}`;
   panel.hidden = true;
   panel.innerHTML = `
     <div class="sv-head" id="sv-head">
@@ -232,57 +258,61 @@ function ensure() {
     <p class="sv-note muted small">ヘッダーをドラッグすると、画面のどこにでも動かせます。</p>`;
   document.body.appendChild(panel);
   frame = panel.querySelector('#sv-frame');
-  frame.addEventListener('load', () => { frameReady = true; acceptAfter = Date.now() + 2500; clearTimeout(readyTimer); });
-  panel.addEventListener('pointerdown', () => bringFront(panel), true); // 触ったウィンドウを手前に
+  const P = panel; const F = frame;
+  // このウィンドウのイベントは、先にこのウィンドウに切り替えてから処理する
+  const L = (el) => ({ addEventListener: (t, fn, o) => el.addEventListener(t, (e) => { use(inst); return fn(e); }, o) });
+  L(frame).addEventListener('load', () => { frameReady = true; acceptAfter = Date.now() + 2500; clearTimeout(readyTimer); });
+  L(panel).addEventListener('pointerdown', () => { active = inst; bringFront(panel); }, true); // 触ったウィンドウを手前に
   // 映像（別のサイトの iframe）をクリックするとキー入力が映像の中に行って、スペースキー（ストリートビューのモード）などが効かなくなるので、ポインターがウィンドウの外へ出たら、フォーカスをアプリ側に戻す
-  const releaseFocus = () => { if (document.activeElement === frame) { frame.blur(); window.focus(); } };
-  panel.addEventListener('mouseleave', releaseFocus);
-  document.addEventListener('mousemove', (e) => { if (document.activeElement === frame && !panel.contains(e.target)) releaseFocus(); }, true); // ウィンドウの外でポインターが動いたら（mouseleave が届かない場合の備え）
+  const releaseFocus = () => { if (document.activeElement === F) { F.blur(); window.focus(); } };
+  P.addEventListener('mouseleave', releaseFocus);
+  document.addEventListener('mousemove', (e) => { if (document.activeElement === F && !P.contains(e.target)) releaseFocus(); }, true); // ウィンドウの外でポインターが動いたら（mouseleave が届かない場合の備え）
 
-  panel.querySelector('#sv-close').addEventListener('click', closeSvWindow);
+  L(panel.querySelector('#sv-close')).addEventListener('click', () => closeSvWindow(inst));
   // 保存した場所の名前・「〜 付近」の題名を押すと、その保存した位置へ、保存したときの向き・ズームで正確に移動する
-  panel.querySelector('.sv-title').addEventListener('click', () => {
+  L(panel.querySelector('.sv-title')).addEventListener('click', () => {
     if (!point) return;
     const cur = { lat: point[0], lng: point[1], heading: view.heading };
     const r = hooks.savedAt?.(cur) || hooks.nearSaved?.(cur, 100);
     if (r) openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
   });
-  panel.querySelector('#sv-card').addEventListener('click', async () => { await hooks.syncPosition?.(); if (point) hooks.createCard?.({ lat: point[0], lng: point[1], ...view }); });
-  panel.querySelector('#sv-save').addEventListener('click', async (e) => {
+  L(panel.querySelector('#sv-card')).addEventListener('click', async () => { await syncCurrent(); use(inst); if (point) hooks.createCard?.({ lat: point[0], lng: point[1], ...view }); });
+  L(panel.querySelector('#sv-save')).addEventListener('click', async (e) => {
     if (!hooks.canSave()) { showSavedList(e.currentTarget); return; } // 保存できない（閲覧のみ）ときは、一覧を出す
-    await hooks.syncPosition?.(); // Windows 版アプリは、移動したあとの今いる位置を読み取る
+    await syncCurrent(); // Windows 版アプリは、移動したあとの今いる位置を読み取る
+    use(inst);
     if (!point) return;
     const btn = panel.querySelector('#sv-save');
     btn.disabled = true;
-    try { await hooks.save?.({ lat: point[0], lng: point[1], ...view }); } finally { btn.disabled = false; refreshButtons(); }
+    try { await hooks.save?.({ lat: point[0], lng: point[1], ...view }); } finally { btn.disabled = false; use(inst); refreshButtons(); }
   });
-  panel.querySelector('#sv-list').addEventListener('click', (e) => showSavedList(e.currentTarget));
+  L(panel.querySelector('#sv-list')).addEventListener('click', (e) => showSavedList(e.currentTarget));
   // 保存ボタンを右クリック: 保存したストリートビューの一覧をポップアップで出して、そこから開く
-  panel.querySelector('#sv-save').addEventListener('contextmenu', (e) => {
+  L(panel.querySelector('#sv-save')).addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const row = point && hooks.savedAt ? hooks.savedAt({ lat: point[0], lng: point[1], heading: view.heading }) : null;
     if (row && hooks.canSave() && hooks.deleteSaved) showDeletePop(e.currentTarget, row); // 保存した場所にいるときは、削除のボタン
     else showSavedList(e.currentTarget);
   });
-  panel.querySelector('#sv-link').addEventListener('click', (e) => {
+  L(panel.querySelector('#sv-link')).addEventListener('click', (e) => {
     if (svPopOpenFor(e.currentTarget)) { closeSvPop(); return; } // 開いている状態でもう一度押したら閉じる
     if (!point) return;
     // すぐにカードの一覧を出す。選んだ時点で、いる位置を読み取り直して（Windows 版）から、関連付ける
-    hooks.linkCard?.(async () => { await hooks.syncPosition?.(); return point ? { lat: point[0], lng: point[1], ...view } : null; }, e.currentTarget);
+    hooks.linkCard?.(async () => { await syncCurrent(); use(inst); return point ? { lat: point[0], lng: point[1], ...view } : null; }, e.currentTarget);
   });
-  panel.querySelector('#sv-max').addEventListener('click', () => flipAnimate(panel, () => { unsnapWindow(panel); setMinNow(false); saveRect(); panel.classList.toggle('is-max'); if (!panel.classList.contains('is-max')) place(); })); // 元に戻すときは、覚えている位置・大きさへ
-  panel.querySelector('#sv-min').addEventListener('click', () => setMin(!panel.classList.contains('is-min')));
+  L(panel.querySelector('#sv-max')).addEventListener('click', () => flipAnimate(panel, () => { unsnapWindow(panel); setMinNow(false); saveRect(); panel.classList.toggle('is-max'); if (!panel.classList.contains('is-max')) place(); })); // 元に戻すときは、覚えている位置・大きさへ
+  L(panel.querySelector('#sv-min')).addEventListener('click', () => setMin(!panel.classList.contains('is-min')));
 
   // パネルをヘッダーのドラッグで動かす（画面のどこへでも。スマホは下に固定）
   const head = panel.querySelector('#sv-head');
   let drag = null;
-  head.addEventListener('pointerdown', (e) => {
+  L(head).addEventListener('pointerdown', (e) => {
     if (e.target.closest('button, a, .sv-title.is-link') || mobile()) return;
     const pr = panel.getBoundingClientRect();
     drag = { dx: e.clientX - pr.left, dy: e.clientY - pr.top, w: pr.width, sx: e.clientX, sy: e.clientY, started: false };
     head.setPointerCapture(e.pointerId);
   });
-  head.addEventListener('pointermove', (e) => {
+  L(head).addEventListener('pointermove', (e) => {
     if (!drag) return;
     if (!drag.started) { // 少し動かしてから動かし始める（ダブルクリックで拡大するときに、位置が動かないように）
       if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
@@ -302,7 +332,7 @@ function ensure() {
     panel.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy))}px`;
   });
   // ヘッダーのダブルクリックで、大きく / 元の大きさ
-  head.addEventListener('dblclick', (e) => {
+  L(head).addEventListener('dblclick', (e) => {
     if (e.target.closest('button, a, .sv-title.is-link')) return;
     if (panel.classList.contains('is-min')) { setMin(false); return; }
     unsnapWindow(panel);
@@ -321,70 +351,57 @@ function ensure() {
     showSnapPreview(null);
     drag = null;
   };
-  head.addEventListener('pointerup', endDrag);
-  head.addEventListener('pointercancel', endDrag);
+  L(head).addEventListener('pointerup', endDrag);
+  L(head).addEventListener('pointercancel', endDrag);
   // 角のドラッグで大きさを変えたときも覚える
-  if ('ResizeObserver' in window) new ResizeObserver(() => { if (!panel.hidden) saveRect(); }).observe(panel);
+  if ('ResizeObserver' in window) new ResizeObserver(() => { use(inst); if (!panel.hidden) saveRect(); }).observe(panel);
   refreshButtons();
   return panel;
 }
 
 // ウィンドウをしまう・取り出す（左下の角。js/dock.js）
-const DOCK_KEY = 'sv-window';
+const dockKey = () => `sv-window-${cur.id}`;
 function rectAt(drop) { if (rect) rect = { ...rect, left: Math.max(0, Math.min(window.innerWidth - 160, drop.x - 100)), top: Math.max(0, Math.min(window.innerHeight - 80, drop.y - 20)) }; }
-function undockPanel() { if (!panel) return; panel.classList.remove('is-docked'); dockRemove(DOCK_KEY); }
+function undockPanel() { if (!panel) return; panel.classList.remove('is-docked'); dockRemove(dockKey()); }
 function dockPanel() {
-  if (!panel || dockHas(DOCK_KEY)) return;
+  if (!panel || dockHas(dockKey())) return;
+  const inst = cur;
   panel.classList.add('is-docked');
   dockAdd({
-    key: DOCK_KEY,
-    label: () => { const t = panel.querySelector('#sv-title-text')?.textContent || ''; return t && t !== 'ストリートビュー' ? `ストリートビュー: ${t}` : `ストリートビュー ${panel.querySelector('#sv-coord')?.textContent || ''}`.trim(); },
+    key: dockKey(),
+    label: () => { use(inst); const t = panel.querySelector('#sv-title-text')?.textContent || ''; return t && t !== 'ストリートビュー' ? `ストリートビュー: ${t}` : `ストリートビュー ${panel.querySelector('#sv-coord')?.textContent || ''}`.trim(); },
     thumb: () => ({ emoji: '🧍' }),
     restore: (rect, drop) => { // 離した場所に出す（大きさは、しまう前のまま）
+      use(inst); active = inst;
       undockPanel();
       if (drop && !mobile()) rectAt(drop);
       if (!panel.classList.contains('is-max') && !isSnapped(panel)) place();
       bringFront(panel);
       popWindow(panel, rect);
     },
-    close: () => { undockPanel(); closeSvWindow(); },
+    close: () => { use(inst); undockPanel(); closeSvWindow(inst); },
   });
 }
 
-/** その地点のストリートビューを、ウィンドウで開く（開いていれば、場所だけ切り替える） */
-export function openSvWindow(lat, lng, opts = {}) {
-  ensure();
-  if (panel.classList.contains('is-docked')) { undockPanel(); if (!panel.classList.contains('is-max') && !isSnapped(panel)) place(); bringFront(panel); } // しまってあったら、取り出して開く（ドラッグ前の位置・大きさで）
-  point = [lat, lng];
-  setMin(false); // 縮小していても、新しい場所を開いたら戻す
-  panel.classList.remove('is-closing');
-  if (panel.hidden) { panel.hidden = false; place(); bringFront(panel); setPopOrigin(panel); }
-  view = { heading: Number(opts.heading) || 0, pitch: Number(opts.pitch) || 0, fov: Number(opts.fov) || 0 };
-  frameReady = false; // 新しい映像が読み込まれるまで、読み取った位置では上書きしない
-  clearTimeout(readyTimer);
-  readyTimer = setTimeout(() => { frameReady = true; acceptAfter = Date.now() + 2500; }, 15000); // 読み込み完了が通知されなくても、ずっと止まらないように
-  frame.src = svEmbedUrl(lat, lng, view.heading, view.pitch, view.fov);
-  panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng, view);
-  refreshButtons();
-  notify();
+// 位置の自動読み取り（Windows 版）: 映像（Google の埋め込み）の中の今いる位置を、そのウィンドウごとに読み取る
+const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))]);
+async function syncInst(inst) {
+  if (!hooks.readPosition || !inst.panel || inst.panel.hidden || !inst.point) return false;
+  const hint = inst.req ? { lat: inst.req[0], lng: inst.req[1] } : null; // 複数の映像から、このウィンドウのものを探す手がかり（開いたときの地点）
+  const href = await withTimeout(Promise.resolve(hooks.readPosition(hint)).catch(() => null), 1200);
+  const p = href ? parseLatLng(href) : null;
+  if (!p) return false;
+  const keep = cur;
+  use(inst);
+  applyPoint(p.lat, p.lng, p);
+  if (keep) use(keep);
+  return true;
 }
+const syncCurrent = () => (cur ? syncInst(cur) : Promise.resolve(false));
+async function syncAll() { for (const inst of svs.slice()) { if (document.visibilityState === 'visible') await syncInst(inst); } }
 
-export function closeSvWindow() {
-  if (!panel) return;
-  undockPanel();
-  releaseSnap(panel);
-  point = null;
-  setMin(false);
-  notify();
-  const hide = () => { if (!panel.classList.contains('is-closing')) return; panel.classList.remove('is-closing'); if (point) return; panel.hidden = true; frame.src = 'about:blank'; };
-  panel.classList.add('is-closing'); // 小さく消えるアニメーションのあとで隠す
-  if (panel.hidden || document.documentElement.classList.contains('no-anim') || mobile()) { hide(); return; }
-  setTimeout(hide, 170);
-}
-
-/** 映像はそのままで、今いる位置だけを更新する（Windows 版アプリが、「Google マップで見る」の押下から位置を受け取ったとき） */
-export function setSvWindowPoint(lat, lng, v = {}) {
+// 映像はそのままで、今いる位置だけを更新する（読み取った位置。映像の読み込み中は受け付けない）
+function applyPoint(lat, lng, v = {}) {
   if (!panel || panel.hidden || !frameReady || Date.now() < acceptAfter) return;
   const nv = { heading: Number(v.heading) || 0, pitch: Number(v.pitch) || 0, fov: Number(v.fov) || 0 };
   if (point && Math.abs(point[0] - lat) < 1e-7 && Math.abs(point[1] - lng) < 1e-7 && nv.heading === view.heading && nv.pitch === view.pitch && nv.fov === view.fov) return;
@@ -395,23 +412,99 @@ export function setSvWindowPoint(lat, lng, v = {}) {
   refreshButtons();
   notify();
 }
+export function setSvWindowPoint(lat, lng, v = {}) { useActive(); applyPoint(lat, lng, v); }
 
-/** 再読み込みしても引き継ぐための、ウィンドウの状態 */
-export function getSvWindowState() {
-  const win = panel && !panel.hidden ? { side: snappedSide(panel), min: panel.classList.contains('is-min'), max: panel.classList.contains('is-max') } : null;
-  return { point, rect, win, view, docked: !!panel?.classList.contains('is-docked') };
+/** その地点のストリートビューを、ウィンドウで開く（開いていれば、場所だけ切り替える）。opts.newWindow: 今のウィンドウを置き換えず、新しいウィンドウで開く */
+export function openSvWindow(lat, lng, opts = {}) {
+  store();
+  let inst;
+  if (opts.newWindow && openInsts().length) {
+    inst = newInst();
+    const base = (active && active.rect) || cur?.rect || null;
+    // 前のウィンドウから少しずらして重ねる
+    if (base) { let left = base.left + 40; let top = base.top - 34; if (left + base.width > window.innerWidth - 12 || top < 12) { left = 24 + (svs.length % 4) * 40; top = 80 + (svs.length % 4) * 28; } inst.rect = { ...base, left, top }; }
+    svs.push(inst);
+  } else {
+    const shown = svs.filter((i) => i.panel && !i.panel.hidden);
+    inst = (active && svs.includes(active) && (!shown.length || shown.includes(active)) ? active : shown[shown.length - 1] || svs[0]);
+    if (!inst) { inst = newInst(); svs.push(inst); }
+  }
+  active = inst;
+  ensure(inst);
+  inst.req = [lat, lng];
+  if (panel.classList.contains('is-docked')) { undockPanel(); if (!panel.classList.contains('is-max') && !isSnapped(panel)) place(); bringFront(panel); } // しまってあったら、取り出して開く（ドラッグ前の位置・大きさで）
+  point = [lat, lng];
+  setMin(false); // 縮小していても、新しい場所を開いたら戻す
+  panel.classList.remove('is-closing');
+  if (panel.hidden) { panel.hidden = false; place(); bringFront(panel); setPopOrigin(panel); }
+  view = { heading: Number(opts.heading) || 0, pitch: Number(opts.pitch) || 0, fov: Number(opts.fov) || 0 };
+  frameReady = false; // 新しい映像が読み込まれるまで、読み取った位置では上書きしない
+  clearTimeout(readyTimer);
+  const mine = inst;
+  readyTimer = setTimeout(() => { mine.frameReady = true; mine.acceptAfter = Date.now() + 2500; if (cur === mine) { frameReady = true; acceptAfter = mine.acceptAfter; } }, 15000); // 読み込み完了が通知されなくても、ずっと止まらないように
+  frame.src = svEmbedUrl(lat, lng, view.heading, view.pitch, view.fov);
+  panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng, view);
+  refreshButtons();
+  notify();
 }
-/** 保存した状態から開き直す（再読み込み後。位置・大きさ・拡大・縮小・分割も戻す） */
+
+/** 今のウィンドウ（または、渡したウィンドウ）を閉じる */
+export function closeSvWindow(inst = null) {
+  if (inst) use(inst); else useActive();
+  if (!panel) return;
+  const me = cur;
+  undockPanel();
+  releaseSnap(panel);
+  point = null;
+  setMin(false);
+  notify();
+  const hide = () => {
+    use(me);
+    if (!panel.classList.contains('is-closing')) return;
+    panel.classList.remove('is-closing');
+    if (point) return;
+    panel.hidden = true; frame.src = 'about:blank';
+    if (svs.length > 1) { // 余分なウィンドウは片付ける（最後の 1 つは、位置を覚えたまま使い回す）
+      panel.remove();
+      const i = svs.indexOf(me);
+      if (i >= 0) svs.splice(i, 1);
+      if (active === me) active = svs.filter((x) => x.panel && !x.panel.hidden).pop() || svs[0];
+      cur = null; panel = frame = null;
+    }
+  };
+  panel.classList.add('is-closing'); // 小さく消えるアニメーションのあとで隠す
+  if (panel.hidden || document.documentElement.classList.contains('no-anim') || mobile()) { hide(); return; }
+  setTimeout(hide, 170);
+}
+
+/** 再読み込みしても引き継ぐための、ウィンドウの状態（開いているすべてのウィンドウ） */
+export function getSvWindowState() {
+  const list = openInsts();
+  const one = (i) => { use(i); return { point, rect, win: { side: snappedSide(panel), min: panel.classList.contains('is-min'), max: panel.classList.contains('is-max') }, view, docked: panel.classList.contains('is-docked') }; };
+  const keep = cur;
+  const wins = list.map(one);
+  if (keep) use(keep);
+  const first = wins[0] || { point: null, rect: svs[0]?.rect || null, win: null, view, docked: false };
+  return { ...first, wins, activeIndex: Math.max(0, list.indexOf(active)) }; // 先頭の 1 つの分は、古い形式の読み取り用にも残す
+}
+/** 保存した状態から開き直す（再読み込み後。位置・大きさ・拡大・縮小・分割・しまったかも戻す） */
 export function restoreSvWindow(s) {
   if (!s) return;
-  if (s.rect) rect = s.rect;
-  if (!s.point) return;
-  openSvWindow(s.point[0], s.point[1], s.view || {});
-  const w = s.win;
-  if (w && !mobile()) {
-    if (w.side) snapWindow(panel, w.side, () => { panel.classList.remove('is-snap'); place(); }, true);
-    else if (w.max) panel.classList.add('is-max');
-    else if (w.min) setMinNow(true);
-  }
-  if (s.docked && !mobile()) dockPanel(); // しまってあったウィンドウは、しまったまま戻す
+  const list = Array.isArray(s.wins) && s.wins.length ? s.wins : [s];
+  list.forEach((w, i) => {
+    if (!w.point) { if (w.rect && i === 0) { ensureFirst(); svs[0].rect = w.rect; if (cur === svs[0]) rect = w.rect; } return; }
+    if (w.rect && i === 0) { ensureFirst(); svs[0].rect = w.rect; if (cur === svs[0]) rect = w.rect; }
+    openSvWindow(w.point[0], w.point[1], { ...(w.view || {}), newWindow: i > 0 });
+    if (i > 0 && w.rect) { rect = w.rect; }
+    const st = w.win;
+    if (st && !mobile()) {
+      if (st.side) snapWindow(panel, st.side, () => { panel.classList.remove('is-snap'); place(); }, true);
+      else if (st.max) panel.classList.add('is-max');
+      else if (st.min) setMinNow(true);
+    }
+    if (w.docked && !mobile()) dockPanel(); // しまってあったウィンドウは、しまったまま戻す
+  });
+  if (Number.isInteger(s.activeIndex)) { const o = openInsts()[s.activeIndex]; if (o) active = o; }
 }
+function ensureFirst() { if (!svs.length) svs.push(newInst()); }

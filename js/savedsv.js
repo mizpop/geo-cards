@@ -181,6 +181,14 @@ export function renderSavedSvView(view, setFit) {
   q.addEventListener('compositionstart', () => { composing = true; });
   q.addEventListener('compositionend', () => { composing = false; search.q = q.value; draw(); });
   q.addEventListener('input', (e) => { if (composing || e.isComposing) return; search.q = q.value; draw(); });
+  // 右クリックは、新しいウィンドウで開く（PC）
+  view.querySelector('#sv-list').addEventListener('contextmenu', (e) => {
+    const open = e.target.closest('[data-open]');
+    const r = open && list?.find((x) => x.id === open.dataset.open);
+    if (!r || !matchMedia('(min-width: 900px) and (pointer: fine)').matches) return;
+    e.preventDefault();
+    deps.openSv(Number(r.lat), Number(r.lng), rowView(r), { newWindow: true });
+  });
   view.querySelector('#sv-list').addEventListener('click', async (e) => {
     if (e.target.closest('.sv-rename')) return; // 名前の入力中
     const find = (id) => list?.find((x) => x.id === id);

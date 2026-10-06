@@ -1,6 +1,6 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
 import { savedSvList, loadSavedSv, onSavedSvChange, svLabel, rowView } from './savedsv.js';
-import { svEmbedUrl, svOpenUrl, SV_ICON, openSvWindow, closeSvWindow, svWindowPoint, onSvChange } from './svwin.js';
+import { svEmbedUrl, svOpenUrl, SV_ICON, openSvWindow, closeSvWindow, svWindowPoint, svWindowIsOpenPoints, onSvChange } from './svwin.js';
 import { COUNTRY_BY_CODE } from './countries.js';
 import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
@@ -738,7 +738,6 @@ export async function renderMap(view, ctx) {
   // ---- ストリートビュー: ボタンでモードに入り、地図の青い線（ストリートビューのある道路）の近くをクリックして映像を表示
   // 映像のウィンドウは js/svwin.js（どのタブからでも開ける）。地図には、開いている地点の目印と、クリックで開くモードだけを持つ
   const svBanner = $id('sv-banner');
-  let svMarker = null;
   let svCoverage = null;
   let bannerTimer = null;
   const svPin = () => L.divIcon({ className: 'sv-pin', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] });
@@ -750,10 +749,14 @@ export async function renderMap(view, ctx) {
     clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => { bannerTimer = null; const b = $id('sv-banner-text'); if (b) b.textContent = helpText(); }, 3500);
   };
-  const showSvMarker = (pt) => { // 開いているストリートビューの地点の目印（ウィンドウは js/svwin.js）
-    if (!pt) { if (svMarker) { svMarker.remove(); svMarker = null; } return; }
-    if (svMarker) svMarker.setLatLng(pt);
-    else svMarker = L.marker(pt, { icon: svPin(), interactive: false, keyboard: false, zIndexOffset: 5000 }).addTo(map);
+  const svMarkers = []; // 開いているすべてのストリートビューのウィンドウの地点の目印（ウィンドウは js/svwin.js）
+  const showSvMarker = (pts) => {
+    const list = !pts || !pts.length ? [] : Array.isArray(pts[0]) ? pts : [pts];
+    while (svMarkers.length > list.length) svMarkers.pop().remove();
+    list.forEach((pt, i) => {
+      if (svMarkers[i]) svMarkers[i].setLatLng(pt);
+      else svMarkers[i] = L.marker(pt, { icon: svPin(), interactive: false, keyboard: false, zIndexOffset: 5000 }).addTo(map);
+    });
   };
   unsubSv?.();
   unsubSv = onSvChange(showSvMarker);
@@ -769,6 +772,7 @@ export async function renderMap(view, ctx) {
       const m = L.marker(ll, { icon: L.divIcon({ className: 'sv-saved-pin', html: `<span>${SV_ICON}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] }), keyboard: false, zIndexOffset: 3000 });
       m.bindTooltip(`${r.code ? `${ctx.countryName(r.code)} · ` : ''}${svLabel(r)}`, { direction: 'top', offset: [0, -12] });
       m.on('click', () => openSvWindow(ll[0], ll[1], rowView(r)));
+      m.on('contextmenu', (ev) => { L.DomEvent.preventDefault(ev); L.DomEvent.stopPropagation(ev); openSvWindow(ll[0], ll[1], { ...rowView(r), newWindow: true }); }); // 右クリックは、新しいウィンドウで開く
       savedLayer.addLayer(m);
     }
   };
@@ -778,7 +782,7 @@ export async function renderMap(view, ctx) {
   unsubSaved = onSavedSvChange(drawSaved);
   loadSavedSv().then(drawSaved).catch(() => {}); // 表がまだ無いときなどは、何も出さない
   drawSaved();
-  showSvMarker(svWindowPoint());
+  showSvMarker(svWindowIsOpenPoints());
   function setSv(on, init = false) {
     svOn = on;
     $id('map-sv').classList.toggle('is-on', on);
@@ -899,7 +903,11 @@ export async function renderMap(view, ctx) {
   // 右ボタンを押している間は、国をまたいでもすぐに詳しいプレビューを出す
   let rightHeld = false;
   map.getContainer().addEventListener('pointerdown', (e) => {
-    if (e.button === 2) { rightHeld = true; if (hoverCode) expandBubble(hoverCode, true); }
+    if (e.button === 2) {
+      if (e.altKey || svOn) return; // Alt・スペース（ストリートビューのモード）を押しながらの右クリックは、プレビューではなく、新しいウィンドウで開く
+      rightHeld = true;
+      if (hoverCode) expandBubble(hoverCode, true);
+    }
   }, { capture: true });
   // 右ボタンを離したら詳しい表示を閉じて、小さい表示（国旗と国名）に戻す
   window.addEventListener('pointerup', (e) => {
@@ -909,6 +917,22 @@ export async function renderMap(view, ctx) {
   });
   // 地図の上ではブラウザの右クリックメニューを出さない（国の上で押して海の上で離した場合なども）
   map.getContainer().addEventListener('contextmenu', (e) => e.preventDefault());
+  // Alt を押しながら右クリック: 国の情報を新しいウィンドウで開く／スペースを押しながら（ストリートビューのモード中）右クリック: その場所のストリートビューを新しいウィンドウで開く（どちらも、国のプレビューより優先）
+  map.getContainer().addEventListener('contextmenu', async (e) => {
+    if (e.target.closest('.leaflet-control') || e.ctrlKey || e.metaKey) return;
+    if (!e.altKey && !svOn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ll = map.mouseEventToLatLng(e).wrap();
+    if (e.altKey) {
+      const code = await countryAt(ll.lat, ll.lng).catch(() => null);
+      if (code) ctx.openCountry(code, { x: e.clientX, y: e.clientY }, null, { newWindow: true });
+      return;
+    }
+    const hit = await svFind(ll.lat, ll.lng, map.getZoom());
+    if (hit) openSvWindow(hit.lat, hit.lng, { newWindow: true });
+    else { ctx.toast('この付近にはストリートビューがありません', 'error'); bannerNote('付近にはありません'); }
+  }, true);
   window.addEventListener('blur', () => { rightHeld = false; });
 
   // 吹き出しの広がる・縮むアニメーションは、右ボタンを押した／離したときだけ（animate）。

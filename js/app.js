@@ -511,7 +511,6 @@ const assistantDeps = {
 
 /* ================= 再読み込みしても引き継ぐ（クイズ・暗記の途中・開いていたウィンドウなど） =================
    このタブの sessionStorage に、今の状態を定期的に（と、閉じる・再読み込みの直前に）保存し、起動したときに戻す */
-let syncSvPosition = null; // Windows 版アプリだけ: ストリートビューのウィンドウの今いる位置を読み取る
 let sessionReady = false; // 戻し終わるまでは保存しない（途中の空の状態で、前の状態を上書きしないように）
 const sessionUser = () => state.user?.id || state.user?.email || '';
 function snapshotSession() {
@@ -650,7 +649,7 @@ async function enterApp() {
   initSavedSv({
     api: () => api, isEditor: () => !!state.user?.isEditor, toast, esc, flagImg, countryName, countryAt,
     createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: p.svId, codePromise: p.codePromise || countryAt(p.lat, p.lng) }),
-    openSv: (lat, lng, v) => openSvWindow(lat, lng, v || {}),
+    openSv: (lat, lng, v, opts) => openSvWindow(lat, lng, { ...(v || {}), ...(opts || {}) }),
     cardsFor: (svId) => state.cards.filter((c) => (c.sv_ids || []).includes(svId)),
     cardLabel: (c) => c.description || catOf(c).name,
     openCard: (id, src) => { const c = cardById(id); if (c) openCardModal(c, src); },
@@ -660,7 +659,7 @@ async function enterApp() {
     listSaved: () => savedSvList(), savedAt: savedSvAt, nearSaved: nearestSavedSv, deleteSaved: (r) => deleteSv(r.id), renameSaved: (r, t) => renameSv(r.id, t), placeName: placeLabel, label: svLabel, flag: (code) => (code ? flagImg(code) : '🧍'),
     sub: (r) => [r.code ? countryName(r.code) : '', r.title ? placeLabel(r) : r.admin].filter(Boolean).join(' · '),
     linkCard: (getCurrent, anchor) => openCardLinkPop(getCurrent, anchor),
-    toast, syncPosition: window.desktop?.getSvPosition ? () => syncSvPosition?.() : null,
+    toast, readPosition: window.desktop?.getSvPosition ? (hint) => window.desktop.getSvPosition(hint) : null, // Windows 版: 映像の中の今いる位置（複数の映像から、手がかりの地点のものを探す）
     isEditor: () => !!state.user?.isEditor, canSave: () => !!state.user?.isEditor, save: saveSv, isSaved: isSavedSv,
     createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: savedSvAt({ lat: p.lat, lng: p.lng, heading: p.heading })?.id, codePromise: countryAt(p.lat, p.lng) }), // 保存済みの場所なら、そのストリートビューと関連付ける
   });
@@ -804,19 +803,13 @@ function bindGlobal() {
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
   $('#changelog-btn').title = `更新履歴（現在 ${APP_VERSION}）`;
   $('#changelog-btn').addEventListener('click', openChangelog);
-  // Windows 版アプリ: ストリートビューのウィンドウ（Google の埋め込み）の中の今いる位置を、アプリ側から読み取れる（electron/main.js）。移動したあとの位置を、保存・カード作成・座標の表示に使う
-  if (window.desktop?.getSvPosition) {
-    syncSvPosition = async () => {
-      const href = await Promise.race([window.desktop.getSvPosition().catch(() => null), new Promise((r) => setTimeout(() => r(null), 1200))]); // 映像の読み込み中などで返ってこなくても、ボタンが固まらないように
-      const p = href ? parseLatLng(href) : null;
-      if (p) setSvWindowPoint(p.lat, p.lng, p); // 位置に加えて、向き・傾き・ズームも
-      return !!p;
-    };
-    setInterval(() => { if (svWindowIsOpen() && document.visibilityState === 'visible') syncSvPosition(); }, 1500);
-  }
-  // 関連カードなどにポインターを合わせると、カードのプレビューを出す（PC のみ）
-  initCardPreview({ cardById, imgUrl, thumbUrl, catStyle, catBadge, flagImg, countryName, esc });
   // data-sv-open="緯度,経度,向き" のボタンは、どの画面でも、ストリートビューのウィンドウで開く（参考写真の撮影地点など）
+  document.addEventListener('contextmenu', (e) => { // 右クリックは、新しいウィンドウで開く（PC）
+    const b = e.target.closest?.('[data-sv-open]');
+    if (!b || !canWindow()) return;
+    const [lat, lng, heading, pitch, fov] = b.dataset.svOpen.split(',').map(Number);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) { e.preventDefault(); e.stopPropagation(); openSvWindow(lat, lng, { heading: heading || 0, pitch: pitch || 0, fov: fov || 0, newWindow: true }); }
+  }, true);
   document.addEventListener('click', (e) => {
     const b = e.target.closest?.('[data-sv-open]');
     if (!b) return;
@@ -4763,7 +4756,7 @@ function renderCountryModal(entry) {
   openModal(`
     <div class="modal-head">
       ${backBtnHtml()}
-      <h2>国の基本情報</h2>
+      <h2 class="cinfo-title">${flagImg(code)}${esc(c.ja)}</h2>
       <button class="icon-btn" data-close aria-label="閉じる">✕</button>
     </div>
     <div class="cinfo-hero">
@@ -5046,7 +5039,7 @@ const mapCtx = {
   createCardFromSv: (p) => cardFromSv(p),
   countrySummaryHtml: (code) => countrySummaryHtml(code),
   foldChips: (root) => foldChipRows(root),
-  openCountry: (code, src, lang) => openCountryInfo(code, src, lang),
+  openCountry: (code, src, lang, opts) => { if (opts?.newWindow) forceNewWin = true; try { openCountryInfo(code, src, lang); } finally { forceNewWin = false; } }, // opts.newWindow: 新しいウィンドウで開く（右クリック）
   attachComplete: (input, opts) => attachInlineComplete(input, opts),
   findCountry: (text) => findCountry(text),
   resolveCountry: (text) => resolveCountryCode(text),

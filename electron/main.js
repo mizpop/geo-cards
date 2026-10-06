@@ -70,11 +70,17 @@ function createWindow() {
   // ストリートビューのウィンドウ（Google の埋め込み）の中の「Google マップで見る」のリンクは、今いる地点の URL。
   // このアプリ（Electron）なら、別のサイトの iframe の中でも読み取れるので、アプリ本体から頼まれたときに返す
   ipcMain.handle('app-version', (e) => (e.sender === wc ? app.getVersion() : null)); // 更新の通知用（Windows 版アプリ本体の版）
-  ipcMain.handle('sv-position', async (e) => {
+  ipcMain.handle('sv-position', async (e, hint) => {
     if (e.sender !== wc) return null;
     try {
-      const frame = wc.mainFrame.framesInSubtree.find((f) => /^https:\/\/www\.google\.[a-z.]+\/maps\/embed/.test(f.url));
-      if (!frame) return null;
+      const frames = wc.mainFrame.framesInSubtree.filter((f) => /^https:\/\/www\.google\.[a-z.]+\/maps\/embed/.test(f.url));
+      if (!frames.length) return null;
+      // 複数のストリートビューのウィンドウがあるときは、開いたときの地点（hint）が URL に入っている映像を選ぶ
+      let frame = frames[0];
+      if (hint && frames.length > 1) {
+        const near = (f) => { const m = /!1d(-?[\d.]+)!2d(-?[\d.]+)/.exec(f.url); return m ? Math.abs(Number(m[1]) - hint.lat) + Math.abs(Number(m[2]) - hint.lng) : Infinity; };
+        frame = frames.slice().sort((a, b) => near(a) - near(b))[0];
+      }
       return await frame.executeJavaScript(`(() => {
         const links = [...document.querySelectorAll('a[href*="/maps/@"]')];
         const a = links.find((x) => /マップ|Maps/i.test(x.textContent)) || links[0];
