@@ -2438,3 +2438,6 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 
 /* 保存した場所の名前も、押せる題名（保存した位置へ戻る） */
 .sv-panel.is-named .sv-title.is-link { text-decoration: underline dotted; }
+/* 押せる題名は、文字がある部分だけ（余った幅は座標の欄に回して、題名を文字の幅に収める） */
+.sv-head .sv-title { flex: 0 1 auto; max-width: 100%; }
+.sv-head .sv-coord { flex: 1 1 0; min-width: 0; }
