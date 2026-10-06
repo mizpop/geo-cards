@@ -1160,8 +1160,11 @@ function fmtTime(t) {
 }
 const cardDatesHtml = (card) => (card.photo || !card.created_at ? '' : `<p class="card-dates muted small">追加: ${fmtTime(card.created_at)}${card.updated_at && card.updated_at !== card.created_at ? ` ・ 最終編集: ${fmtTime(card.updated_at)}` : ''}</p>`);
 
+// カードの解説の枠（関連ストリートビュー・関連カードも、同じ枠の中に入れる）
 function notesHtml(card) {
-  return card.notes ? `<div class="notes">${nl2br(card.notes)}</div>` : '';
+  const rel = relatedHtml(card);
+  if (!card.notes && !rel) return '';
+  return `<div class="notes">${card.notes ? `<div class="notes-text">${nl2br(card.notes)}</div>` : ''}${rel}</div>`;
 }
 
 function tileHtml(card, extra = '') {
@@ -1516,7 +1519,6 @@ function renderCardModal(card, entry = {}) {
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
         ${notesHtml(card)}
         ${card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : cardFactsHtml(card)}
-        ${relatedHtml(card)}
         ${cardDatesHtml(card)}
       </div>
     </div>
@@ -2286,7 +2288,6 @@ function renderStudy() {
               <div class="srs-row">${levelHtml(card.id)}</div>
               ${notesHtml(card)}
               ${cardInfoHtml(card)}
-              ${relatedHtml(card)}
             </div>
             ${cardFactsHtml(card, true)}
           </div>
@@ -3212,7 +3213,6 @@ function renderQuestion() {
           ${q.mode === 'choice' || a.result !== 'ok' ? answerHtml(card, 'sm', true) : ''}
           ${notesHtml(card)}
           ${cardInfoHtml(card)}
-            ${relatedHtml(card)}
         </div>` : ''}
     </div>
     ${card.sv && a ? '<div class="bt-media"><div class="quiz-map bt-rmap bt-rmap-big" id="sv-ans-map"><div class="map-loading">地図を読み込み中…</div></div></div>' : ''}
@@ -3435,7 +3435,6 @@ function renderMapQuestion(card) {
             ${answerHtml(card, 'sm', true)}
             ${notesHtml(card)}
             ${cardInfoHtml(card)}
-            ${relatedHtml(card)}
           </div>` : ''}
       </div>
     </div>`;

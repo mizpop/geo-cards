@@ -2374,3 +2374,8 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-link { display: inline-flex; align-items: center; gap: 6px; }
 .sv-link img { width: 20px; height: auto; border-radius: 2px; }
 .sv-link .muted { font-weight: 400; font-size: 12px; }
+
+/* 解説の枠の中の、関連ストリートビュー・関連カード */
+.notes .related { max-width: none; margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.notes > .related:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.notes .related + .related { margin-top: 12px; }
