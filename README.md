@@ -175,6 +175,7 @@ functions/api/ask.js    AI アシスタントの中継（Cloudflare Pages Functi
 js/assistant.js         AI アシスタントのチャット画面
 js/session.js           再読み込みで引き継ぐ状態の保存
 js/updatenotice.js      更新されて初めて起動したときの、右上の通知
+js/cardpreview.js       関連カードなどにポインターを合わせたときの、カードのプレビュー（PC のみ）
 js/svwin.js             ストリートビューのウィンドウ（どのタブからでも開ける）
 js/savedsv.js           保存したストリートビュー（タブ・保存・カード編集からの追加）
 js/loading.js           読み込み中のアニメーション（進行バー・画像の下地・起動中の表示）

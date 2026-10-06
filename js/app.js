@@ -2,6 +2,7 @@ import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
 import { showUpdateNoticeIfNeeded } from './updatenotice.js';
+import { initCardPreview } from './cardpreview.js';
 import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, svWindowView, openSvPop, closeSvPop } from './svwin.js';
 import { initSavedSv, loadSavedSv, savedSvList, saveSv, deleteSv, renameSv, isSavedSv, renderSavedSvView, renderSavedSvPicker, savedSvById, savedSvAt, nearestSavedSv, svLabel, placeLabel, rowView } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
@@ -793,6 +794,8 @@ function bindGlobal() {
     };
     setInterval(() => { if (svWindowIsOpen() && document.visibilityState === 'visible') syncSvPosition(); }, 1500);
   }
+  // 関連カードなどにポインターを合わせると、カードのプレビューを出す（PC のみ）
+  initCardPreview({ cardById, imgUrl, thumbUrl, catStyle, catBadge, flagImg, countryName, esc });
   // data-sv-open="緯度,経度,向き" のボタンは、どの画面でも、ストリートビューのウィンドウで開く（参考写真の撮影地点など）
   document.addEventListener('click', (e) => {
     const b = e.target.closest?.('[data-sv-open]');

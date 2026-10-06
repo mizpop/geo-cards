@@ -2467,3 +2467,13 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 /* 関連付け済みのカードは薄暗く（もう一度押すと解除） */
 .sv-pop-cards .tile.is-linked { opacity: .45; filter: saturate(.6); }
 .sv-pop-cards .tile.is-linked:hover { opacity: .75; }
+
+/* カードのプレビュー（関連カードなどにポインターを合わせたとき。PC のみ） */
+#card-preview { position: fixed; z-index: 99980; width: 260px; border-radius: 12px; overflow: hidden; pointer-events: none; background: color-mix(in srgb, var(--cat, transparent) 10%, var(--surface)); border: 1px solid var(--border); border-top: 4px solid var(--cat, var(--border)); box-shadow: 0 14px 40px rgba(0, 0, 0, .5); animation: pop-in .14s ease-out; }
+#card-preview .cp-img { position: relative; aspect-ratio: 4 / 3; background: #0b0f12; }
+#card-preview .cp-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+#card-preview .cp-img .cat-on-img { top: 6px; left: 6px; font-size: 11px; padding: 2px 8px; }
+#card-preview .cp-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 5px; }
+#card-preview .cp-countries { display: flex; flex-wrap: wrap; gap: 4px; }
+#card-preview .cp-desc { margin: 0; font-size: 13px; font-weight: 700; }
+#card-preview .cp-notes { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
