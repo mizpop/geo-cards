@@ -57,7 +57,7 @@ const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* �
 // ポップアップ（保存した一覧・カードの選択）の共通部品: ボタンのそばに出して、外を押す・Esc で閉じる
 let pop = null;
 export function closeSvPop() { if (pop) { pop.remove(); pop = null; document.removeEventListener('pointerdown', onPopOutside, true); document.removeEventListener('keydown', onPopKey, true); } }
-const onPopOutside = (e) => { if (pop && !pop.contains(e.target) && !e.target.closest?.('#sv-save, #sv-link')) closeSvPop(); };
+const onPopOutside = (e) => { if (pop && !pop.contains(e.target) && !e.target.closest?.('#sv-save, #sv-link, #sv-list')) closeSvPop(); };
 const onPopKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSvPop(); } };
 export function openSvPop(anchor, html, cls = '') {
   closeSvPop();
@@ -65,11 +65,14 @@ export function openSvPop(anchor, html, cls = '') {
   pop.className = `sv-pop ${cls}`;
   pop.innerHTML = html;
   document.body.appendChild(pop);
+  // 中身が増えても画面からはみ出さないよう、広い方（下か上）に、空きに合わせた高さで出す
   const r = anchor.getBoundingClientRect();
   const w = pop.offsetWidth;
   const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w));
-  const below = r.bottom + 6 + pop.offsetHeight < window.innerHeight - 8;
-  Object.assign(pop.style, { left: `${left}px`, top: below ? `${r.bottom + 6}px` : '', bottom: below ? '' : `${window.innerHeight - r.top + 6}px` });
+  const spaceBelow = window.innerHeight - r.bottom - 14;
+  const spaceAbove = r.top - 14;
+  const below = spaceBelow >= 300 || spaceBelow >= spaceAbove;
+  Object.assign(pop.style, { left: `${left}px`, maxHeight: `${Math.max(160, Math.min(460, below ? spaceBelow : spaceAbove))}px`, top: below ? `${r.bottom + 6}px` : '', bottom: below ? '' : `${window.innerHeight - r.top + 6}px` });
   bringFront(pop);
   setTimeout(() => { document.addEventListener('pointerdown', onPopOutside, true); document.addEventListener('keydown', onPopKey, true); }, 0);
   return pop;
@@ -173,6 +176,7 @@ function ensure() {
       <span class="sv-title">${SV_ICON} ストリートビュー</span>
       <span class="sv-coord muted small" id="sv-coord"></span>
       <button type="button" class="icon-btn sv-btn" id="sv-paste" title="いる位置を取り込む（ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押す）" aria-label="位置を貼り付けて合わせる">📋</button>
+      <button type="button" class="icon-btn sv-btn" id="sv-list" title="保存したストリートビューの一覧を開く" aria-label="保存したストリートビューの一覧">📂</button>
       <button type="button" class="icon-btn sv-btn" id="sv-save" title="この場所を保存する（ストリートビュータブから開けます）" aria-label="この場所を保存する" hidden>${SAVE_ICON}</button>
       <button type="button" class="icon-btn sv-btn" id="sv-card" title="この場所でカードを作る（国と場所を入れた状態で作成画面を開きます）" aria-label="この場所でカードを作る" hidden>📍</button>
       <button type="button" class="icon-btn sv-btn" id="sv-link" title="いる地点を、既存のカードに関連付ける（保存していなければ、保存してから関連付けます）" aria-label="既存のカードに関連付ける" hidden>🔗</button>
@@ -207,11 +211,13 @@ function ensure() {
     btn.disabled = true;
     try { await hooks.save?.({ lat: point[0], lng: point[1], ...view }); } finally { btn.disabled = false; refreshButtons(); }
   });
+  panel.querySelector('#sv-list').addEventListener('click', (e) => showSavedList(e.currentTarget));
   // 保存ボタンを右クリック: 保存したストリートビューの一覧をポップアップで出して、そこから開く
   panel.querySelector('#sv-save').addEventListener('contextmenu', (e) => { e.preventDefault(); showSavedList(e.currentTarget); });
-  panel.querySelector('#sv-link').addEventListener('click', async (e) => {
-    await hooks.syncPosition?.();
-    if (point) hooks.linkCard?.({ lat: point[0], lng: point[1], ...view }, e.currentTarget);
+  panel.querySelector('#sv-link').addEventListener('click', (e) => {
+    if (!point) return;
+    // すぐにカードの一覧を出す。選んだ時点で、いる位置を読み取り直して（Windows 版）から、関連付ける
+    hooks.linkCard?.(async () => { await hooks.syncPosition?.(); return point ? { lat: point[0], lng: point[1], ...view } : null; }, e.currentTarget);
   });
   panel.querySelector('#sv-max').addEventListener('click', () => flipAnimate(panel, () => { unsnapWindow(panel); setMinNow(false); saveRect(); panel.classList.toggle('is-max'); }));
   panel.querySelector('#sv-min').addEventListener('click', () => setMin(!panel.classList.contains('is-min')));

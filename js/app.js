@@ -1,7 +1,7 @@
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
-import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, openSvPop, closeSvPop } from './svwin.js';
+import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, openSvPop, closeSvPop } from './svwin.js';
 import { initSavedSv, loadSavedSv, savedSvList, saveSv, isSavedSv, renderSavedSvView, renderSavedSvPicker, savedSvById, savedSvAt, svLabel, placeLabel, rowView } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
@@ -637,7 +637,7 @@ async function enterApp() {
   setSvHooks({
     listSaved: () => savedSvList(), label: svLabel, flag: (code) => (code ? flagImg(code) : '🧍'),
     sub: (r) => [r.code ? countryName(r.code) : '', r.title ? placeLabel(r) : r.admin].filter(Boolean).join(' · '),
-    linkCard: (p, anchor) => openCardLinkPop(p, anchor),
+    linkCard: (getCurrent, anchor) => openCardLinkPop(getCurrent, anchor),
     toast, syncPosition: window.desktop?.getSvPosition ? () => syncSvPosition?.() : null,
     isEditor: () => !!state.user?.isEditor, canSave: () => !!state.user?.isEditor, save: saveSv, isSaved: isSavedSv,
     createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: savedSvAt(p)?.id, codePromise: countryAt(p.lat, p.lng) }), // 保存済みの場所なら、そのストリートビューと関連付ける
@@ -784,7 +784,7 @@ function bindGlobal() {
   // Windows 版アプリ: ストリートビューのウィンドウ（Google の埋め込み）の中の今いる位置を、アプリ側から読み取れる（electron/main.js）。移動したあとの位置を、保存・カード作成・座標の表示に使う
   if (window.desktop?.getSvPosition) {
     syncSvPosition = async () => {
-      const href = await window.desktop.getSvPosition().catch(() => null);
+      const href = await Promise.race([window.desktop.getSvPosition().catch(() => null), new Promise((r) => setTimeout(() => r(null), 1200))]); // 映像の読み込み中などで返ってこなくても、ボタンが固まらないように
       const p = href ? parseLatLng(href) : null;
       if (p) setSvWindowPoint(p.lat, p.lng, p); // 位置に加えて、向き・傾き・ズームも
       return !!p;
@@ -4840,12 +4840,13 @@ const EXT_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none
 /* ================= 地図 ================= */
 // ストリートビューで見つけた場所からカードを作る: 国・場所の名前・Google マップのリンクを入れた作成画面を開く（画像は作成画面で選ぶ）
 // ストリートビューのウィンドウの「既存のカードに関連付ける」: カードを探して選ぶ。いる地点を保存していなければ、保存してから関連付ける
-function openCardLinkPop(p, anchor) {
+function openCardLinkPop(getCurrent, anchor) {
   const pop = openSvPop(anchor, '<input type="search" class="input sv-pop-q" placeholder="カードを探す（国名・説明・地域）" autocomplete="off"><div class="sv-pop-list"></div>', 'sv-pop-cards');
   const list = pop.querySelector('.sv-pop-list');
   const input = pop.querySelector('.sv-pop-q');
   const draw = () => {
-    const here = savedSvAt(p);
+    const pt = svWindowPoint();
+    const here = pt ? savedSvAt({ lat: pt[0], lng: pt[1] }) : null;
     const hits = sortCards(matchCards(input.value)).filter((c) => !c.photo && !c.sv).slice(0, 40);
     list.innerHTML = hits.length ? hits.map((c) => {
       const linked = here && (c.sv_ids || []).includes(here.id);
@@ -4858,6 +4859,8 @@ function openCardLinkPop(p, anchor) {
     const card = b && cardById(b.dataset.id);
     if (!card) return;
     try {
+      const p = await getCurrent(); // いる位置（Windows 版は、動かしたあとの位置を読み取り直す）
+      if (!p) { toast('ストリートビューの位置が分かりません', 'error'); return; }
       const row = savedSvAt(p) || await saveSv(p); // まだ保存していなければ、保存してから
       if ((card.sv_ids || []).includes(row.id)) { toast('すでに関連付けてあります'); return; }
       await api.updateCard(card, { ...card, sv_ids: [...(card.sv_ids || []), row.id] });
