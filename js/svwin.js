@@ -1,7 +1,7 @@
 // ストリートビューのウィンドウ（どのタブからでも開ける、画面に固定して浮かぶウィンドウ）
 // 地図のストリートビューモード・参考写真・保存したストリートビューのタブから共通で使う。
 // ヘッダーのドラッグで移動・左右への分割・縮小・拡大・保存・カード作成ができる
-import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap, setPopOrigin, flipAnimate } from './floatz.js';
+import { bringFront, snapSideAt, dropEdgeAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap, setPopOrigin, flipAnimate } from './floatz.js';
 
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
 // zoom: 視野（fov。小さいほど拡大）から求めた拡大の段階。cbp=12,向き,0,ズーム,傾き
@@ -253,7 +253,7 @@ function ensure() {
     // すぐにカードの一覧を出す。選んだ時点で、いる位置を読み取り直して（Windows 版）から、関連付ける
     hooks.linkCard?.(async () => { await hooks.syncPosition?.(); return point ? { lat: point[0], lng: point[1], ...view } : null; }, e.currentTarget);
   });
-  panel.querySelector('#sv-max').addEventListener('click', () => flipAnimate(panel, () => { unsnapWindow(panel); setMinNow(false); saveRect(); panel.classList.toggle('is-max'); }));
+  panel.querySelector('#sv-max').addEventListener('click', () => flipAnimate(panel, () => { unsnapWindow(panel); setMinNow(false); saveRect(); panel.classList.toggle('is-max'); if (!panel.classList.contains('is-max')) place(); })); // 元に戻すときは、覚えている位置・大きさへ
   panel.querySelector('#sv-min').addEventListener('click', () => setMin(!panel.classList.contains('is-min')));
 
   // パネルをヘッダーのドラッグで動かす（画面のどこへでも。スマホは下に固定）
@@ -278,7 +278,7 @@ function ensure() {
         drag.w = rect.width;
       }
     }
-    showSnapPreview(snapSideAt(e.clientX)); // 画面の左右のはしに近いときは、離したときに入る場所を見せる
+    showSnapPreview(dropEdgeAt(e.clientX, e.clientY)); // 画面の左右のはしは分割、上のはしは最大化: 離したときの場所を見せる
     panel.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`; // 画面の端に少し残す
     panel.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy))}px`;
   });
@@ -289,11 +289,13 @@ function ensure() {
     unsnapWindow(panel);
     saveRect();
     panel.classList.toggle('is-max');
+    if (!panel.classList.contains('is-max')) place();
   });
   const endDrag = (e) => {
     if (drag?.started) {
-      const side = e.type === 'pointerup' ? snapSideAt(e.clientX) : null;
-      if (side) snapWindow(panel, side, () => { panel.classList.remove('is-snap'); place(); }); // 画面の左右のはしで離したら、画面を分割
+      const side = e.type === 'pointerup' ? dropEdgeAt(e.clientX, e.clientY) : null;
+      if (side === 'top') flipAnimate(panel, () => { setMinNow(false); panel.classList.add('is-max'); }); // 画面の上のはしで離したら、最大化（元の位置・大きさは覚えたまま）
+      else if (side) snapWindow(panel, side, () => { panel.classList.remove('is-snap'); place(); }); // 画面の左右のはしで離したら、画面を分割
       else saveRect();
     }
     showSnapPreview(null);

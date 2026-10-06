@@ -81,6 +81,8 @@ const slots = { left: null, right: null }; // { el, restore: () => void }
 let preview = null;
 const bars = { left: null, right: null };
 
+// 画面の端で離したときの動作: 左右の端は分割、上の端は最大化（'left' / 'right' / 'top'）
+export const dropEdgeAt = (x, y) => snapSideAt(x) || (y <= EDGE ? 'top' : null);
 export const snapSideAt = (x) => (x <= EDGE ? 'left' : x >= window.innerWidth - EDGE ? 'right' : null);
 const sideOf = (el) => (slots.left?.el === el ? 'left' : slots.right?.el === el ? 'right' : null);
 export const isSnapped = (el) => !!sideOf(el);
@@ -105,6 +107,10 @@ export function showSnapPreview(side) {
     preview = document.createElement('div');
     preview.className = 'snap-preview';
     document.body.appendChild(preview);
+  }
+  if (side === 'top') { // 最大化したときの大きさ（画面の四方に 12px 残す）
+    Object.assign(preview.style, { left: '12px', top: '12px', width: 'calc(100vw - 24px)', height: 'calc(100vh - 24px)' });
+    return;
   }
   const top = headerH();
   const w = slots[side === 'left' ? 'right' : 'left'] ? Math.min(ratio[side], (1 - MIN_PAGE) / 2) : ratio[side];

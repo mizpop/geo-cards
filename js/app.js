@@ -14,7 +14,7 @@ import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from '.
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { bringFront, setPopOrigin, popWindow, flipAnimate, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
+import { bringFront, setPopOrigin, popWindow, flipAnimate, snapSideAt, dropEdgeAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
@@ -2018,14 +2018,15 @@ function setupWindow(m) {
       if (isSnapped(m)) { unsnapWindow(m); drag.dx = Math.min(drag.dx, winRect.width / 2); drag.w = winRect.width; } // 分割から外す（元の大きさに戻る）
       else if (m.classList.contains('is-max')) { m.classList.remove('is-max'); place(); drag.dx = Math.min(drag.dx, winRect.width - 40); drag.w = winRect.width; }
     }
-    showSnapPreview(snapSideAt(e.clientX)); // 画面の左右のはしに近いときは、離したときに入る場所を見せる
+    showSnapPreview(dropEdgeAt(e.clientX, e.clientY)); // 画面の左右のはしは分割、上のはしは最大化: 離したときの場所を見せる
     m.style.left = `${Math.max(-drag.w + 80, Math.min(window.innerWidth - 80, e.clientX - drag.dx))}px`;
     m.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy))}px`;
   });
   const end = (e) => {
     if (drag?.started) {
-      const side = e.type === 'pointerup' ? snapSideAt(e.clientX) : null;
-      if (side) snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }); // 画面の左右のはしで離したら、画面を分割
+      const side = e.type === 'pointerup' ? dropEdgeAt(e.clientX, e.clientY) : null;
+      if (side === 'top') flipAnimate(m, () => { setMin(false); m.classList.add('is-max'); }); // 画面の上のはしで離したら、最大化（元の位置・大きさは覚えたまま）
+      else if (side) snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }); // 画面の左右のはしで離したら、画面を分割
       else remember();
     }
     showSnapPreview(null);
