@@ -635,7 +635,7 @@ async function enterApp() {
     confirmDialog: async (m) => confirm(m),
   });
   setSvHooks({
-    listSaved: () => savedSvList(), label: svLabel, flag: (code) => (code ? flagImg(code) : '🧍'),
+    listSaved: () => savedSvList(), savedAt: savedSvAt, label: svLabel, flag: (code) => (code ? flagImg(code) : '🧍'),
     sub: (r) => [r.code ? countryName(r.code) : '', r.title ? placeLabel(r) : r.admin].filter(Boolean).join(' · '),
     linkCard: (getCurrent, anchor) => openCardLinkPop(getCurrent, anchor),
     toast, syncPosition: window.desktop?.getSvPosition ? () => syncSvPosition?.() : null,

@@ -49,7 +49,7 @@ let frame = null;
 let point = null; // [lat, lng]
 let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
 const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
@@ -149,6 +149,11 @@ function refreshButtons() {
   if (link) link.hidden = !editor || !hooks.linkCard;
   const ext = panel.querySelector('#sv-ext');
   if (ext) ext.hidden = editor && !!hooks.linkCard;
+  // 保存した場所（同じ場所・同じ向き）にいるときは、題名にそのストリートビューの名前を出す
+  const row = point && hooks.savedAt ? hooks.savedAt({ lat: point[0], lng: point[1], heading: view.heading }) : null;
+  const tt = panel.querySelector('#sv-title-text');
+  if (tt) { tt.textContent = row ? (hooks.label?.(row) || 'ストリートビュー') : 'ストリートビュー'; tt.title = row ? [hooks.sub?.(row), `${point[0].toFixed(4)}, ${point[1].toFixed(4)}`, '保存済みの場所'].filter(Boolean).join(' · ') : ''; }
+  panel.classList.toggle('is-named', !!row);
   const save = panel.querySelector('#sv-save');
   if (save) {
     save.hidden = false; // 保存できない（閲覧のみ）ときも、保存した一覧を開くために出す
@@ -173,7 +178,7 @@ function ensure() {
   panel.hidden = true;
   panel.innerHTML = `
     <div class="sv-head" id="sv-head">
-      <span class="sv-title">${SV_ICON} ストリートビュー</span>
+      <span class="sv-title">${SV_ICON} <span id="sv-title-text">ストリートビュー</span></span>
       <span class="sv-coord muted small" id="sv-coord"></span>
       <button type="button" class="icon-btn sv-btn" id="sv-paste" title="いる位置を取り込む（ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押す）" aria-label="位置を貼り付けて合わせる">📋</button>
       <button type="button" class="icon-btn sv-btn" id="sv-list" title="保存したストリートビューの一覧を開く" aria-label="保存したストリートビューの一覧">📂</button>
