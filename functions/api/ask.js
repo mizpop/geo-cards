@@ -109,7 +109,11 @@ export async function onRequestPost({ request, env }) {
   const origin = new URL(request.url).origin;
   const reqOrigin = request.headers.get('origin');
   if (reqOrigin && reqOrigin !== origin) return json({ error: 'forbidden' }, 403);
-  if (!env.GEMINI_API_KEY) return json({ error: 'not_configured' }, 503);
+  if (!env.GEMINI_API_KEY) {
+    // 設定の確認用: 似た名前の変数があるか・空でないか（名前と「空かどうか」だけ。値は出さない）
+    const similar = Object.keys(env).filter((k) => /gemini|google|api.?key/i.test(k)).slice(0, 10).map((k) => ({ name: k, empty: !String(env[k] ?? '').trim() }));
+    return json({ error: 'not_configured', similar, vars: Object.keys(env).length }, 503);
+  }
   const who = await authorized(request, env);
   if (who === 'unauthorized') return json({ error: 'unauthorized' }, 401);
   if (who === 'forbidden') return json({ error: 'editors_only' }, 403);
