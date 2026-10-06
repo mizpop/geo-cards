@@ -95,8 +95,8 @@ function createSupabaseApi(sb) {
       if (error) throw new Error(translateAuthError(error));
     },
 
-    async loginEditor(email, password) {
-      const { error } = await sb.auth.signInWithPassword({ email, password });
+    async loginEditor(password) { // メールアドレスは固定（config.js の EDITOR_EMAIL）。パスワードだけ入力する
+      const { error } = await sb.auth.signInWithPassword({ email: CONFIG.EDITOR_EMAIL, password });
       if (error) throw new Error(translateAuthError(error));
     },
 

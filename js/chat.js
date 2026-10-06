@@ -44,7 +44,7 @@ function ask(title, def) {
   }
 }
 async function askName() {
-  const def = getName() || (user && !user.isViewer && user.email ? user.email.split('@')[0] : '');
+  const def = getName() || '';
   const n = ((await ask('メモに表示するあなたの名前（この端末に保存されます）', def)) ?? '').trim().slice(0, 20);
   if (n) setName(n);
   return getName();

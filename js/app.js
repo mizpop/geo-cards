@@ -232,10 +232,6 @@ function openSettings() {
     <section class="set-group" id="sync-box"></section>
     ${offlineSupported() ? `<h3 class="set-group-title">📴 オフライン学習</h3>
     <section class="set-group" id="offline-box"></section>` : ''}
-    <h3 class="set-group-title">👤 アカウント</h3>
-    <section class="set-group">
-      ${item('ログイン中', esc($('#user-label')?.textContent || ''), api.mode === 'demo' ? '<span class="muted small">デモモード</span>' : '<button type="button" class="btn btn-sm" id="set-logout">ログアウト</button>')}
-    </section>
     ${canDownloadApp() ? `<h3 class="set-group-title">💻 デスクトップ版（Windows）</h3>
     <section class="set-group">
       ${item('Windows 版アプリ（exe）', 'インストーラーをダブルクリックするだけで入れられます（管理者権限は不要）。中身はこのサイトなので、サイトの更新は自動で反映され、アプリ本体の新しい版も起動時に自動で更新されます（インターネット接続が必要）。初めて開くとき Windows の警告が出たら、「詳細情報」→「実行」で開けます。', `<a class="btn btn-primary btn-sm" href="${esc(DESKTOP_DOWNLOAD_URL)}" target="_blank" rel="noopener">ダウンロード（約 74MB）</a>`)}
@@ -256,6 +252,7 @@ function openSettings() {
     <p class="muted small set-note">設定はこの端末のブラウザに保存されます</p>
     <p class="muted small set-note">GeoChecker ${APP_VERSION}（<button type="button" class="link-btn" id="set-changelog">更新履歴</button>）</p>
     <div class="modal-foot set-foot">
+      ${api.mode === 'demo' ? '' : '<button class="btn btn-ghost" id="set-logout" type="button">ログアウト</button>'}
       <button class="btn btn-ghost" id="set-reset" type="button">初期設定に戻す</button>
       <span class="grow"></span>
       <button class="btn btn-primary" data-close type="button">閉じる</button>
@@ -466,7 +463,7 @@ function bindLogin() {
     $('#viewer-form').hidden = toEditor;
     $('#toggle-login').textContent = toEditor ? '閲覧パスワードで入る' : '編集者としてログイン';
     err.textContent = '';
-    (toEditor ? $('#editor-email') : $('#viewer-pass')).focus();
+    (toEditor ? $('#editor-pass') : $('#viewer-pass')).focus();
   });
   const handle = (form, fn) => form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -485,7 +482,7 @@ function bindLogin() {
     }
   });
   handle($('#viewer-form'), () => api.loginViewer($('#viewer-pass').value));
-  handle($('#editor-form'), () => api.loginEditor($('#editor-email').value.trim(), $('#editor-pass').value));
+  handle($('#editor-form'), () => api.loginEditor($('#editor-pass').value));
 }
 
 // AI アシスタントに渡す、アプリ側のデータと操作（js/assistant.js・js/askctx.js から使う）
@@ -624,7 +621,7 @@ function restoreOverlays(sn) {
 async function enterApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
-  $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? `編集者: ${state.user.email}` : '閲覧のみ';
+  $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? '' : '閲覧のみ';
   $('#view').innerHTML = '<div class="empty page-loading"><span class="spinner"></span>読み込み中…</div>';
   // 保存したストリートビュー・ストリートビューのウィンドウ（どのタブからでも開く）
   initSavedSv({
