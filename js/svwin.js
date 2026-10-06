@@ -5,8 +5,12 @@ import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSn
 
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
 // zoom: 視野（fov。小さいほど拡大）から求めた拡大の段階。cbp=12,向き,0,ズーム,傾き
-const zoomFromFov = (fov) => (fov > 0 ? Math.round(Math.max(0, Math.min(5, Math.log2(90 / fov))) * 100) / 100 : 0);
-export const svEmbedUrl = (lat, lng, heading = 0, pitch = 0, fov = 0) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,${Math.round(heading)},0,${zoomFromFov(fov)},${Math.round(pitch)}&hl=ja&output=svembed`;
+// 視野（fov。小さいほど拡大）→ 拡大の段階。標準（ズーム 0）の視野は 73.7 度で、1 段上げるごとに、視野の半分の tan が半分になる（実測）
+const BASE_HALF_FOV = Math.tan((73.7 / 2) * Math.PI / 180);
+const zoomFromFov = (fov) => (fov > 0 && fov < 73.7 ? Math.round(Math.min(5, Math.log2(BASE_HALF_FOV / Math.tan((fov / 2) * Math.PI / 180))) * 100) / 100 : 0);
+// 向き: 0 だと「指定なし」とみなされて、その地点の標準の向きになる。真北を指定したいときは 360 にする
+const yaw = (heading) => { const r = Math.round(((heading % 360) + 360) % 360); return r === 0 ? (heading ? 360 : 0) : r; };
+export const svEmbedUrl = (lat, lng, heading = 0, pitch = 0, fov = 0) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,${yaw(heading)},0,${zoomFromFov(fov)},${Math.round(pitch)}&hl=ja&output=svembed`;
 export const svOpenUrl = (lat, lng, v = {}) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}${v.heading ? `&heading=${Math.round(v.heading)}` : ''}${v.pitch ? `&pitch=${Math.round(v.pitch)}` : ''}${v.fov ? `&fov=${Math.round(v.fov)}` : ''}`;
 export const SV_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><path d="M12 9v6M8 11l4-2 4 2M9.5 21l2.5-6 2.5 6"/></svg>';
 const SAVE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>';
@@ -35,7 +39,7 @@ export function parseLatLng(text) {
     const h = /,(-?\d+(?:\.\d+)?)h(?:,|\/|$)/.exec(t);
     const y = /,(\d+(?:\.\d+)?)y(?:,|\/|$)/.exec(t);
     const tt = /,(-?\d+(?:\.\d+)?)t(?:,|\/|$)/.exec(t);
-    return { lat, lng, heading: h ? Number(h[1]) : 0, pitch: tt ? Number(tt[1]) - 90 : 0, fov: y ? Number(y[1]) : 0 };
+    return { lat, lng, heading: h ? (Number(h[1]) || 360) : 0, pitch: tt ? 90 - Number(tt[1]) : 0, fov: y ? Number(y[1]) : 0 };
   }
   return null;
 }
@@ -45,10 +49,53 @@ let frame = null;
 let point = null; // [lat, lng]
 let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, toast: () => {}, syncPosition: null };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
 const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
+
+// ポップアップ（保存した一覧・カードの選択）の共通部品: ボタンのそばに出して、外を押す・Esc で閉じる
+let pop = null;
+export function closeSvPop() { if (pop) { pop.remove(); pop = null; document.removeEventListener('pointerdown', onPopOutside, true); document.removeEventListener('keydown', onPopKey, true); } }
+const onPopOutside = (e) => { if (pop && !pop.contains(e.target) && !e.target.closest?.('#sv-save, #sv-link')) closeSvPop(); };
+const onPopKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSvPop(); } };
+export function openSvPop(anchor, html, cls = '') {
+  closeSvPop();
+  pop = document.createElement('div');
+  pop.className = `sv-pop ${cls}`;
+  pop.innerHTML = html;
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w));
+  const below = r.bottom + 6 + pop.offsetHeight < window.innerHeight - 8;
+  Object.assign(pop.style, { left: `${left}px`, top: below ? `${r.bottom + 6}px` : '', bottom: below ? '' : `${window.innerHeight - r.top + 6}px` });
+  bringFront(pop);
+  setTimeout(() => { document.addEventListener('pointerdown', onPopOutside, true); document.addEventListener('keydown', onPopKey, true); }, 0);
+  return pop;
+}
+// 保存したストリートビューの一覧（押すと開く）
+function showSavedList(anchor) {
+  const rows = hooks.listSaved?.() || [];
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const item = (r) => `<button type="button" class="sv-pop-item" data-i="${rows.indexOf(r)}">${hooks.flag?.(r.code) || ''}<span class="sv-pop-text"><b>${esc(hooks.label?.(r) || '')}</b><span class="muted small">${esc(hooks.sub?.(r) || '')}</span></span></button>`;
+  const el = openSvPop(anchor, rows.length
+    ? `<input type="search" class="input sv-pop-q" placeholder="絞り込み" autocomplete="off"><div class="sv-pop-list">${rows.map(item).join('')}</div>`
+    : '<p class="muted small sv-pop-empty">保存したストリートビューはまだありません</p>', 'sv-pop-saved');
+  const list = el.querySelector('.sv-pop-list');
+  el.querySelector('.sv-pop-q')?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    list.querySelectorAll('.sv-pop-item').forEach((b) => { b.hidden = !!q && !b.textContent.toLowerCase().includes(q); });
+  });
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('.sv-pop-item');
+    const r = b && rows[Number(b.dataset.i)];
+    if (!r) return;
+    closeSvPop();
+    openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
+  });
+  el.querySelector('.sv-pop-q')?.focus();
+}
 
 /** 開いた・閉じたときに呼ばれる（地図の目印の表示に使う）。解除する関数を返す */
 export function onSvChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
@@ -88,14 +135,25 @@ const setMin = (on) => flipAnimate(panel, () => setMinNow(on));
 
 function refreshButtons() {
   if (!panel) return;
+  const editor = !!hooks.isEditor();
   const card = panel.querySelector('#sv-card');
-  if (card) card.hidden = !hooks.isEditor() || !hooks.createCard;
+  if (card) card.hidden = !editor || !hooks.createCard;
+  // Windows 版は、移動後の位置を自動で読み取れるので、貼り付けのボタンは出さない
+  const paste = panel.querySelector('#sv-paste');
+  if (paste) paste.hidden = !!hooks.syncPosition;
+  // 編集者: 既存のカードに関連付けるボタン（Google マップで開くボタンの代わり）
+  const link = panel.querySelector('#sv-link');
+  if (link) link.hidden = !editor || !hooks.linkCard;
+  const ext = panel.querySelector('#sv-ext');
+  if (ext) ext.hidden = editor && !!hooks.linkCard;
   const save = panel.querySelector('#sv-save');
   if (save) {
-    save.hidden = !hooks.canSave();
+    save.hidden = false; // 保存できない（閲覧のみ）ときも、保存した一覧を開くために出す
     const saved = point ? !!hooks.isSaved({ lat: point[0], lng: point[1] }) : false;
     save.classList.toggle('is-saved', saved);
-    save.title = saved ? '保存済み（ストリートビュータブにあります）' : 'この場所を保存する（ストリートビュータブから開けます）';
+    save.title = hooks.canSave()
+      ? `${saved ? '保存済み（ストリートビュータブにあります）' : 'この場所を保存する（ストリートビュータブから開けます）'}／右クリックで、保存した場所の一覧`
+      : '保存したストリートビューの一覧';
     save.setAttribute('aria-label', save.title);
   }
 }
@@ -117,6 +175,7 @@ function ensure() {
       <button type="button" class="icon-btn sv-btn" id="sv-paste" title="いる位置を取り込む（ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押す）" aria-label="位置を貼り付けて合わせる">📋</button>
       <button type="button" class="icon-btn sv-btn" id="sv-save" title="この場所を保存する（ストリートビュータブから開けます）" aria-label="この場所を保存する" hidden>${SAVE_ICON}</button>
       <button type="button" class="icon-btn sv-btn" id="sv-card" title="この場所でカードを作る（国と場所を入れた状態で作成画面を開きます）" aria-label="この場所でカードを作る" hidden>📍</button>
+      <button type="button" class="icon-btn sv-btn" id="sv-link" title="いる地点を、既存のカードに関連付ける（保存していなければ、保存してから関連付けます）" aria-label="既存のカードに関連付ける" hidden>🔗</button>
       <a class="icon-btn sv-btn" id="sv-ext" target="_blank" rel="noopener" title="Google マップで開く" aria-label="Google マップで開く">↗</a>
       <button type="button" class="icon-btn sv-btn" id="sv-min" title="一時的に縮小（ヘッダーだけにする）" aria-label="縮小">—</button>
       <button type="button" class="icon-btn sv-btn" id="sv-max" title="大きく / 元の大きさ（ヘッダーのダブルクリックでも）" aria-label="大きく表示">⤢</button>
@@ -140,12 +199,19 @@ function ensure() {
     hooks.toast(`位置を取り込みました: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}（保存すると、この位置で保存されます）`);
   });
   panel.querySelector('#sv-card').addEventListener('click', async () => { await hooks.syncPosition?.(); if (point) hooks.createCard?.({ lat: point[0], lng: point[1] }); });
-  panel.querySelector('#sv-save').addEventListener('click', async () => {
+  panel.querySelector('#sv-save').addEventListener('click', async (e) => {
+    if (!hooks.canSave()) { showSavedList(e.currentTarget); return; } // 保存できない（閲覧のみ）ときは、一覧を出す
     await hooks.syncPosition?.(); // Windows 版アプリは、移動したあとの今いる位置を読み取る
     if (!point) return;
     const btn = panel.querySelector('#sv-save');
     btn.disabled = true;
     try { await hooks.save?.({ lat: point[0], lng: point[1], ...view }); } finally { btn.disabled = false; refreshButtons(); }
+  });
+  // 保存ボタンを右クリック: 保存したストリートビューの一覧をポップアップで出して、そこから開く
+  panel.querySelector('#sv-save').addEventListener('contextmenu', (e) => { e.preventDefault(); showSavedList(e.currentTarget); });
+  panel.querySelector('#sv-link').addEventListener('click', async (e) => {
+    await hooks.syncPosition?.();
+    if (point) hooks.linkCard?.({ lat: point[0], lng: point[1], ...view }, e.currentTarget);
   });
   panel.querySelector('#sv-max').addEventListener('click', () => flipAnimate(panel, () => { unsnapWindow(panel); setMinNow(false); saveRect(); panel.classList.toggle('is-max'); }));
   panel.querySelector('#sv-min').addEventListener('click', () => setMin(!panel.classList.contains('is-min')));
