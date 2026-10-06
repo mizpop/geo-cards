@@ -233,6 +233,10 @@ function ensure() {
   frame = panel.querySelector('#sv-frame');
   frame.addEventListener('load', () => { frameReady = true; acceptAfter = Date.now() + 2500; clearTimeout(readyTimer); });
   panel.addEventListener('pointerdown', () => bringFront(panel), true); // 触ったウィンドウを手前に
+  // 映像（別のサイトの iframe）をクリックするとキー入力が映像の中に行って、スペースキー（ストリートビューのモード）などが効かなくなるので、ポインターがウィンドウの外へ出たら、フォーカスをアプリ側に戻す
+  const releaseFocus = () => { if (document.activeElement === frame) { frame.blur(); window.focus(); } };
+  panel.addEventListener('mouseleave', releaseFocus);
+  document.addEventListener('mousemove', (e) => { if (document.activeElement === frame && !panel.contains(e.target)) releaseFocus(); }, true); // ウィンドウの外でポインターが動いたら（mouseleave が届かない場合の備え）
 
   panel.querySelector('#sv-close').addEventListener('click', closeSvWindow);
   // 保存した場所の名前・「〜 付近」の題名を押すと、その保存した位置へ、保存したときの向き・ズームで正確に移動する

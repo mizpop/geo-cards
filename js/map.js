@@ -855,7 +855,7 @@ export async function renderMap(view, ctx) {
   // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る）
   if (svSpace) { document.removeEventListener('keydown', svSpace.down); document.removeEventListener('keyup', svSpace.up); window.removeEventListener('blur', svSpace.up); }
   {
-    const typing = (t) => /^(input|textarea|select)$/i.test(t?.tagName || '') || t?.isContentEditable; // ボタンにフォーカスがあっても、スペースは「長押しで一時オン」として扱う（ボタンの押下にはしない）
+    const typing = (t) => /^(input|textarea)$/i.test(t?.tagName || '') || t?.isContentEditable; // セレクト（地図のモードなど）にフォーカスがあっても、スペースは使う // ボタンにフォーカスがあっても、スペースは「長押しで一時オン」として扱う（ボタンの押下にはしない）
     const down = (e) => {
       if (e.code !== 'Space' || e.ctrlKey || e.altKey || e.metaKey || typing(e.target) || document.querySelector('dialog[open]:not(.is-window)') || !$id('map')) return;
       e.preventDefault(); // ページが下へ動かないように
