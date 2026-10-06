@@ -544,6 +544,7 @@ function snapshotSession() {
     lang: { q: state.lang.q, chars: state.lang.chars, open: state.lang.open },
     map: getMapSession(),
     svWin: getSvWindowState(),
+    extraWins: wins.filter((w) => !w.main && w.current && w.current.kind !== 'editor').map((w) => ({ docked: w.docked, rect: w.rect, current: plainEntry(w.current), stack: w.stack.filter((x) => x.kind !== 'editor').map(plainEntry) })), // 追加のウィンドウ（しまったものも）
     assistant: getAssistantSession(),
     chat: chatIsOpen(),
     scroll: { y: window.scrollY, view: $('#view')?.scrollTop || 0 },
@@ -614,6 +615,21 @@ function restoreOverlays(sn) {
       if (ui.win.snap) w.snap(ui.win.snap);
       else if (ui.win.min) w.setMin(true);
       else if (ui.win.max) w.toggleMax();
+    }
+    // 追加のウィンドウ・しまっていたウィンドウ（主ウィンドウの次に、元の順で。しまっていたものは、しまったまま）
+    if (canWindow()) {
+      const keep = W;
+      for (const x of sn.extraWins || []) {
+        if (!x?.current) continue;
+        const w = createWin();
+        if (x.rect) w.rect = x.rect;
+        w.stack = (x.stack || []).filter(Boolean);
+        activate(w);
+        if (x.docked) w.el.classList.add('is-docked'); // 開く動きを見せないよう、先に隠す
+        showNav(x.current);
+        if (x.docked) dockWin(w);
+      }
+      if (keep && wins.includes(keep) && !keep.docked) activate(keep);
     }
     if (sn.svWin) restoreSvWindow(sn.svWin); // ストリートビューのウィンドウ
     if (ui.spotlight) openSpotlight();
@@ -2118,6 +2134,8 @@ function destroyWin(w) {
 const removeDockItem = dockRemove; // しまっているウィンドウの一覧から外す
 function undockWin(w) { w.docked = false; w.el.classList.remove('is-docked'); removeDockItem(w); bringFront(w.el); activate(w); w.focused = true; }
 // ウィンドウをしまう（左下の角で離したとき）。しまうウィンドウは、ほかの画面を開いても、そのまま残る
+// 保存・復元するときの、画面の状態の取り出し（編集中の DOM などは含めない）
+const plainEntry = (e) => { const { node, cls, paste, ...rest } = e; return rest; };
 function dockWin(w0) {
   let w = w0;
   if (w.main) { // 主ウィンドウ（#modal）は、編集・設定などにも使うので、中身（カード・国・写真）を追加のウィンドウに移してから、しまう

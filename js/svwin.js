@@ -392,7 +392,7 @@ export function setSvWindowPoint(lat, lng, v = {}) {
 /** 再読み込みしても引き継ぐための、ウィンドウの状態 */
 export function getSvWindowState() {
   const win = panel && !panel.hidden ? { side: snappedSide(panel), min: panel.classList.contains('is-min'), max: panel.classList.contains('is-max') } : null;
-  return { point, rect, win, view };
+  return { point, rect, win, view, docked: !!panel?.classList.contains('is-docked') };
 }
 /** 保存した状態から開き直す（再読み込み後。位置・大きさ・拡大・縮小・分割も戻す） */
 export function restoreSvWindow(s) {
@@ -406,4 +406,5 @@ export function restoreSvWindow(s) {
     else if (w.max) panel.classList.add('is-max');
     else if (w.min) setMinNow(true);
   }
+  if (s.docked && !mobile()) dockPanel(); // しまってあったウィンドウは、しまったまま戻す
 }
