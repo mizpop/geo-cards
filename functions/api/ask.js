@@ -269,5 +269,8 @@ export async function onRequestPost({ request, env }) {
   return json({ error: 'upstream', status: res.status, message }, 502);
 }
 
+// 設定の確認用: どの AI が使える状態か（真偽だけ。キーなどの中身は出さない）
+export const onRequestGet = ({ env }) => json({ gemini: !!env.GEMINI_API_KEY, cloudflareAI: !!env.AI, editorsOnly: env.CHAT_EDITORS_ONLY === '1' });
+
 // POST 以外（onRequestPost が先に処理される）
 export const onRequest = () => json({ error: 'method_not_allowed' }, 405);
