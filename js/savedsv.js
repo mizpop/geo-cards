@@ -30,17 +30,29 @@ export const isSavedSv = (p) => !!list?.some((x) => near(x, p));
 export const svLabel = (r) => r.name || r.name_en || r.name_local || `${Number(r.lat).toFixed(4)}, ${Number(r.lng).toFixed(4)}`;
 
 /** 今開いているストリートビューを保存する（国と地名は自動で付ける）。保存した行を返す */
-export async function saveSv({ lat, lng }) {
+export async function saveSv({ lat, lng, heading = 0, pitch = 0, fov = 0 }) {
   await loadSavedSv().catch((e) => { deps.toast(e.message, 'error'); throw e; });
   const dup = list.find((x) => near(x, { lat, lng }));
-  if (dup) { deps.toast('この場所は、すでに保存してあります'); return dup; }
+  const hasView = heading || pitch || fov;
+  if (dup) {
+    // 同じ場所でも、向きやズームが変わっていれば、それを更新する
+    if (hasView && (Math.abs((dup.heading || 0) - heading) > 1 || Math.abs((dup.pitch || 0) - pitch) > 1 || Math.abs((dup.fov || 0) - fov) > 1)) {
+      const row = await deps.api().updateSavedSv(dup.id, { heading, pitch, fov }).catch((e) => { deps.toast(e.message || '更新できませんでした', 'error'); throw e; });
+      Object.assign(dup, row);
+      changed();
+      deps.toast('向きとズームを更新しました');
+      return dup;
+    }
+    deps.toast('この場所は、すでに保存してあります');
+    return dup;
+  }
   deps.toast('地名を調べています…');
   const [place, code] = await Promise.all([
     reversePlace(lat, lng).catch(() => null), // 大まかな地名（OpenStreetMap）。調べられなくても保存は続ける
     Promise.resolve(deps.countryAt(lat, lng)).catch(() => null), // 国（地図の国境から）
   ]);
   const row = await deps.api().addSavedSv({
-    lat, lng,
+    lat, lng, heading, pitch, fov,
     code: code || place?.code || '',
     name: place?.name || '', name_en: place?.en || '', name_local: place?.local || '', admin: place?.admin || '',
   }).catch((e) => { deps.toast(e.message || '保存できませんでした', 'error'); throw e; });
@@ -58,6 +70,7 @@ async function removeSv(id) {
   changed();
 }
 
+export const rowView = (r) => ({ heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
 const dateText = (iso) => { try { return new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' }); } catch { return ''; } };
 function matches(r, q) {
   if (!q) return true;
@@ -80,7 +93,7 @@ function rowHtml(r) {
       <button type="button" class="btn btn-sm btn-primary" data-open="${esc(r.id)}">開く</button>
       ${deps.isEditor() ? `<button type="button" class="btn btn-sm" data-card="${esc(r.id)}" title="この場所でカードを作る">📍 カードを作る</button>
       <button type="button" class="btn btn-sm btn-danger" data-del="${esc(r.id)}" title="保存を削除">削除</button>` : ''}
-      <a class="btn btn-sm" href="${esc(svOpenUrl(r.lat, r.lng))}" target="_blank" rel="noopener" title="Google マップで開く">↗</a>
+      <a class="btn btn-sm" href="${esc(svOpenUrl(r.lat, r.lng, rowView(r)))}" target="_blank" rel="noopener" title="Google マップで開く">↗</a>
     </div>
   </article>`;
 }
@@ -116,7 +129,7 @@ export function renderSavedSvView(view, setFit) {
     const open = e.target.closest('[data-open]');
     const card = e.target.closest('[data-card]');
     const del = e.target.closest('[data-del]');
-    if (open) { const r = find(open.dataset.open); if (r) deps.openSv(Number(r.lat), Number(r.lng)); }
+    if (open) { const r = find(open.dataset.open); if (r) deps.openSv(Number(r.lat), Number(r.lng), rowView(r)); }
     else if (card) { const r = find(card.dataset.card); if (r) deps.createCard({ lat: Number(r.lat), lng: Number(r.lng), codePromise: r.code || null }); }
     else if (del) {
       const r = find(del.dataset.del);

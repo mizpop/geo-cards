@@ -628,7 +628,7 @@ async function enterApp() {
   initSavedSv({
     api: () => api, isEditor: () => !!state.user?.isEditor, toast, esc, flagImg, countryName, countryAt,
     createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, codePromise: p.codePromise || countryAt(p.lat, p.lng) }),
-    openSv: (lat, lng) => openSvWindow(lat, lng),
+    openSv: (lat, lng, v) => openSvWindow(lat, lng, v || {}),
     confirmDialog: async (m) => confirm(m),
   });
   setSvHooks({
@@ -780,7 +780,7 @@ function bindGlobal() {
     syncSvPosition = async () => {
       const href = await window.desktop.getSvPosition().catch(() => null);
       const p = href ? parseLatLng(href) : null;
-      if (p) setSvWindowPoint(p.lat, p.lng);
+      if (p) setSvWindowPoint(p.lat, p.lng, p); // 位置に加えて、向き・傾き・ズームも
       return !!p;
     };
     setInterval(() => { if (svWindowIsOpen() && document.visibilityState === 'visible') syncSvPosition(); }, 1500);

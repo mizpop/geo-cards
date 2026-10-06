@@ -16,6 +16,7 @@ function uuid() {
 function cleanSv(f) {
   const out = {};
   for (const k of ['lat', 'lng']) if (f[k] !== undefined) out[k] = Number(f[k]);
+  for (const k of ['heading', 'pitch', 'fov']) if (f[k] !== undefined && Number.isFinite(Number(f[k]))) out[k] = Number(f[k]); // 向き・傾き・視野（ズーム）
   for (const k of ['code', 'name', 'name_en', 'name_local', 'admin', 'note']) if (f[k] !== undefined) out[k] = String(f[k] ?? '').slice(0, 300);
   return out;
 }
@@ -245,13 +246,17 @@ function createSupabaseApi(sb) {
       return data;
     },
     async addSavedSv(fields) {
-      const { data, error } = await sb.from('saved_streetviews').insert(cleanSv(fields)).select('*').single();
+      let { data, error } = await sb.from('saved_streetviews').insert(cleanSv(fields)).select('*').single();
+      if (error && /heading|pitch|fov/.test(error.message || '')) { // 向き・ズームの列がまだ無いとき（SQL 実行前）は、それらを除いて保存する
+        const { heading, pitch, fov, ...rest } = cleanSv(fields);
+        ({ data, error } = await sb.from('saved_streetviews').insert(rest).select('*').single());
+      }
       if (error) throw new Error(/saved_streetviews/.test(error.message || '') ? '保存したストリートビューの表を作る必要があります（supabase/card-extras.sql を実行してください）' : error.message);
       return data;
     },
     async updateSavedSv(id, fields) {
       const { data, error } = await sb.from('saved_streetviews').update(cleanSv(fields)).eq('id', id).select('*').single();
-      if (error) throw error;
+      if (error) throw new Error(/heading|pitch|fov/.test(error.message || '') ? '向きとズームの列を作る必要があります（supabase/card-extras.sql を実行してください）' : error.message);
       return data;
     },
     async deleteSavedSv(id) {

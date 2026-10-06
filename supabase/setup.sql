@@ -148,8 +148,15 @@ create table if not exists public.saved_streetviews (
   name_local text not null default '',   -- 現地の言語
   admin      text not null default '',   -- 州・県など
   note       text not null default '',
+  heading    double precision not null default 0,   -- 向き（度）
+  pitch      double precision not null default 0,   -- 傾き（度。上が正）
+  fov        double precision not null default 0,   -- 視野（度。小さいほど拡大。0 は標準）
   created_at timestamptz not null default now()
 );
+-- 以前に表を作った場合のために、列を足す
+alter table public.saved_streetviews add column if not exists heading double precision not null default 0;
+alter table public.saved_streetviews add column if not exists pitch   double precision not null default 0;
+alter table public.saved_streetviews add column if not exists fov     double precision not null default 0;
 create index if not exists saved_streetviews_created_idx on public.saved_streetviews (created_at desc);
 alter table public.saved_streetviews enable row level security;
 drop policy if exists "saved_streetviews: read"  on public.saved_streetviews;

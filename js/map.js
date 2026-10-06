@@ -1,5 +1,5 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
-import { savedSvList, loadSavedSv, onSavedSvChange, svLabel } from './savedsv.js';
+import { savedSvList, loadSavedSv, onSavedSvChange, svLabel, rowView } from './savedsv.js';
 import { svEmbedUrl, svOpenUrl, SV_ICON, openSvWindow, closeSvWindow, svWindowPoint, onSvChange } from './svwin.js';
 import { COUNTRY_BY_CODE } from './countries.js';
 import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
@@ -765,7 +765,7 @@ export async function renderMap(view, ctx) {
       if (!view.contains(ll)) continue;
       const m = L.marker(ll, { icon: L.divIcon({ className: 'sv-saved-pin', html: `<span>${SV_ICON}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] }), keyboard: false, zIndexOffset: 3000 });
       m.bindTooltip(`${r.code ? `${ctx.countryName(r.code)} · ` : ''}${svLabel(r)}`, { direction: 'top', offset: [0, -12] });
-      m.on('click', () => openSvWindow(ll[0], ll[1]));
+      m.on('click', () => openSvWindow(ll[0], ll[1], rowView(r)));
       savedLayer.addLayer(m);
     }
   };

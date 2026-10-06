@@ -4,8 +4,10 @@
 import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap, setPopOrigin, flipAnimate } from './floatz.js';
 
 // キー不要の Google マップの埋め込み（クリックした地点の最寄りのストリートビューが開く）
-export const svEmbedUrl = (lat, lng, heading = 0) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,${Math.round(heading)},0,0,0&hl=ja&output=svembed`;
-export const svOpenUrl = (lat, lng) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`;
+// zoom: 視野（fov。小さいほど拡大）から求めた拡大の段階。cbp=12,向き,0,ズーム,傾き
+const zoomFromFov = (fov) => (fov > 0 ? Math.round(Math.max(0, Math.min(5, Math.log2(90 / fov))) * 100) / 100 : 0);
+export const svEmbedUrl = (lat, lng, heading = 0, pitch = 0, fov = 0) => `https://www.google.com/maps?layer=c&cbll=${lat.toFixed(6)},${lng.toFixed(6)}&cbp=12,${Math.round(heading)},0,${zoomFromFov(fov)},${Math.round(pitch)}&hl=ja&output=svembed`;
+export const svOpenUrl = (lat, lng, v = {}) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}${v.heading ? `&heading=${Math.round(v.heading)}` : ''}${v.pitch ? `&pitch=${Math.round(v.pitch)}` : ''}${v.fov ? `&fov=${Math.round(v.fov)}` : ''}`;
 export const SV_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><path d="M12 9v6M8 11l4-2 4 2M9.5 21l2.5-6 2.5 6"/></svg>';
 const SAVE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>';
 
@@ -29,8 +31,11 @@ export function parseLatLng(text) {
     const lat = Number(m[1]);
     const lng = Number(m[2]);
     if (!inRange(lat, lng)) continue;
-    const h = /,(-?\d+(?:\.\d+)?)h(?:,|\/|$)/.exec(t); // 向き（…,90h,…）
-    return { lat, lng, heading: h ? Number(h[1]) : 0 };
+    // …,3a,75y,90h,95t: y = 視野（小さいほど拡大）、h = 向き、t = 傾き（90 が水平）
+    const h = /,(-?\d+(?:\.\d+)?)h(?:,|\/|$)/.exec(t);
+    const y = /,(\d+(?:\.\d+)?)y(?:,|\/|$)/.exec(t);
+    const tt = /,(-?\d+(?:\.\d+)?)t(?:,|\/|$)/.exec(t);
+    return { lat, lng, heading: h ? Number(h[1]) : 0, pitch: tt ? Number(tt[1]) - 90 : 0, fov: y ? Number(y[1]) : 0 };
   }
   return null;
 }
@@ -38,6 +43,7 @@ export function parseLatLng(text) {
 let panel = null;
 let frame = null;
 let point = null; // [lat, lng]
+let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
 let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, toast: () => {}, syncPosition: null };
 const listeners = new Set();
@@ -49,6 +55,7 @@ export function onSvChange(fn) { listeners.add(fn); return () => listeners.delet
 /** 保存・カード作成などの動作を、アプリから渡す。{ isEditor, canSave, save({lat,lng}), isSaved({lat,lng}), createCard({lat,lng}) } */
 export function setSvHooks(h) { hooks = { ...hooks, ...h }; if (panel) refreshButtons(); }
 export const svWindowPoint = () => (point ? [...point] : null);
+export const svWindowView = () => ({ ...view });
 export const svWindowIsOpen = () => !!point && !!panel && !panel.hidden;
 
 function place() {
@@ -129,7 +136,7 @@ function ensure() {
     try { text = await navigator.clipboard.readText(); } catch { hooks.toast('クリップボードを読み取れませんでした（許可してください）', 'error'); return; }
     const p = parseLatLng(text);
     if (!p) { hooks.toast('位置を読み取れません。ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押してください', 'error'); return; }
-    openSvWindow(p.lat, p.lng, { heading: p.heading });
+    openSvWindow(p.lat, p.lng, { heading: p.heading, pitch: p.pitch, fov: p.fov });
     hooks.toast(`位置を取り込みました: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}（保存すると、この位置で保存されます）`);
   });
   panel.querySelector('#sv-card').addEventListener('click', async () => { await hooks.syncPosition?.(); if (point) hooks.createCard?.({ lat: point[0], lng: point[1] }); });
@@ -138,7 +145,7 @@ function ensure() {
     if (!point) return;
     const btn = panel.querySelector('#sv-save');
     btn.disabled = true;
-    try { await hooks.save?.({ lat: point[0], lng: point[1] }); } finally { btn.disabled = false; refreshButtons(); }
+    try { await hooks.save?.({ lat: point[0], lng: point[1], ...view }); } finally { btn.disabled = false; refreshButtons(); }
   });
   panel.querySelector('#sv-max').addEventListener('click', () => flipAnimate(panel, () => { unsnapWindow(panel); setMinNow(false); saveRect(); panel.classList.toggle('is-max'); }));
   panel.querySelector('#sv-min').addEventListener('click', () => setMin(!panel.classList.contains('is-min')));
@@ -201,9 +208,10 @@ export function openSvWindow(lat, lng, opts = {}) {
   setMin(false); // 縮小していても、新しい場所を開いたら戻す
   panel.classList.remove('is-closing');
   if (panel.hidden) { panel.hidden = false; place(); bringFront(panel); setPopOrigin(panel); }
-  frame.src = svEmbedUrl(lat, lng, opts.heading || 0);
+  view = { heading: Number(opts.heading) || 0, pitch: Number(opts.pitch) || 0, fov: Number(opts.fov) || 0 };
+  frame.src = svEmbedUrl(lat, lng, view.heading, view.pitch, view.fov);
   panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng);
+  panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng, view);
   refreshButtons();
   notify();
 }
@@ -221,12 +229,14 @@ export function closeSvWindow() {
 }
 
 /** 映像はそのままで、今いる位置だけを更新する（Windows 版アプリが、「Google マップで見る」の押下から位置を受け取ったとき） */
-export function setSvWindowPoint(lat, lng) {
+export function setSvWindowPoint(lat, lng, v = {}) {
   if (!panel || panel.hidden) return;
-  if (point && Math.abs(point[0] - lat) < 1e-7 && Math.abs(point[1] - lng) < 1e-7) return;
+  const nv = { heading: Number(v.heading) || 0, pitch: Number(v.pitch) || 0, fov: Number(v.fov) || 0 };
+  if (point && Math.abs(point[0] - lat) < 1e-7 && Math.abs(point[1] - lng) < 1e-7 && nv.heading === view.heading && nv.pitch === view.pitch && nv.fov === view.fov) return;
   point = [lat, lng];
+  view = nv;
   panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng);
+  panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng, view);
   refreshButtons();
   notify();
 }
@@ -234,14 +244,14 @@ export function setSvWindowPoint(lat, lng) {
 /** 再読み込みしても引き継ぐための、ウィンドウの状態 */
 export function getSvWindowState() {
   const win = panel && !panel.hidden ? { side: snappedSide(panel), min: panel.classList.contains('is-min'), max: panel.classList.contains('is-max') } : null;
-  return { point, rect, win };
+  return { point, rect, win, view };
 }
 /** 保存した状態から開き直す（再読み込み後。位置・大きさ・拡大・縮小・分割も戻す） */
 export function restoreSvWindow(s) {
   if (!s) return;
   if (s.rect) rect = s.rect;
   if (!s.point) return;
-  openSvWindow(s.point[0], s.point[1]);
+  openSvWindow(s.point[0], s.point[1], s.view || {});
   const w = s.win;
   if (w && !mobile()) {
     if (w.side) snapWindow(panel, w.side, () => { panel.classList.remove('is-snap'); place(); }, true);
