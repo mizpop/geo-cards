@@ -2334,3 +2334,26 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 #boot { position: fixed; inset: 0; z-index: 100000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: var(--bg, #0e1418); transition: opacity .35s; }
 #boot.gone { opacity: 0; pointer-events: none; }
 #boot .spinner { width: 26px; height: 26px; }
+
+/* ---------- ストリートビュータブ（保存した場所） ---------- */
+.sv-view { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 24px; }
+.sv-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sv-hint { margin: 0; }
+.sv-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.sv-item { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.sv-item-main { display: flex; gap: 12px; align-items: flex-start; text-align: left; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; font: inherit; }
+.sv-item-flag img { width: 40px; height: auto; border-radius: 3px; box-shadow: 0 0 0 1px var(--border); }
+.sv-item-flag { flex: none; min-width: 40px; font-size: 24px; text-align: center; }
+.sv-item-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sv-item-text b { font-size: 15px; }
+.sv-item-sep { color: var(--muted); font-weight: 400; }
+.sv-item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.sv-list > .empty { grid-column: 1 / -1; }
+.sv-btn.is-saved { color: var(--accent); }
+.sv-btn.is-saved svg { fill: currentColor; }
+.ed-sv-toggle { align-self: flex-start; margin-top: 6px; }
+.ed-sv-picker { margin-top: 6px; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+.sv-pick { display: flex; flex-direction: column; gap: 2px; }
+.sv-pick-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: inherit; cursor: pointer; font: inherit; }
+.sv-pick-item:hover { background: var(--surface-2); }
+.sv-pick-item .pl-flag img { width: 26px; }

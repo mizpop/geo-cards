@@ -1,6 +1,8 @@
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
+import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow } from './svwin.js';
+import { initSavedSv, loadSavedSv, saveSv, isSavedSv, renderSavedSvView, renderSavedSvPicker } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
@@ -537,6 +539,7 @@ function snapshotSession() {
     compare: { codes: state.compare.codes, closed: state.compare.closed },
     lang: { q: state.lang.q, chars: state.lang.chars, open: state.lang.open },
     map: getMapSession(),
+    svWin: getSvWindowState(),
     assistant: getAssistantSession(),
     chat: chatIsOpen(),
     scroll: { y: window.scrollY, view: $('#view')?.scrollTop || 0 },
@@ -608,6 +611,7 @@ function restoreOverlays(sn) {
       else if (ui.win.min) w.setMin(true);
       else if (ui.win.max) w.toggleMax();
     }
+    if (sn.svWin) restoreSvWindow(sn.svWin); // ストリートビューのウィンドウ
     if (ui.spotlight) openSpotlight();
     if (sn.assistant) setAssistantSession(sn.assistant);
     if (sn.chat) reopenChat();
@@ -622,6 +626,18 @@ async function enterApp() {
   $('#app').hidden = false;
   $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? `編集者: ${state.user.email}` : '閲覧のみ';
   $('#view').innerHTML = '<div class="empty page-loading"><span class="spinner"></span>読み込み中…</div>';
+  // 保存したストリートビュー・ストリートビューのウィンドウ（どのタブからでも開く）
+  initSavedSv({
+    api: () => api, isEditor: () => !!state.user?.isEditor, toast, esc, flagImg, countryName, countryAt,
+    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, codePromise: p.codePromise || countryAt(p.lat, p.lng) }),
+    openSv: (lat, lng) => openSvWindow(lat, lng),
+    confirmDialog: async (m) => confirm(m),
+  });
+  setSvHooks({
+    isEditor: () => !!state.user?.isEditor, canSave: () => !!state.user?.isEditor, save: saveSv, isSaved: isSavedSv,
+    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, codePromise: countryAt(p.lat, p.lng) }),
+  });
+  loadSavedSv().then(refreshSvWindow).catch(() => {}); // 保存済みの表示のため（表がまだ無いときは何もしない）
   initChat({ api, user: state.user, toast });
   initAssistant({ api, toast, ...assistantDeps });
   await reloadCards();
@@ -760,6 +776,13 @@ function bindGlobal() {
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
   $('#changelog-btn').title = `更新履歴（現在 ${APP_VERSION}）`;
   $('#changelog-btn').addEventListener('click', openChangelog);
+  // data-sv-open="緯度,経度,向き" のボタンは、どの画面でも、ストリートビューのウィンドウで開く（参考写真の撮影地点など）
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest?.('[data-sv-open]');
+    if (!b) return;
+    const [lat, lng, heading] = b.dataset.svOpen.split(',').map(Number);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) { e.preventDefault(); openSvWindow(lat, lng, { heading: heading || 0 }); }
+  });
   document.addEventListener('keydown', onKeydown);
   // 再読み込みで引き継ぐ状態の保存: 閉じる・隠れる直前と、一定の間隔で
   window.addEventListener('pagehide', snapshotSession);
@@ -819,7 +842,7 @@ async function route() {
     view = state.view || 'study';
     setTimeout(openSpotlight, 0);
   }
-  if (!['study', 'quiz', 'map', 'manage', 'compare', 'lang'].includes(view)) view = 'study';
+  if (!['study', 'quiz', 'map', 'manage', 'compare', 'lang', 'sv'].includes(view)) view = 'study';
   state.view = view;
   $$('#tabs a').forEach((a) => a.classList.toggle('active', a.dataset.view === view));
   // 狭い画面で、開いているタブ（名前つき）がヘッダーの外に出ないようにタブの列を動かす
@@ -858,6 +881,7 @@ function renderView() {
   else if (v === 'manage') renderManage();
   else if (v === 'compare') renderCompare();
   else if (v === 'lang') renderLang();
+  else if (v === 'sv') renderSavedSvView($('#view'), setFit);
 }
 
 // ---- キーボード操作（キーは設定で変更可能。e.code で判定するので日本語入力中でも動く）
@@ -878,9 +902,10 @@ const KEY_ACTIONS = [
   ['tab4', 'カード一覧へ'],
   ['tab5', '比較へ'],
   ['tab6', '言語へ'],
+  ['tab7', 'ストリートビューへ'],
   ['search', '検索を開く'],
 ];
-const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', known: 'KeyR', unknown: 'KeyF', tab1: 'Ctrl+Digit1', tab2: 'Ctrl+Digit2', tab3: 'Ctrl+Digit3', tab4: 'Ctrl+Digit4', tab5: 'Ctrl+Digit5', tab6: 'Ctrl+Digit6', search: 'Ctrl+KeyF' };
+const DEFAULT_KEYS = { prev: 'KeyA', next: 'KeyD', flip: 'KeyS', back: 'KeyQ', country: 'KeyW', edit: 'KeyE', tabPrev: 'Ctrl+KeyA', tabNext: 'Ctrl+KeyD', known: 'KeyR', unknown: 'KeyF', tab1: 'Ctrl+Digit1', tab2: 'Ctrl+Digit2', tab3: 'Ctrl+Digit3', tab4: 'Ctrl+Digit4', tab5: 'Ctrl+Digit5', tab6: 'Ctrl+Digit6', tab7: 'Ctrl+Digit7', search: 'Ctrl+KeyF' };
 // キーは e.code（例: KeyA）。Ctrl / Alt / Shift と組み合わせるときは「Ctrl+KeyF」のように前に付ける
 const keyLabel = (code) => (code || '—').split('+').map((k) => k.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'テンキー').replace('Space', 'スペース')).join(' + ');
 const MOD_KEYS = ['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'];
@@ -902,7 +927,7 @@ function updateSearchKeyHint() {
 let capturingKey = false;
 
 function switchTab(delta) {
-  const tabs = ['study', 'quiz', 'map', 'manage', 'compare', 'lang'];
+  const tabs = ['study', 'quiz', 'map', 'manage', 'compare', 'lang', 'sv'];
   const i = Math.max(0, tabs.indexOf(state.view));
   goTab(tabs[(i + delta + tabs.length) % tabs.length]);
 }
@@ -925,7 +950,7 @@ function onKeydown(e) {
     return;
   }
   // タブへ直接移動（初期設定は Ctrl+1〜4）: 組み合わせキーなら入力中でも
-  const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare', tab6: 'lang' }[act];
+  const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare', tab6: 'lang', tab7: 'sv' }[act];
   if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !blockingDialogOpen()) {
     e.preventDefault();
     goTab(tabTo);
@@ -1339,7 +1364,7 @@ function photoInfoHtml(topic, src, code) {
     ${pnote ? `<p class="photo-desc photo-pnote">📝 <b>この写真の見どころ:</b> ${esc(pnote)}</p>` : ''}
     ${(info.desc || '').split('\n').filter(Boolean).map((l) => `<p class="photo-desc${/^(撮影場所|種類):/.test(l) ? ' photo-meta' : ''}">${esc(l)}</p>`).join('')}
     ${note ? `<p class="photo-desc photo-note"><b>見分け方:</b> ${esc(note)}</p>` : ''}
-    ${info.map ? `<a class="btn btn-sm photo-map" href="${esc(info.map)}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a>` : ''}
+    ${info.lat != null && info.lng != null ? `<button type="button" class="btn btn-sm photo-map" data-sv-open="${info.lat},${info.lng},${Math.round(info.heading || 0)}" title="この写真の撮影地点のストリートビューを、アプリのウィンドウで開く">🧍 ストリートビューをウィンドウで開く</button>${info.map ? ` <a class="btn btn-sm photo-map" href="${esc(info.map)}" target="_blank" rel="noopener" title="Google マップで開く">↗</a>` : ''}` : info.map ? `<a class="btn btn-sm photo-map" href="${esc(info.map)}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a>` : ''}
   </div>`;
 }
 // 参考写真を自分のカードに: 画像はこのサイト経由（/api/refimg）で取得して、作成画面に入れる
@@ -4129,6 +4154,8 @@ function openEditor(card, preset = {}) {
           <div class="ed-places" id="ed-places"></div>
           <input type="search" id="ed-place-q" class="input" placeholder="地名を検索して追加（東京 / Paris / berurin など。Enter で一番上を追加）" autocomplete="off" enterkeyhint="done">
           <div class="ed-place-results" id="ed-place-results"></div>
+          <button type="button" class="btn btn-sm ed-sv-toggle" id="ed-sv-toggle" aria-expanded="false">🧍 保存したストリートビューから足す</button>
+          <div class="ed-sv-picker" id="ed-sv-picker" hidden></div>
         </div>
         <label class="field">
           <span>解説</span>
@@ -4321,6 +4348,13 @@ function openEditor(card, preset = {}) {
     $('#ed-place-q').value = '';
     $('#ed-place-results').innerHTML = '';
   };
+  // 保存したストリートビューから、地名として足す（国と大まかな地名は保存時に自動で付いている）
+  $('#ed-sv-toggle').addEventListener('click', () => {
+    const box = $('#ed-sv-picker');
+    box.hidden = !box.hidden;
+    $('#ed-sv-toggle').setAttribute('aria-expanded', String(!box.hidden));
+    if (!box.hidden) renderSavedSvPicker(box, async (c) => { await addPlace(c); box.hidden = true; $('#ed-sv-toggle').setAttribute('aria-expanded', 'false'); });
+  });
   {
     const input = $('#ed-place-q');
     const box = $('#ed-place-results');

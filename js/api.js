@@ -12,6 +12,14 @@ function uuid() {
   });
 }
 
+// 保存したストリートビューの項目（座標と地名だけを通す）
+function cleanSv(f) {
+  const out = {};
+  for (const k of ['lat', 'lng']) if (f[k] !== undefined) out[k] = Number(f[k]);
+  for (const k of ['code', 'name', 'name_en', 'name_local', 'admin', 'note']) if (f[k] !== undefined) out[k] = String(f[k] ?? '').slice(0, 300);
+  return out;
+}
+
 function cleanFields(f) {
   const out = {
     description: f.description ?? '',
@@ -230,6 +238,26 @@ function createSupabaseApi(sb) {
     },
 
     // チャット形式のメモ（古い順）
+    // 保存したストリートビュー
+    async listSavedSv() {
+      const { data, error } = await sb.from('saved_streetviews').select('*').order('created_at', { ascending: false }).limit(1000);
+      if (error) throw new Error(/saved_streetviews/.test(error.message || '') ? '保存したストリートビューの表を作る必要があります（supabase/card-extras.sql を実行してください）' : error.message);
+      return data;
+    },
+    async addSavedSv(fields) {
+      const { data, error } = await sb.from('saved_streetviews').insert(cleanSv(fields)).select('*').single();
+      if (error) throw new Error(/saved_streetviews/.test(error.message || '') ? '保存したストリートビューの表を作る必要があります（supabase/card-extras.sql を実行してください）' : error.message);
+      return data;
+    },
+    async updateSavedSv(id, fields) {
+      const { data, error } = await sb.from('saved_streetviews').update(cleanSv(fields)).eq('id', id).select('*').single();
+      if (error) throw error;
+      return data;
+    },
+    async deleteSavedSv(id) {
+      const { error } = await sb.from('saved_streetviews').delete().eq('id', id);
+      if (error) throw error;
+    },
     async listMemos() {
       const { data, error } = await sb.from('memos').select('id, user_id, author, body, created_at')
         .order('created_at', { ascending: false }).limit(500);
@@ -379,6 +407,7 @@ function createDemoApi() {
   const CAT_KEY = 'geo-cards-demo-categories-v1';
   const NOTES_KEY = 'geo-cards-demo-country-notes-v1';
   const MEMOS_KEY = 'geo-cards-demo-memos-v1';
+  const SAVED_SV_KEY = 'geo-cards-demo-saved-sv-v1';
   const FACTS_KEY = 'geo-cards-demo-facts-v1';
   const loadCats = () => {
     try {
@@ -459,6 +488,27 @@ function createDemoApi() {
       raw[topic] = raw[topic] || {};
       if (value) raw[topic][code] = value; else delete raw[topic][code];
       try { localStorage.setItem(FACTS_KEY, JSON.stringify(raw)); } catch { throw new Error('ブラウザの保存容量が不足しています'); }
+    },
+    async listSavedSv() {
+      try { return (JSON.parse(localStorage.getItem(SAVED_SV_KEY)) || []).sort((x, y) => (y.created_at || '').localeCompare(x.created_at || '')); } catch { return []; }
+    },
+    async addSavedSv(fields) {
+      const list = await this.listSavedSv();
+      const row = { id: uuid(), user_id: 'demo', created_at: new Date().toISOString(), ...cleanSv(fields) };
+      list.push(row);
+      try { localStorage.setItem(SAVED_SV_KEY, JSON.stringify(list)); } catch { throw new Error('ブラウザの保存容量が不足しています'); }
+      return row;
+    },
+    async updateSavedSv(id, fields) {
+      const list = await this.listSavedSv();
+      const row = list.find((x) => x.id === id);
+      if (!row) throw new Error('見つかりません');
+      Object.assign(row, cleanSv(fields));
+      localStorage.setItem(SAVED_SV_KEY, JSON.stringify(list));
+      return row;
+    },
+    async deleteSavedSv(id) {
+      localStorage.setItem(SAVED_SV_KEY, JSON.stringify((await this.listSavedSv()).filter((x) => x.id !== id)));
     },
     async listMemos() {
       try { return JSON.parse(localStorage.getItem(MEMOS_KEY)) || []; } catch { return []; }

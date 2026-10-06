@@ -134,6 +134,33 @@ async function osmQuery(q, signal) {
   return data;
 }
 
+/** 座標から、大まかな地名（市・町と州・県）と国コードを求める（OpenStreetMap の Nominatim。キー不要）。見つからなければ null */
+export async function reversePlace(lat, lng, { signal } = {}) {
+  const key = `rev|${lat.toFixed(3)}|${lng.toFixed(3)}`;
+  let x = osmCache.get(key);
+  if (!x) {
+    const wait = lastOsm + 1000 - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastOsm = Date.now();
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&zoom=10&format=jsonv2&accept-language=ja&addressdetails=1&namedetails=1`, { signal });
+    if (!res.ok) throw new Error(`地名の取得に失敗しました（${res.status}）`);
+    x = await res.json();
+    osmCache.set(key, x);
+  }
+  if (!x || x.error) return null;
+  const a = x.address || {};
+  const city = a.city || a.town || a.village || a.municipality || a.suburb || a.county || a.state_district || '';
+  const name = x.name || city || a.state || a.region || '';
+  const admin = a.state || a.province || a.region || '';
+  return {
+    name,
+    en: x.namedetails?.['name:en'] || '',
+    local: x.namedetails?.name && x.namedetails.name !== name ? x.namedetails.name : '',
+    admin: admin && admin !== name ? admin : '',
+    code: (a.country_code || '').toUpperCase(),
+  };
+}
+
 /** OpenStreetMap で都市・町・県などを探す。駅・道路・店などは除く */
 export async function searchCitiesOSM(query, { signal } = {}) {
   const q = query.trim();
