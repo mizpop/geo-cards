@@ -1,6 +1,7 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
 import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { COUNTRY_BY_CODE } from './countries.js';
+import { suggestCities, searchCitiesOSM } from './cities.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
 import { REF_IMAGES, REF_BASE, REF_PAGES } from './refimages.js';
 import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, legendGroups, factChipHtml, factPanelHtml, MATCH_TOPICS, matchOptions, matchAll } from './infomap.js';
@@ -44,6 +45,7 @@ const worldPromises = {};
 let map = null;
 let lastView = null; // 再描画時に表示位置を保つ
 let renderSeq = 0;
+let cityPoint = null; // 検索で選んだ都市（地図を描き直しても目印を残す）
 let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 // ストリートビュー: ボタンで入る「クリックで開くモード」と、最後に開いた地点（地図を描き直しても開き直す）
 let svOn = false;
@@ -430,7 +432,8 @@ export async function renderMap(view, ctx) {
         <div class="map-top">
           <div class="map-search">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-            <input type="search" id="map-search" list="country-list" placeholder="国を検索（そのまま入力 ／ ww で世界全体）" autocomplete="off" enterkeyhint="go" aria-label="国を検索">
+            <input type="search" id="map-search" list="country-list" placeholder="国・都市を検索（そのまま入力 ／ ww で世界全体）" autocomplete="off" enterkeyhint="go" aria-label="国・都市を検索">
+            <div class="map-suggest" id="map-suggest" role="listbox" aria-label="都市の候補" hidden></div>
             <span class="map-search-help" title="地図で文字を打つ・Enter: 検索を開始 ／ ww: 世界全体 ／ 入力すると候補の国へ自動で移動（設定でオフにできます） ／ Enter: 確定して入力を終える ／ Esc: 元の場所に戻る ／ Ctrl+Enter: Plonkit ／ Alt+Enter: 国の詳細">?</span>
           </div>
           <button class="map-sv-btn ${svOn ? 'is-on' : ''}" id="map-sv" type="button" aria-pressed="${svOn}" aria-label="ストリートビュー" title="ストリートビュー: 押してから、青い線で表示される道路の近くをクリックすると、その場所の映像を表示します">${SV_ICON}</button>
@@ -959,7 +962,7 @@ export async function renderMap(view, ctx) {
     document.addEventListener('keyup', up);
     window.addEventListener('blur', up);
   }
-  escHandler = () => { if (svPoint) closeSv(); else if (svOn) setSv(false); else clearFocus(); };
+  escHandler = () => { if (svPoint) closeSv(); else if (svOn) setSv(false); else if (cityPoint) clearCity(); else clearFocus(); };
   notesHandler = () => renderInfo();
   const isVisible = (code, view) => {
     const parts = partBounds.get(code);
@@ -1500,6 +1503,140 @@ export async function renderMap(view, ctx) {
     ms.value = '';
     ms.dispatchEvent(new Event('input'));
   });
+  // ---- 都市の検索: 国の検索バーに文字を入れると、下に都市の候補（Open-Meteo）が出る。漢字の地名（東京・大阪・京都など）は
+  //      「OpenStreetMap で探す」（Enter でも）。選ぶとその都市へ移動して目印を置き、その国の情報を右パネルに出す
+  const sug = $id('map-suggest');
+  let cities = [];
+  let hi = -1; // 候補の中で、矢印キーで選んでいる行
+  let osmMode = false; // 候補が OpenStreetMap のものか
+  let sugCtl = null;
+  let sugTimer = null;
+  let sugSeq = 0;
+  const fmtPop = (n) => (n >= 10000 ? `${Math.round(n / 10000).toLocaleString()}万人` : n ? `${n.toLocaleString()}人` : '');
+  const closeSug = () => { sug.hidden = true; hi = -1; };
+  const sugRows = () => cities.length + (osmMode ? 0 : 1);
+  function renderSug(q, status = '') {
+    const rows = cities.map((c, i) => `<button type="button" role="option" class="sug-row ${i === hi ? 'is-hi' : ''}" data-i="${i}">
+        ${c.code ? ctx.flagImg(c.code) : '<span class="sug-ico">🏙</span>'}
+        <span class="sug-main"><b>${ctx.esc(c.name)}</b><small>${ctx.esc([c.sub, c.code ? ctx.countryName(c.code) : ''].filter(Boolean).join('・'))}</small></span>
+        ${c.pop ? `<span class="sug-pop">${fmtPop(c.pop)}</span>` : ''}
+      </button>`).join('');
+    const more = osmMode ? '' : `<button type="button" class="sug-row sug-more ${hi === cities.length ? 'is-hi' : ''}" data-more="1"><span class="sug-ico">🔎</span><span class="sug-main"><b>OpenStreetMap で「${ctx.esc(q)}」を探す</b><small>東京・大阪・京都など、漢字の地名はこちら（Enter でも）</small></span></button>`;
+    sug.innerHTML = `${status ? `<div class="sug-status">${ctx.esc(status)}</div>` : ''}${rows}${more}`;
+    sug.hidden = !(rows || more || status);
+    sug.querySelector('.is-hi')?.scrollIntoView({ block: 'nearest' });
+  }
+  async function runSuggest(q) {
+    sugCtl?.abort();
+    sugCtl = new AbortController();
+    const my = ++sugSeq;
+    try {
+      const list = await suggestCities(q, { signal: sugCtl.signal });
+      if (my !== sugSeq) return;
+      cities = list;
+      osmMode = false;
+      hi = -1;
+      if (document.activeElement === ms) renderSug(q);
+    } catch (e) {
+      if (e.name !== 'AbortError' && my === sugSeq) { cities = []; osmMode = false; renderSug(q); } // 候補が取れなくても、「OpenStreetMap で探す」は使える
+    }
+  }
+  async function runOsm(q, autoPick = false) {
+    sugCtl?.abort();
+    sugCtl = new AbortController();
+    const my = ++sugSeq;
+    osmMode = true;
+    cities = [];
+    hi = -1;
+    renderSug(q, 'OpenStreetMap で探しています…');
+    try {
+      const list = await searchCitiesOSM(q, { signal: sugCtl.signal });
+      if (my !== sugSeq) return;
+      cities = list;
+      if (!list.length) { renderSug(q, '見つかりませんでした'); ctx.toast('都市が見つかりません', 'error'); return; }
+      if (autoPick) { pickCity(list[0]); return; }
+      renderSug(q);
+    } catch (e) {
+      if (e.name !== 'AbortError' && my === sugSeq) { renderSug(q, e.message || '検索できませんでした'); ctx.toast(e.message || '検索できませんでした', 'error'); }
+    }
+  }
+  // 選んだ都市へ移動して目印を置く。その国があれば、右パネルにその国の情報を出す
+  function cityIcon(c) {
+    const place = [c.sub, c.code ? ctx.countryName(c.code) : ''].filter(Boolean).join('・');
+    return L.divIcon({
+      className: 'city-pin',
+      html: `<span class="city-dot"></span><div class="city-card">${c.code ? ctx.flagImg(c.code) : ''}<span class="city-name"><b>${ctx.esc(c.name)}</b>${place ? `<small>${ctx.esc(place)}</small>` : ''}</span><button type="button" class="city-x" aria-label="目印を消す" title="目印を消す（Esc）">✕</button></div>`,
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    });
+  }
+  let cityMarker = null;
+  function showCity(c, move) {
+    cityPoint = c;
+    cityMarker?.remove();
+    cityMarker = L.marker([c.lat, c.lng], { icon: cityIcon(c), keyboard: false, zIndexOffset: 4500 }).addTo(map);
+    cityMarker.getElement()?.querySelector('.city-x')?.addEventListener('click', (e) => { e.stopPropagation(); clearCity(); });
+    if (move) fly([c.lat, c.lng], c.zoom);
+    if (c.code && GEO.has(c.code)) { setFocused(c.code); renderPanel(); } // 移動前の表示範囲にその国の図形がなくても選べる（着いたあとの描き直しで色がつく）
+  }
+  function clearCity() {
+    cityPoint = null;
+    cityMarker?.remove();
+    cityMarker = null;
+  }
+  function pickCity(c) {
+    clearTimeout(sugTimer);
+    sugCtl?.abort();
+    closeSug();
+    lastAuto = null;
+    unflash();
+    showCity(c, true);
+    ms.blur();
+    ms.value = '';
+    ms.dispatchEvent(new Event('input'));
+  }
+  ms.addEventListener('input', () => {
+    clearTimeout(sugTimer);
+    const q = ms.value.trim();
+    if (!q || /^(ww|ｗｗ|っw|っｗ)$/i.test(q)) { sugCtl?.abort(); sugSeq++; cities = []; closeSug(); return; }
+    sugTimer = setTimeout(() => runSuggest(q), 300);
+  });
+  ms.addEventListener('focus', () => { if (ms.value.trim() && (cities.length || osmMode)) renderSug(ms.value.trim()); });
+  ms.addEventListener('blur', () => setTimeout(closeSug, 150));
+  // 候補の操作（国の検索の Enter より先に処理する: capture）
+  ms.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !sug.hidden && sugRows()) {
+      e.preventDefault();
+      const n = sugRows();
+      hi = e.key === 'ArrowDown' ? (hi + 1) % n : (hi < 0 ? n - 1 : (hi - 1 + n) % n);
+      renderSug(ms.value.trim());
+      return;
+    }
+    if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const q = ms.value.trim();
+    if (!q) return;
+    if (hi >= 0) { // 矢印で選んだ行
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (hi < cities.length) pickCity(cities[hi]); else runOsm(q);
+      return;
+    }
+    if (ctx.resolveCountry(ms.value)) return; // 国名ならこれまでどおり国へ
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    // 漢字を含む名前（東京・福岡など）は、小さな同名の地名が先に出やすい Open-Meteo より、重要度で並べる OpenStreetMap を使う
+    if (cities.length && !osmMode && !/[\u3400-\u9fff]/.test(q)) pickCity(cities[0]); else runOsm(q, true);
+  }, true);
+  sug.addEventListener('mousedown', (e) => e.preventDefault()); // 候補を押しても、入力欄から離れない
+  sug.addEventListener('click', (e) => {
+    const row = e.target.closest('.sug-row');
+    if (!row) return;
+    if (row.dataset.more) runOsm(ms.value.trim());
+    else pickCity(cities[Number(row.dataset.i)]);
+  });
+  if (cityPoint) showCity(cityPoint, false); // 地図を描き直したときも、目印を残す
+
   $id('map-world').addEventListener('click', () => { clearFocus(); fly([25, 10], 2); });
   // 右パネル（国の情報）を隠す・表示する（選んだ状態は覚えておく）
   {
