@@ -44,12 +44,25 @@ function createWindow() {
   const wc = site.webContents;
   wc.loadURL(SITE);
   wc.on('page-title-updated', (_e, t) => { win.setTitle(t); if (!bar.webContents.isDestroyed()) bar.webContents.send('title', t); });
-  // 別のサイトへのリンク（Google マップ・Plonkit など）は、既定のブラウザで開く。このサイトの中は、そのままアプリで開く
-  wc.setWindowOpenHandler(({ url }) => {
-    try { if (new URL(url).host === ownHost) return { action: 'allow' }; } catch { /* 無視 */ }
-    shell.openExternal(url);
+  // 別のサイトへのリンク（Google マップ・Plonkit など）は、アプリの子ウィンドウで開く。このサイトの中は、そのままアプリで開く
+  const handleOpen = (parent) => ({ url }) => {
+    let u;
+    try { u = new URL(url); } catch { return { action: 'deny' }; }
+    if (u.host === ownHost && parent === win) return { action: 'allow' };
+    if (!/^https?:$/.test(u.protocol)) { shell.openExternal(url); return { action: 'deny' }; } // mailto: など
+    openChild(parent, url);
     return { action: 'deny' };
-  });
+  };
+  const openChild = (parent, url) => {
+    const child = new BrowserWindow({
+      width: 1100, height: 800, parent: win, title: 'GeoChecker', icon: path.join(__dirname, 'icon.png'), backgroundColor: '#ffffff', autoHideMenuBar: true,
+    });
+    child.setMenuBarVisibility(false);
+    child.webContents.setWindowOpenHandler(handleOpen(child)); // 子ウィンドウの中のリンクも、新しい子ウィンドウで開く
+    child.webContents.on('page-title-updated', (_e, t) => child.setTitle(t));
+    child.loadURL(url);
+  };
+  wc.setWindowOpenHandler(handleOpen(win));
   wc.on('did-fail-load', (_e, code, desc, _url, isMain) => {
     if (!isMain || code === -3) return;
     wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<body style="font:16px sans-serif;background:#0e1418;color:#e6edf3;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><h2>サイトに接続できません</h2><p>${desc}</p><p>ネットワークを確認して、上の再読み込みボタン（Ctrl+R）を押してください。</p></div></body>`));

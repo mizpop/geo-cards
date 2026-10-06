@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v15',
+    date: '2026-10-06',
+    sections: [
+      {
+        title: 'Windows 版アプリ（exe）',
+        items: ['Plonkit・Google マップなど外部サイトのリンクは、既定のブラウザではなく、アプリの子ウィンドウで開くように（子ウィンドウの中のリンクも新しい子ウィンドウで開く。mailto: などだけは既定のアプリ）。exe を作り直して入れ替えると反映される'],
+      },
+    ],
+  },
+  {
     version: 'v14',
     date: '2026-10-06',
     sections: [
