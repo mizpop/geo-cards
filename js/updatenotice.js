@@ -2,6 +2,7 @@
 // 前に起動したときの版を、この端末のブラウザに覚えておいて、違っていれば出す（初めて使うときは出さない）
 import { CHANGELOG, APP_VERSION } from './changelog.js';
 
+const SHOW_MS = 5000; // 通知を出しておく時間
 const WEB_KEY = 'geochecker-last-version';
 const DESKTOP_KEY = 'geochecker-last-desktop-version';
 const num = (v) => Number(String(v).replace(/^v/i, '')) || 0;
@@ -40,12 +41,16 @@ export async function showUpdateNoticeIfNeeded(deps) {
     <div class="un-head"><span class="un-icon">🎉</span><b>GeoChecker が更新されました</b><button type="button" class="un-x" aria-label="閉じる">✕</button></div>
     <p class="un-ver">${lines.map((l) => esc(l.text)).join('<br>')}</p>
     ${highlights || more ? `<ul class="un-list">${highlights}${more}</ul>` : ''}
-    <div class="un-foot"><button type="button" class="btn btn-sm btn-primary un-log">更新履歴を見る</button></div>`;
+    <div class="un-foot"><button type="button" class="btn btn-sm btn-primary un-log">更新履歴を見る</button></div>
+    <div class="un-bar" aria-hidden="true"><i></i></div>`;
   document.body.appendChild(box);
   const close = () => { box.classList.add('is-out'); setTimeout(() => box.remove(), 250); };
   box.querySelector('.un-x').addEventListener('click', close);
   box.querySelector('.un-log').addEventListener('click', () => { close(); deps.openChangelog?.(); });
-  let timer = setTimeout(close, 25000); // 放っておいても、しばらくしたら閉じる（ポインターを乗せている間は閉じない）
-  box.addEventListener('mouseenter', () => clearTimeout(timer));
-  box.addEventListener('mouseleave', () => { timer = setTimeout(close, 8000); });
+  // 5 秒で閉じる。閉じるまでの残りの時間を、下の細いバーで見せる（ポインターを乗せている間は止まる）
+  const bar = box.querySelector('.un-bar i');
+  const anim = bar.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: SHOW_MS, easing: 'linear', fill: 'forwards' });
+  anim.onfinish = close;
+  box.addEventListener('mouseenter', () => anim.pause());
+  box.addEventListener('mouseleave', () => anim.play());
 }

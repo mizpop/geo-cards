@@ -2458,3 +2458,8 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 
 .sv-pop-field { display: flex; flex-direction: column; gap: 4px; }
 .sv-pop-delete .sv-pop-name { width: 100%; }
+
+/* 閉じるまでの残り時間のバー（通知の下端。左へ縮む） */
+#update-notice { overflow: hidden; }
+#update-notice .un-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: color-mix(in srgb, var(--accent) 18%, transparent); }
+#update-notice .un-bar i { display: block; height: 100%; background: var(--accent); transform-origin: left center; }
