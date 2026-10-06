@@ -4,3 +4,4 @@ Thumbs.db
 *.swp
 .vscode/
 __pycache__/
+.ask-last.json

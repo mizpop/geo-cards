@@ -95,6 +95,12 @@ function createSupabaseApi(sb) {
       await sb.auth.signOut();
     },
 
+    // ログイン中のアクセストークン（AI アシスタントのサーバー側が、ログインしている人かを確かめるのに使う）
+    async getAccessToken() {
+      const { data } = await sb.auth.getSession();
+      return data.session?.access_token || '';
+    },
+
     async listCards() {
       const all = [];
       const PAGE = 1000;
@@ -392,6 +398,7 @@ function createDemoApi() {
     async loginViewer() {},
     async loginEditor() {},
     async logout() {},
+    async getAccessToken() { return ''; },
     async listCards() {
       return load().sort((a, b) => b.created_at.localeCompare(a.created_at));
     },

@@ -4,6 +4,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { initChat, teardownChat, raiseChat } from './chat.js';
+import { initAssistant, teardownAssistant, raiseAssistant, openAssistant } from './assistant.js';
 import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
@@ -177,6 +178,7 @@ applySettings();
 async function doLogout() {
   await api.logout();
   teardownChat();
+  teardownAssistant();
   stopLive();
   state.user = null;
   state.cards = [];
@@ -479,12 +481,31 @@ function bindLogin() {
   handle($('#editor-form'), () => api.loginEditor($('#editor-email').value.trim(), $('#editor-pass').value));
 }
 
+// AI アシスタントに渡す、アプリ側のデータと操作（js/assistant.js・js/askctx.js から使う）
+const assistantDeps = {
+  getDeps: () => ({ cards: state.cards, catOf, cardTopic, countryName, photoNote, langCountries }),
+  countryName,
+  openCard: (id) => { const c = cardById(id); if (c) openCardModal(c); },
+  openPhoto: (r) => openPhotoModal(r.topic, r.code, (REF_IMAGES[r.topic]?.[r.code] || []).map((rel) => REF_BASE + rel), r.i),
+  openCountry: (code) => openCountryInfo(code),
+  pinnedLabel: (p) => (p.type === 'card'
+    ? (() => { const c = cardById(p.id); return c ? `${catOf(c).name}・${c.countries.map(countryName).join('・')}` : 'カード'; })()
+    : `${modeDef(p.topic).name}の写真・${countryName(p.code)}`),
+  // 聞く対象のカード・写真の画像（AI に見てもらう）
+  imageBlobFor: async (p) => {
+    if (p.type === 'card') { const c = cardById(p.id); const u = c && imgUrl(c); return u ? await (await fetch(u)).blob() : null; }
+    const res = await fetch(`/api/refimg?path=${encodeURIComponent(p.rel)}`);
+    return res.ok ? await res.blob() : null;
+  },
+};
+
 async function enterApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
   $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? `編集者: ${state.user.email}` : '閲覧のみ';
   $('#view').innerHTML = '<p class="empty">読み込み中…</p>';
   initChat({ api, user: state.user, toast });
+  initAssistant({ api, toast, ...assistantDeps });
   await reloadCards();
   route();
   startLive();
@@ -1232,12 +1253,14 @@ function renderPhotoModal(entry) {
         ${photoInfoHtml(topic, srcs[i], code)}
         ${state.user.isEditor ? `<label class="field photo-note-edit"><span>📝 この写真の見どころ（メモ）<span class="muted small" id="pnote-status"></span></span>
           <textarea id="pnote-input" rows="3" placeholder="例: 反射板の形がポイント。左のボラードは赤い帯が一周している。入力が止まると自動で保存されます">${esc(photoNote(topic, srcs[i], code))}</textarea></label>` : ''}
+        <button type="button" class="btn btn-sm btn-ghost" id="photo-ai" title="この写真を読み取って、AI が答えます">✨ この写真を AI に質問</button>
         ${state.user.isEditor ? '<button type="button" class="btn btn-sm" id="photo-to-card" title="この写真を自分のカードにする（国・カテゴリー・見分け方を入れた状態で作成画面を開きます）">＋ この写真でカードを作る</button>' : ''}
         <div class="pfact">${factPanelHtml(topic, code).replace(/<div class="pfact-note">[^<]*<\/div>/g, '')}</div>
       </div>
     </div>`, 'modal-wide', true);
   attachZoom($('.detail-front .front-img'), srcs.length > 1 ? { onSwipe: (d) => stepPhoto(d) } : {});
   $('#photo-to-card')?.addEventListener('click', (e) => photoToCard(topic, code, srcs[i], e.currentTarget));
+  $('#photo-ai')?.addEventListener('click', () => openAssistant({ pinned: { type: 'photo', topic, code, rel: relOf(srcs[i]) }, question: 'この写真の見分け方や特徴を教えてください' }));
   // 写真ごとのメモ: 入力が止まって 0.8 秒、または欄から離れたら保存
   const pin = $('#pnote-input');
   if (pin) {
@@ -1302,7 +1325,7 @@ function renderCardModal(card, entry = {}) {
         ${cardDatesHtml(card)}
       </div>
     </div>
-    ${state.user.isEditor && !card.photo && !card.sv ? `<div class="modal-foot"><button class="btn" id="detail-edit">編集する</button></div>` : ''}
+    ${card.sv ? '' : `<div class="modal-foot"><button class="btn btn-ghost" id="detail-ai" type="button" title="このカードの画像と内容を読み取って、AI が答えます">✨ AI に質問</button><span class="grow"></span>${state.user.isEditor && !card.photo ? '<button class="btn" id="detail-edit">編集する</button>' : ''}</div>`}
   `, 'modal-wide', true);
   // カード詳細の背景もカテゴリーの色を薄く
   $('#modal').classList.add('modal-card');
@@ -1316,6 +1339,10 @@ function renderCardModal(card, entry = {}) {
   bindModalNav();
   const eb = $('#detail-edit');
   if (eb) eb.addEventListener('click', () => { closeModal(); openEditor(card); });
+  $('#detail-ai')?.addEventListener('click', () => openAssistant({
+    pinned: card.photo ? { type: 'photo', topic: card.topic, code: card.countries[0], rel: relOf(card.src) } : { type: 'card', id: card.id },
+    question: 'この画像の見分け方や特徴を教えてください',
+  }));
 }
 
 /* ================= 言語（一覧と、看板に出てくる文字での絞り込み） ================= */
@@ -1833,6 +1860,7 @@ function openModal(html, cls = '', nav = false) {
   if (asWindow) setupWindow(m);
   foldChipRows(m); // 隣接国が 3 行以上なら折りたたむ
   raiseChat(); // メモのボタン・欄をモーダルの手前に
+  raiseAssistant(); // AI アシスタントも同じく
 }
 function closeModal() {
   const m = $('#modal');
@@ -3456,6 +3484,7 @@ function openSpotlight() {
   sp.classList.remove('closing');
   if (!sp.open) { sp.showModal(); spotOverModal = $('#modal').open; }
   raiseChat();
+  raiseAssistant();
   input.focus();
   input.select();
 }
