@@ -77,7 +77,9 @@ function createWindow() {
       if (!frames.length) return null;
       // 複数のストリートビューのウィンドウがあるときは、開いたときの地点（hint）が URL に入っている映像を選ぶ
       let frame = frames[0];
-      if (hint && frames.length > 1) {
+      const named = hint?.name ? frames.find((f) => f.name === hint.name) : null; // ウィンドウごとの映像の名前（iframe の name）で、確実に見分ける
+      if (named) frame = named;
+      else if (hint && hint.lat != null && frames.length > 1) {
         const near = (f) => { const m = /!1d(-?[\d.]+)!2d(-?[\d.]+)/.exec(f.url); return m ? Math.abs(Number(m[1]) - hint.lat) + Math.abs(Number(m[2]) - hint.lng) : Infinity; };
         frame = frames.slice().sort((a, b) => near(a) - near(b))[0];
       }

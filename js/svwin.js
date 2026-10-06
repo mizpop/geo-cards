@@ -116,12 +116,12 @@ function showDeletePop(anchor, row) {
   const applyName = async () => { // Enter か、欄から離れたときに、名前を変える
     const v = input.value.trim();
     if (v === applied || !hooks.renameSaved) return;
-    try { await hooks.renameSaved(row, v); applied = v; refreshButtons(); hooks.toast('名前を変えました'); } catch (err) { hooks.toast(err.message || '変えられませんでした', 'error'); }
+    try { await hooks.renameSaved(row, v); applied = v; refreshSvWindow(); hooks.toast('名前を変えました'); } catch (err) { hooks.toast(err.message || '変えられませんでした', 'error'); }
   };
   input.addEventListener('keydown', (e) => { if (e.isComposing) return; if (e.key === 'Enter') { e.preventDefault(); applyName().then(closeSvPop); } });
   input.addEventListener('blur', applyName);
   el.querySelector('.sv-pop-del').addEventListener('click', async () => {
-    try { await hooks.deleteSaved(row); closeSvPop(); refreshButtons(); hooks.toast('保存を削除しました'); } catch (err) { hooks.toast(err.message || '削除できませんでした', 'error'); }
+    try { await hooks.deleteSaved(row); closeSvPop(); refreshSvWindow(); hooks.toast('保存を削除しました'); } catch (err) { hooks.toast(err.message || '削除できませんでした', 'error'); }
   });
   input.focus(); input.select();
 }
@@ -161,8 +161,9 @@ export function setSvHooks(h) {
   refreshSvWindow();
 }
 let pollTimer = null;
-export const svWindowPoint = () => { useActive(); return point ? [...point] : null; };
-export const svWindowView = () => { useActive(); return { ...view }; };
+// 操作中のウィンドウの様子を読むだけ（作業用のコピーの持ち主は切り替えない。切り替えると、処理の途中のウィンドウと取り違えるため）
+export const svWindowPoint = () => { store(); return active?.point ? [...active.point] : null; };
+export const svWindowView = () => { store(); return active ? { ...active.view } : { heading: 0, pitch: 0, fov: 0 }; };
 export const svWindowIsOpen = () => openInsts().length > 0;
 export const svWindowIsOpenPoints = () => openInsts().map((i) => [...i.point]); // 開いているすべてのウィンドウの地点
 
@@ -254,7 +255,7 @@ function ensure(inst) {
       <button type="button" class="icon-btn sv-btn" id="sv-max" title="大きく / 元の大きさ（ヘッダーのダブルクリックでも）" aria-label="大きく表示">⤢</button>
       <button type="button" class="icon-btn sv-btn" id="sv-close" title="閉じる（Esc）" aria-label="閉じる">✕</button>
     </div>
-    <iframe id="sv-frame" title="Google ストリートビュー" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <iframe id="sv-frame" name="svf-${inst.id}" title="Google ストリートビュー" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
     <p class="sv-note muted small">ヘッダーをドラッグすると、画面のどこにでも動かせます。</p>`;
   document.body.appendChild(panel);
   frame = panel.querySelector('#sv-frame');
@@ -266,6 +267,8 @@ function ensure(inst) {
   // 映像（別のサイトの iframe）をクリックするとキー入力が映像の中に行って、スペースキー（ストリートビューのモード）などが効かなくなるので、ポインターがウィンドウの外へ出たら、フォーカスをアプリ側に戻す
   const releaseFocus = () => { if (document.activeElement === F) { F.blur(); window.focus(); } };
   P.addEventListener('mouseleave', releaseFocus);
+  // 映像（別のサイトの iframe）の中を操作したときは、ポインターのイベントがこちらに届かないので、フォーカスが映像に移ったことで、「操作中のウィンドウ」をこのウィンドウにする
+  window.addEventListener('blur', () => { if (document.activeElement === F) { active = inst; bringFront(P); } });
   document.addEventListener('mousemove', (e) => { if (document.activeElement === F && !P.contains(e.target)) releaseFocus(); }, true); // ウィンドウの外でポインターが動いたら（mouseleave が届かない場合の備え）
 
   L(panel.querySelector('#sv-close')).addEventListener('click', () => closeSvWindow(inst));
@@ -369,7 +372,7 @@ function dockPanel() {
   panel.classList.add('is-docked');
   dockAdd({
     key: dockKey(),
-    label: () => { use(inst); const t = panel.querySelector('#sv-title-text')?.textContent || ''; return t && t !== 'ストリートビュー' ? `ストリートビュー: ${t}` : `ストリートビュー ${panel.querySelector('#sv-coord')?.textContent || ''}`.trim(); },
+    label: () => { const p = inst.panel; const t = p?.querySelector('#sv-title-text')?.textContent || ''; return t && t !== 'ストリートビュー' ? `ストリートビュー: ${t}` : `ストリートビュー ${p?.querySelector('#sv-coord')?.textContent || ''}`.trim(); }, // 作業用のコピーは切り替えずに、このウィンドウの要素から読む
     thumb: () => ({ emoji: '🧍' }),
     restore: (rect, drop) => { // 離した場所に出す（大きさは、しまう前のまま）
       use(inst); active = inst;
@@ -387,7 +390,7 @@ function dockPanel() {
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))]);
 async function syncInst(inst) {
   if (!hooks.readPosition || !inst.panel || inst.panel.hidden || !inst.point) return false;
-  const hint = inst.req ? { lat: inst.req[0], lng: inst.req[1] } : null; // 複数の映像から、このウィンドウのものを探す手がかり（開いたときの地点）
+  const hint = { name: `svf-${inst.id}`, ...(inst.req ? { lat: inst.req[0], lng: inst.req[1] } : {}) }; // 複数の映像から、このウィンドウのものを探す手がかり（映像の名前。なければ、開いたときの地点）
   const href = await withTimeout(Promise.resolve(hooks.readPosition(hint)).catch(() => null), 1200);
   const p = href ? parseLatLng(href) : null;
   if (!p) return false;
