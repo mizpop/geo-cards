@@ -39,7 +39,7 @@ let panel = null;
 let frame = null;
 let point = null; // [lat, lng]
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, toast: () => {} };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, toast: () => {}, syncPosition: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
 const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
@@ -124,6 +124,7 @@ function ensure() {
   panel.querySelector('#sv-close').addEventListener('click', closeSvWindow);
   // 矢印をたどって移動したあとの位置は、Google の埋め込みからは読み取れないので、「Google マップで見る」のリンク（今いる地点の URL）を貼り付けて取り込む
   panel.querySelector('#sv-paste').addEventListener('click', async () => {
+    if (hooks.syncPosition) { hooks.toast((await hooks.syncPosition()) ? `今いる位置: ${point[0].toFixed(4)}, ${point[1].toFixed(4)}` : '位置を読み取れませんでした（映像の読み込み後にもう一度）'); return; } // Windows 版アプリ: 自動で読める
     let text = '';
     try { text = await navigator.clipboard.readText(); } catch { hooks.toast('クリップボードを読み取れませんでした（許可してください）', 'error'); return; }
     const p = parseLatLng(text);
@@ -131,8 +132,9 @@ function ensure() {
     openSvWindow(p.lat, p.lng, { heading: p.heading });
     hooks.toast(`位置を取り込みました: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}（保存すると、この位置で保存されます）`);
   });
-  panel.querySelector('#sv-card').addEventListener('click', () => { if (point) hooks.createCard?.({ lat: point[0], lng: point[1] }); });
+  panel.querySelector('#sv-card').addEventListener('click', async () => { await hooks.syncPosition?.(); if (point) hooks.createCard?.({ lat: point[0], lng: point[1] }); });
   panel.querySelector('#sv-save').addEventListener('click', async () => {
+    await hooks.syncPosition?.(); // Windows 版アプリは、移動したあとの今いる位置を読み取る
     if (!point) return;
     const btn = panel.querySelector('#sv-save');
     btn.disabled = true;
@@ -221,6 +223,7 @@ export function closeSvWindow() {
 /** 映像はそのままで、今いる位置だけを更新する（Windows 版アプリが、「Google マップで見る」の押下から位置を受け取ったとき） */
 export function setSvWindowPoint(lat, lng) {
   if (!panel || panel.hidden) return;
+  if (point && Math.abs(point[0] - lat) < 1e-7 && Math.abs(point[1] - lng) < 1e-7) return;
   point = [lat, lng];
   panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng);

@@ -3,7 +3,7 @@
 const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 
-const SITE = 'https://geo-cards-533.pages.dev/';
+const SITE = process.env.GEOCHECKER_SITE || 'https://geo-cards-533.pages.dev/'; // GEOCHECKER_SITE: 開発・動作確認用に、読み込む先を変える
 const ownHost = new URL(SITE).host;
 const BAR_H = 36;
 
@@ -45,12 +45,7 @@ function createWindow() {
   wc.loadURL(SITE);
   wc.on('page-title-updated', (_e, t) => { win.setTitle(t); if (!bar.webContents.isDestroyed()) bar.webContents.send('title', t); });
   // 別のサイトへのリンク（Google マップ・Plonkit など）は、アプリの子ウィンドウで開く。このサイトの中は、そのままアプリで開く
-  const handleOpen = (parent) => ({ url, referrer }) => {
-    // ストリートビューのウィンドウ（Google の埋め込み）の「Google マップで見る」: 今いる地点の URL なので、アプリに位置として渡す（開かずに、位置の取り込みだけ）
-    if (parent === win && /^https:\/\/www\.google\.[a-z.]+\/maps\/@/.test(url) && /\/maps\/embed/.test(referrer?.url || '') && !site.webContents.isDestroyed()) {
-      site.webContents.send('sv-position', url);
-      return { action: 'deny' };
-    }
+  const handleOpen = (parent) => ({ url }) => {
     let u;
     try { u = new URL(url); } catch { return { action: 'deny' }; }
     if (u.host === ownHost && parent === win) return { action: 'allow' };
@@ -71,6 +66,20 @@ function createWindow() {
   wc.on('did-fail-load', (_e, code, desc, _url, isMain) => {
     if (!isMain || code === -3) return;
     wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<body style="font:16px sans-serif;background:#0e1418;color:#e6edf3;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><h2>サイトに接続できません</h2><p>${desc}</p><p>ネットワークを確認して、上の再読み込みボタン（Ctrl+R）を押してください。</p></div></body>`));
+  });
+  // ストリートビューのウィンドウ（Google の埋め込み）の中の「Google マップで見る」のリンクは、今いる地点の URL。
+  // このアプリ（Electron）なら、別のサイトの iframe の中でも読み取れるので、アプリ本体から頼まれたときに返す
+  ipcMain.handle('sv-position', async (e) => {
+    if (e.sender !== wc) return null;
+    try {
+      const frame = wc.mainFrame.framesInSubtree.find((f) => /^https:\/\/www\.google\.[a-z.]+\/maps\/embed/.test(f.url));
+      if (!frame) return null;
+      return await frame.executeJavaScript(`(() => {
+        const links = [...document.querySelectorAll('a[href*="/maps/@"]')];
+        const a = links.find((x) => /マップ|Maps/i.test(x.textContent)) || links[0];
+        return a ? a.href : null;
+      })()`);
+    } catch { return null; }
   });
   // 再読み込み: ボタン・Ctrl+R・F5（Shift を足すとキャッシュも捨てる）
   const reload = (hard) => { const u = wc.getURL(); if (!u || u.startsWith('data:')) wc.loadURL(SITE); else if (hard) wc.reloadIgnoringCache(); else wc.reload(); };

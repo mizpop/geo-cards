@@ -1,7 +1,7 @@
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
-import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng } from './svwin.js';
+import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen } from './svwin.js';
 import { initSavedSv, loadSavedSv, saveSv, isSavedSv, renderSavedSvView, renderSavedSvPicker } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
@@ -505,6 +505,7 @@ const assistantDeps = {
 
 /* ================= 再読み込みしても引き継ぐ（クイズ・暗記の途中・開いていたウィンドウなど） =================
    このタブの sessionStorage に、今の状態を定期的に（と、閉じる・再読み込みの直前に）保存し、起動したときに戻す */
+let syncSvPosition = null; // Windows 版アプリだけ: ストリートビューのウィンドウの今いる位置を読み取る
 let sessionReady = false; // 戻し終わるまでは保存しない（途中の空の状態で、前の状態を上書きしないように）
 const sessionUser = () => state.user?.id || state.user?.email || '';
 function snapshotSession() {
@@ -631,7 +632,7 @@ async function enterApp() {
     confirmDialog: async (m) => confirm(m),
   });
   setSvHooks({
-    toast,
+    toast, syncPosition: window.desktop?.getSvPosition ? () => syncSvPosition?.() : null,
     isEditor: () => !!state.user?.isEditor, canSave: () => !!state.user?.isEditor, save: saveSv, isSaved: isSavedSv,
     createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, codePromise: countryAt(p.lat, p.lng) }),
   });
@@ -774,13 +775,16 @@ function bindGlobal() {
   sp.addEventListener('cancel', (e) => { e.preventDefault(); closeSpotlight(); });
   $('#changelog-btn').title = `更新履歴（現在 ${APP_VERSION}）`;
   $('#changelog-btn').addEventListener('click', openChangelog);
-  // Windows 版アプリ: ストリートビューのウィンドウの「Google マップで見る」を押すと、今いる位置を受け取る（electron/main.js）
-  window.desktop?.onSvPosition?.((href) => {
-    const p = parseLatLng(href);
-    if (!p) return;
-    setSvWindowPoint(p.lat, p.lng);
-    toast(`今いる位置を取り込みました: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}（保存すると、この位置で保存されます）`);
-  });
+  // Windows 版アプリ: ストリートビューのウィンドウ（Google の埋め込み）の中の今いる位置を、アプリ側から読み取れる（electron/main.js）。移動したあとの位置を、保存・カード作成・座標の表示に使う
+  if (window.desktop?.getSvPosition) {
+    syncSvPosition = async () => {
+      const href = await window.desktop.getSvPosition().catch(() => null);
+      const p = href ? parseLatLng(href) : null;
+      if (p) setSvWindowPoint(p.lat, p.lng);
+      return !!p;
+    };
+    setInterval(() => { if (svWindowIsOpen() && document.visibilityState === 'visible') syncSvPosition(); }, 1500);
+  }
   // data-sv-open="緯度,経度,向き" のボタンは、どの画面でも、ストリートビューのウィンドウで開く（参考写真の撮影地点など）
   document.addEventListener('click', (e) => {
     const b = e.target.closest?.('[data-sv-open]');
