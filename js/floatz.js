@@ -5,6 +5,30 @@ export function bringFront(el) {
   if (el) el.style.zIndex = String(++z);
 }
 
+// 開くときのアニメーション用: 最後にクリックした場所を覚えておき、ウィンドウをそこから飛び出すように見せる
+let lastDown = { x: 0, y: 0, t: 0 };
+document.addEventListener('pointerdown', (e) => { lastDown = { x: e.clientX, y: e.clientY, t: Date.now() }; }, true);
+export function setPopOrigin(el) {
+  const r = el.getBoundingClientRect();
+  const recent = Date.now() - lastDown.t < 2000; // キー操作などで開いたときは、ウィンドウの中央から
+  el.style.setProperty('--ox', recent ? `${Math.round(lastDown.x - r.left)}px` : '50%');
+  el.style.setProperty('--oy', recent ? `${Math.round(lastDown.y - r.top)}px` : '50%');
+}
+// 大きさ・位置が変わる操作（最大化・縮小など）を、元の形から新しい形へなめらかに動かす。change() の中で、クラスなどを切り替える
+let flipBusy = false;
+export function flipAnimate(el, change) {
+  if (flipBusy || !el.animate || document.documentElement.classList.contains('no-anim') || !el.isConnected) { change(); return; }
+  flipBusy = true;
+  const a = el.getBoundingClientRect();
+  try { change(); } finally { flipBusy = false; }
+  const b = el.getBoundingClientRect();
+  if (!b.width || !b.height || (Math.abs(a.left - b.left) < 1 && Math.abs(a.top - b.top) < 1 && Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1)) return;
+  el.animate(
+    [{ transformOrigin: 'top left', transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width}, ${a.height / b.height})` }, { transformOrigin: 'top left', transform: 'none' }],
+    { duration: 240, easing: 'cubic-bezier(.2, .8, .3, 1)' },
+  );
+}
+
 /* ---- 画面分割: ウィンドウを画面の左右のはしへドラッグして離すと、その側にウィンドウを置き、残りにアプリを並べる ----
    左右に 1 つずつ（合わせて 2 つ）まで。ヘッダーは分割せず、その下の部分だけ */
 const RATIO_KEY = 'geo-cards-split-ratio-v2';
@@ -129,6 +153,10 @@ function clearIfEmpty() {
 // ウィンドウを side に入れる。restore: 浮かぶ状態に戻すとき（ドラッグで外したとき・縮小・拡大）に呼ぶ関数
 // keep: 再読み込み・描き直しで戻すとき（保存した幅をそのまま使い、左右そろっても 3 等分に直さない）
 export function snapWindow(el, side, restore, keep = false) {
+  if (keep) snapNow(el, side, restore, keep); // 再読み込みで戻すときは、動きをつけない
+  else flipAnimate(el, () => snapNow(el, side, restore, keep)); // 左右へ寄せるときは、なめらかに動かす
+}
+function snapNow(el, side, restore, keep) {
   const cur = sideOf(el);
   if (cur) slots[cur] = null; // もう片側に入っていたら、こちらへ移す
   const prev = slots[side];
@@ -145,10 +173,12 @@ export function unsnapWindow(el) {
   const side = sideOf(el);
   if (!side) return false;
   const { restore } = slots[side];
-  slots[side] = null;
-  el.classList.remove('is-snap');
-  clearIfEmpty();
-  restore?.();
+  flipAnimate(el, () => {
+    slots[side] = null;
+    el.classList.remove('is-snap');
+    clearIfEmpty();
+    restore?.();
+  });
   return true;
 }
 // ウィンドウを閉じたとき（元に戻す処理はしない）

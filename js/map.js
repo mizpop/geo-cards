@@ -1,5 +1,5 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
-import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
+import { setPopOrigin, flipAnimate, bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { COUNTRY_BY_CODE } from './countries.js';
 import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
 import { GEO, NUM_TO_CODE } from './geo.js';
@@ -793,8 +793,7 @@ export async function renderMap(view, ctx) {
   };
   const saveRect = () => {
     if (mobileSv() || svPanel.hidden || svPanel.classList.contains('is-max') || svPanel.classList.contains('is-min') || svPanel.classList.contains('is-snap')) return;
-    const r = svPanel.getBoundingClientRect();
-    svRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+    svRect = { left: svPanel.offsetLeft, top: svPanel.offsetTop, width: svPanel.offsetWidth, height: svPanel.offsetHeight }; // アニメーション（transform）の途中でも、本来の位置と大きさ
   };
   function closeSv() {
     releaseSnap(svPanel);
@@ -804,13 +803,13 @@ export async function renderMap(view, ctx) {
     const hide = () => { if (!svPanel.classList.contains('is-closing')) return; svPanel.classList.remove('is-closing'); if (svPoint) return; svPanel.hidden = true; svFrame.src = 'about:blank'; };
     if (svPanel.hidden || document.documentElement.classList.contains('no-anim') || mobileSv()) { svPanel.classList.add('is-closing'); hide(); return; }
     svPanel.classList.add('is-closing'); // 小さく消えるアニメーションのあとで隠す
-    setTimeout(hide, 170);
+    setTimeout(hide, 190);
   }
   function openSv(lat, lng) {
     svPoint = [lat, lng];
     setMin(false); // 縮小していても、新しい場所を開いたら戻す
     svPanel.classList.remove('is-closing');
-    if (svPanel.hidden) { svPanel.hidden = false; placePanel(); bringFront(svPanel); }
+    if (svPanel.hidden) { svPanel.hidden = false; placePanel(); bringFront(svPanel); setPopOrigin(svPanel); }
     svFrame.src = svEmbedUrl(lat, lng);
     svPanel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     svPanel.querySelector('#sv-ext').href = svOpenUrl(lat, lng);
@@ -850,9 +849,10 @@ export async function renderMap(view, ctx) {
     const [lat, lng] = svPoint;
     ctx.createCardFromSv({ lat, lng, codePromise: countryAt(lat, lng) });
   });
-  svPanel.querySelector('#sv-max').addEventListener('click', () => { unsnapWindow(svPanel); setMin(false); saveRect(); svPanel.classList.toggle('is-max'); });
+  svPanel.querySelector('#sv-max').addEventListener('click', () => flipAnimate(svPanel, () => { unsnapWindow(svPanel); setMin(false); saveRect(); svPanel.classList.toggle('is-max'); }));
   // 一時的な縮小: ヘッダーだけにして、地図を見やすくする（もう一度押す・新しい場所を開くと戻る）
-  function setMin(on) {
+  function setMin(on) { flipAnimate(svPanel, () => setMinNow(on)); }
+  function setMinNow(on) {
     if (on) { unsnapWindow(svPanel); saveRect(); svPanel.classList.remove('is-max'); }
     svPanel.classList.toggle('is-min', on);
     const b = svPanel.querySelector('#sv-min');

@@ -11,7 +11,7 @@ import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from '.
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
+import { bringFront, setPopOrigin, flipAnimate, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
@@ -1906,8 +1906,7 @@ function setupWindow(m) {
   };
   const remember = () => {
     if (!m.open || m.classList.contains('is-max') || m.classList.contains('is-min') || m.classList.contains('is-snap')) return;
-    const r = m.getBoundingClientRect();
-    winRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+    winRect = { left: m.offsetLeft, top: m.offsetTop, width: m.offsetWidth, height: m.offsetHeight }; // 開く・動かすアニメーション（transform）の途中でも、本来の位置と大きさを覚える
     saveWinRect();
   };
   if (!m.dataset.winBound) { // 同じ要素なので、最初の 1 回だけ
@@ -1933,14 +1932,14 @@ function setupWindow(m) {
     b.addEventListener('click', onClick);
     head.insertBefore(b, closeBtn || null);
   };
-  const setMin = (on) => {
+  const setMin = (on) => flipAnimate(m, () => {
     if (on) { unsnapWindow(m); remember(); m.classList.remove('is-max'); }
     m.classList.toggle('is-min', on);
     const b = $('#win-min', m);
     if (b) { b.textContent = on ? '□' : '—'; b.title = on ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）'; }
     if (!on) place();
-  };
-  const toggleMax = () => { unsnapWindow(m); setMin(false); remember(); m.classList.toggle('is-max'); if (!m.classList.contains('is-max')) place(); };
+  });
+  const toggleMax = () => flipAnimate(m, () => { unsnapWindow(m); setMin(false); remember(); m.classList.toggle('is-max'); if (!m.classList.contains('is-max')) place(); });
   // 再読み込みで、ウィンドウの状態（縮小・拡大・左右への分割）を戻すための口
   m.__win = { place, setMin, toggleMax, snap: (side) => snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }, true) };
   mk('win-min', m.classList.contains('is-min') ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）', m.classList.contains('is-min') ? '□' : '—', () => setMin(!m.classList.contains('is-min')));
@@ -1999,11 +1998,13 @@ function openModal(html, cls = '', nav = false) {
   modalPasteHandler = null;
   $$('[data-close]', m).forEach((b) => b.addEventListener('click', closeModal));
   const keepY = window.scrollY;
+  const opening = !m.open;
   if (!m.open) {
     if (asWindow) { m.show(); winFocused = true; } else m.showModal();
     spotOverModal = false;
   }
   if (asWindow) setupWindow(m);
+  if (asWindow && opening) setPopOrigin(m); // クリックした場所から飛び出すように
   if (asWindow && window.scrollY !== keepY) window.scrollTo(0, keepY); // 浮かぶウィンドウは、位置が決まるまで一瞬ページの末尾に置かれて、ページがそこまでスクロールされてしまうので戻す
   foldChipRows(m); // 隣接国が 3 行以上なら折りたたむ
   raiseChat(); // メモのボタン・欄をモーダルの手前に
@@ -2016,7 +2017,7 @@ function closeModal() {
   // 浮かぶウィンドウは、小さく消えるアニメーションを再生してから閉じる（その間に別の画面を開くときは、すぐ閉じる）
   if (m.classList.contains('is-window') && settings.animations && !m.classList.contains('is-closing')) {
     m.classList.add('is-closing');
-    setTimeout(finishModalClose, 170);
+    setTimeout(finishModalClose, 190);
     return;
   }
   if (!m.classList.contains('is-closing')) m.close();
