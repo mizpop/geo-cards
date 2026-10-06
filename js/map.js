@@ -609,7 +609,10 @@ export async function renderMap(view, ctx) {
         const area = (pb.getNorth() - pb.getSouth()) * (pb.getEast() - pb.getWest());
         if (area > bestArea) { bestArea = area; best = pb; }
       }
-      bounds.set(code, best);
+      // 同じ国コードの地物が複数ある（オーストラリアとアッシュモア・カルティエ諸島は、同じ番号）ときは、大きい方の範囲を使う
+      const prev = bounds.get(code);
+      const area = (b) => (b.getNorth() - b.getSouth()) * (b.getEast() - b.getWest());
+      if (!prev || area(best) > area(prev)) bounds.set(code, best);
       partBounds.set(code, [...(partBounds.get(code) || []), ...parts]);
     }
     for (const [code, parts] of w.copyParts) partBounds.set(code, [...(partBounds.get(code) || []), ...parts]);
