@@ -2441,3 +2441,5 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 /* 押せる題名は、文字がある部分だけ（余った幅は座標の欄に回して、題名を文字の幅に収める） */
 .sv-head .sv-title { flex: 0 1 auto; max-width: 100%; }
 .sv-head .sv-coord { flex: 1 1 0; min-width: 0; }
+/* 画面分割中は、ページの左右の余白が 14px なので、カードタブの上部の帯も 14px 分だけはみ出させる（24px のままだと、横にスクロールできてしまう） */
+body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
