@@ -1,5 +1,6 @@
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
+import { initLoading } from './loading.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
@@ -11,7 +12,7 @@ import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from '.
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { bringFront, setPopOrigin, flipAnimate, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
+import { bringFront, setPopOrigin, popWindow, flipAnimate, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
@@ -620,7 +621,7 @@ async function enterApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
   $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? `編集者: ${state.user.email}` : '閲覧のみ';
-  $('#view').innerHTML = '<p class="empty">読み込み中…</p>';
+  $('#view').innerHTML = '<div class="empty page-loading"><span class="spinner"></span>読み込み中…</div>';
   initChat({ api, user: state.user, toast });
   initAssistant({ api, toast, ...assistantDeps });
   await reloadCards();
@@ -1199,6 +1200,11 @@ function openCardModal(card, src = null, list = null) {
 // 要素 src の位置・大きさから el を拡大して表示するアニメーション
 // src は要素、または画面上の点 { x, y }（地図の Alt+クリックなど）
 function popFrom(el, src) {
+  if (settings.animations && el.classList.contains('is-window')) { // 浮かぶウィンドウ: 渡された要素・点（地図のクリックなど）から拡大して現れる
+    const r = src.getBoundingClientRect ? src.getBoundingClientRect() : { left: src.x - 12, top: src.y - 12, width: 24, height: 24 };
+    if (r.width && r.height) popWindow(el, { left: r.left, top: r.top, width: r.width, height: r.height });
+    return;
+  }
   if (!settings.animations || !el.animate || el.classList.contains('is-window')) return;
   const r1 = src.getBoundingClientRect ? src.getBoundingClientRect() : { left: src.x - 30, top: src.y - 20, width: 60, height: 40 };
   const r2 = el.getBoundingClientRect();
@@ -4949,6 +4955,7 @@ async function importBackup(file) {
   toast(`${ok} 枚を追加しました`);
 }
 
+initLoading();
 boot();
 
 // クイズの解答に出る国名から、国の詳細を開く（描き直しても効くよう、まとめて受ける）

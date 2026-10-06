@@ -9,29 +9,40 @@ export function bringFront(el) {
 const SRC = 'a, button, .tile, [data-open], [role="button"], li, .fan-card, .pin-card';
 let lastSrc = { el: null, rect: null, t: 0 };
 const remember = (el, x, y) => {
-  const target = el?.closest?.(SRC) || el;
+  const inMap = !!el?.closest?.('.leaflet-container') && !el.closest('button, a, .tile, .leaflet-popup, .leaflet-control, [data-card], [data-open], .hb-card');
+  const target = inMap ? null : el?.closest?.(SRC) || el; // 地図の上（国・海・地図の目印）は、押した点から
   const r = target?.getBoundingClientRect?.();
-  lastSrc = { el: target, rect: r && r.width && r.height && r.width < innerWidth * 0.9 ? { left: r.left, top: r.top, width: r.width, height: r.height } : { left: x - 12, top: y - 12, width: 24, height: 24 }, t: Date.now() };
+  lastSrc = { el: target, rect: r && !inMap && r.width && r.height && r.width < innerWidth * 0.9 ? { left: r.left, top: r.top, width: r.width, height: r.height } : { left: x - 12, top: y - 12, width: 24, height: 24 }, t: Date.now() };
 };
 document.addEventListener('pointerdown', (e) => remember(e.target, e.clientX, e.clientY), true);
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { const el = document.activeElement; if (el && el !== document.body) { const r = el.getBoundingClientRect(); remember(el, r.left + r.width / 2, r.top + r.height / 2); } } }, true);
 export function setPopOrigin(el) {
-  if (document.documentElement.classList.contains('no-anim') || !el.animate) return;
-  const w = { left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }; // 変形の途中でも、本来の位置と大きさ
-  if (!w.width || !w.height) return;
   let src = null;
   if (Date.now() - lastSrc.t < 2000) {
-    const live = lastSrc.el?.isConnected ? lastSrc.el.getBoundingClientRect() : null;
+    const live = lastSrc.el?.isConnected && !lastSrc.el.closest?.('.leaflet-container') ? lastSrc.el.getBoundingClientRect() : null; // 地図の中の要素は、動くことがあるので、押した時点の位置を使う
     src = live && live.width && live.height ? live : lastSrc.rect;
   } else if (document.activeElement && document.activeElement !== document.body && !el.contains(document.activeElement)) {
     const r = document.activeElement.getBoundingClientRect();
     if (r.width && r.height) src = r;
   }
+  popWindow(el, src);
+}
+// src: 出てくる元の位置 { left, top, width, height }（なければ、ウィンドウの中央から）。地図などから開くときは、その位置を直接渡す
+export function popWindow(el, src) {
+  if (document.documentElement.classList.contains('no-anim') || !el.animate) return;
+  const w = { left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }; // 変形の途中でも、本来の位置と大きさ
+  if (!w.width || !w.height) return;
+  el.getAnimations().forEach((a) => { if (a.effect?.getKeyframes?.()[0]?.transformOrigin === '50% 50%') a.cancel(); }); // 先に始めた同じアニメーションがあれば置き換える
   const scx = src ? src.left + src.width / 2 : w.left + w.width / 2;
   const scy = src ? src.top + src.height / 2 : w.top + w.height / 2;
   const sc = src ? Math.max(0.04, Math.min(0.5, Math.max(src.width / w.width, src.height / w.height))) : 0.9;
-  const from = `translate(${scx - (w.left + w.width / 2)}px, ${scy - (w.top + w.height / 2)}px) scale(${sc})`;
-  el.animate([{ opacity: 0, transform: from, transformOrigin: '50% 50%' }, { opacity: 1, offset: 0.3, transform: `translate(${(scx - (w.left + w.width / 2)) * 0.5}px, ${(scy - (w.top + w.height / 2)) * 0.5}px) scale(${(1 + sc) / 2})`, transformOrigin: '50% 50%' }, { opacity: 1, transform: 'none', transformOrigin: '50% 50%' }], { duration: 340, easing: 'cubic-bezier(.3, .1, .2, 1)' });
+  const dx = scx - (w.left + w.width / 2);
+  const dy = scy - (w.top + w.height / 2);
+  el.animate([
+    { opacity: 0, transform: `translate(${dx}px, ${dy}px) scale(${sc})`, transformOrigin: '50% 50%' },
+    { opacity: 1, offset: 0.3, transform: `translate(${dx * 0.5}px, ${dy * 0.5}px) scale(${(1 + sc) / 2})`, transformOrigin: '50% 50%' },
+    { opacity: 1, transform: 'none', transformOrigin: '50% 50%' },
+  ], { duration: 340, easing: 'cubic-bezier(.3, .1, .2, 1)' });
 }
 // 大きさ・位置が変わる操作（最大化・縮小など）を、元の形から新しい形へなめらかに動かす。change() の中で、クラスなどを切り替える
 let flipBusy = false;
