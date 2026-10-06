@@ -29,7 +29,7 @@ function createWindow() {
     titleBarOverlay: { color: '#141b21', symbolColor: '#e6edf3', height: BAR_H }, // 右端の最小化・最大化・閉じるのボタン
   });
   const bar = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js') } });
-  const site = new WebContentsView();
+  const site = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'site-preload.js') } });
   win.contentView.addChildView(site);
   win.contentView.addChildView(bar);
   const layout = () => {
@@ -45,7 +45,12 @@ function createWindow() {
   wc.loadURL(SITE);
   wc.on('page-title-updated', (_e, t) => { win.setTitle(t); if (!bar.webContents.isDestroyed()) bar.webContents.send('title', t); });
   // 別のサイトへのリンク（Google マップ・Plonkit など）は、アプリの子ウィンドウで開く。このサイトの中は、そのままアプリで開く
-  const handleOpen = (parent) => ({ url }) => {
+  const handleOpen = (parent) => ({ url, referrer }) => {
+    // ストリートビューのウィンドウ（Google の埋め込み）の「Google マップで見る」: 今いる地点の URL なので、アプリに位置として渡す（開かずに、位置の取り込みだけ）
+    if (parent === win && /^https:\/\/www\.google\.[a-z.]+\/maps\/@/.test(url) && /\/maps\/embed/.test(referrer?.url || '') && !site.webContents.isDestroyed()) {
+      site.webContents.send('sv-position', url);
+      return { action: 'deny' };
+    }
     let u;
     try { u = new URL(url); } catch { return { action: 'deny' }; }
     if (u.host === ownHost && parent === win) return { action: 'allow' };

@@ -9,20 +9,37 @@ export const svOpenUrl = (lat, lng) => `https://www.google.com/maps/@?api=1&map_
 export const SV_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><path d="M12 9v6M8 11l4-2 4 2M9.5 21l2.5-6 2.5 6"/></svg>';
 const SAVE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>';
 
-// Google マップのリンクなどから、緯度・経度を取り出す（@lat,lng / viewpoint=lat,lng / cbll=lat,lng / q=lat,lng）
-export function parseLatLng(url) {
-  const m = /[@=](-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/.exec(String(url || '')) || /[?&]q=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/.exec(String(url || '')) || /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/.exec(String(url || ''));
-  if (!m) return null;
-  const lat = Number(m[1]);
-  const lng = Number(m[2]);
-  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+// Google マップのリンク・座標の文字から、緯度・経度（と向き）を取り出す。
+// 例: https://www.google.com/maps/@48.8584,2.2944,3a,75y,90h,90t/... / ...viewpoint=48.85,2.29 / cbll=48.85,2.29 / 48.8584, 2.2944
+const inRange = (lat, lng) => Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+export function parseLatLng(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const num = '(-?\\d{1,3}(?:\\.\\d+)?)';
+  const tries = [
+    new RegExp(`[?&](?:cbll|viewpoint)=${num},${num}`), // ストリートビューの地点
+    new RegExp(`@${num},${num}`), // Google マップのアドレスバー（ストリートビューでは、今いる地点）
+    /!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/, // 場所の指定
+    new RegExp(`[?&](?:ll|q|center)=${num},${num}`),
+    new RegExp(`^${num}\\s*[,，\\s]\\s*${num}$`), // 「緯度, 経度」だけ
+  ];
+  for (const re of tries) {
+    const m = re.exec(t);
+    if (!m) continue;
+    const lat = Number(m[1]);
+    const lng = Number(m[2]);
+    if (!inRange(lat, lng)) continue;
+    const h = /,(-?\d+(?:\.\d+)?)h(?:,|\/|$)/.exec(t); // 向き（…,90h,…）
+    return { lat, lng, heading: h ? Number(h[1]) : 0 };
+  }
+  return null;
 }
 
 let panel = null;
 let frame = null;
 let point = null; // [lat, lng]
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, toast: () => {} };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
 const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
@@ -90,6 +107,7 @@ function ensure() {
     <div class="sv-head" id="sv-head">
       <span class="sv-title">${SV_ICON} ストリートビュー</span>
       <span class="sv-coord muted small" id="sv-coord"></span>
+      <button type="button" class="icon-btn sv-btn" id="sv-paste" title="いる位置を取り込む（ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押す）" aria-label="位置を貼り付けて合わせる">📋</button>
       <button type="button" class="icon-btn sv-btn" id="sv-save" title="この場所を保存する（ストリートビュータブから開けます）" aria-label="この場所を保存する" hidden>${SAVE_ICON}</button>
       <button type="button" class="icon-btn sv-btn" id="sv-card" title="この場所でカードを作る（国と場所を入れた状態で作成画面を開きます）" aria-label="この場所でカードを作る" hidden>📍</button>
       <a class="icon-btn sv-btn" id="sv-ext" target="_blank" rel="noopener" title="Google マップで開く" aria-label="Google マップで開く">↗</a>
@@ -104,6 +122,15 @@ function ensure() {
   panel.addEventListener('pointerdown', () => bringFront(panel), true); // 触ったウィンドウを手前に
 
   panel.querySelector('#sv-close').addEventListener('click', closeSvWindow);
+  // 矢印をたどって移動したあとの位置は、Google の埋め込みからは読み取れないので、「Google マップで見る」のリンク（今いる地点の URL）を貼り付けて取り込む
+  panel.querySelector('#sv-paste').addEventListener('click', async () => {
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch { hooks.toast('クリップボードを読み取れませんでした（許可してください）', 'error'); return; }
+    const p = parseLatLng(text);
+    if (!p) { hooks.toast('位置を読み取れません。ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押してください', 'error'); return; }
+    openSvWindow(p.lat, p.lng, { heading: p.heading });
+    hooks.toast(`位置を取り込みました: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}（保存すると、この位置で保存されます）`);
+  });
   panel.querySelector('#sv-card').addEventListener('click', () => { if (point) hooks.createCard?.({ lat: point[0], lng: point[1] }); });
   panel.querySelector('#sv-save').addEventListener('click', async () => {
     if (!point) return;
@@ -189,6 +216,16 @@ export function closeSvWindow() {
   panel.classList.add('is-closing'); // 小さく消えるアニメーションのあとで隠す
   if (panel.hidden || document.documentElement.classList.contains('no-anim') || mobile()) { hide(); return; }
   setTimeout(hide, 170);
+}
+
+/** 映像はそのままで、今いる位置だけを更新する（Windows 版アプリが、「Google マップで見る」の押下から位置を受け取ったとき） */
+export function setSvWindowPoint(lat, lng) {
+  if (!panel || panel.hidden) return;
+  point = [lat, lng];
+  panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng);
+  refreshButtons();
+  notify();
 }
 
 /** 再読み込みしても引き継ぐための、ウィンドウの状態 */
