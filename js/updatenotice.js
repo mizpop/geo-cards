@@ -47,10 +47,8 @@ export async function showUpdateNoticeIfNeeded(deps) {
   const close = () => { box.classList.add('is-out'); setTimeout(() => box.remove(), 250); };
   box.querySelector('.un-x').addEventListener('click', close);
   box.querySelector('.un-log').addEventListener('click', () => { close(); deps.openChangelog?.(); });
-  // 5 秒で閉じる。閉じるまでの残りの時間を、下の細いバーで見せる（ポインターを乗せている間は止まる）
+  // 5 秒で閉じる。閉じるまでの残りの時間を、下の細いバーで見せる（ポインターを乗せても止まらない）
   const bar = box.querySelector('.un-bar i');
   const anim = bar.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: SHOW_MS, easing: 'linear', fill: 'forwards' });
   anim.onfinish = close;
-  box.addEventListener('mouseenter', () => anim.pause());
-  box.addEventListener('mouseleave', () => anim.play());
 }
