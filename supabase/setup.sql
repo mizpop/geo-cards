@@ -43,6 +43,7 @@ alter table public.cards add column if not exists category_id uuid references pu
 alter table public.cards add column if not exists back_path text;
 alter table public.cards add column if not exists thumb_path text;
 alter table public.cards add column if not exists related uuid[] not null default '{}';
+alter table public.cards add column if not exists sv_ids uuid[] not null default '{}';
 alter table public.cards add column if not exists places jsonb not null default '[]'::jsonb;
 
 -- 初期カテゴリー（まだ1つもない場合のみ）
@@ -143,6 +144,7 @@ create table if not exists public.saved_streetviews (
   lat        double precision not null,
   lng        double precision not null,
   code       text not null default '',   -- 国コード（自動）
+  title      text not null default '',   -- 自分でつける名前（空なら地名を表示）
   name       text not null default '',   -- 大まかな地名（日本語）
   name_en    text not null default '',
   name_local text not null default '',   -- 現地の言語
@@ -154,6 +156,7 @@ create table if not exists public.saved_streetviews (
   created_at timestamptz not null default now()
 );
 -- 以前に表を作った場合のために、列を足す
+alter table public.saved_streetviews add column if not exists title   text not null default '';
 alter table public.saved_streetviews add column if not exists heading double precision not null default 0;
 alter table public.saved_streetviews add column if not exists pitch   double precision not null default 0;
 alter table public.saved_streetviews add column if not exists fov     double precision not null default 0;

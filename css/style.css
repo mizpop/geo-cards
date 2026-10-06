@@ -2362,3 +2362,15 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-saved-pin span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #1c7ed6; color: #fff; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .45); cursor: pointer; }
 .sv-saved-pin svg { width: 15px; height: 15px; }
 .sv-saved-pin:hover span { background: #1971c2; transform: scale(1.12); }
+
+/* 保存したストリートビューの名前の変更・関連カード・カードからの関連ストリートビュー */
+.sv-rename { width: 100%; max-width: 280px; font-size: 14px; padding: 4px 8px; }
+.sv-item-cards { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sv-card-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.sv-card-chip:hover { border-color: var(--accent); }
+.sv-card-chip img { width: 18px; height: auto; border-radius: 2px; }
+.sv-card-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-link-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.sv-link { display: inline-flex; align-items: center; gap: 6px; }
+.sv-link img { width: 20px; height: auto; border-radius: 2px; }
+.sv-link .muted { font-weight: 400; font-size: 12px; }

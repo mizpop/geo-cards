@@ -17,7 +17,7 @@ function cleanSv(f) {
   const out = {};
   for (const k of ['lat', 'lng']) if (f[k] !== undefined) out[k] = Number(f[k]);
   for (const k of ['heading', 'pitch', 'fov']) if (f[k] !== undefined && Number.isFinite(Number(f[k]))) out[k] = Number(f[k]); // 向き・傾き・視野（ズーム）
-  for (const k of ['code', 'name', 'name_en', 'name_local', 'admin', 'note']) if (f[k] !== undefined) out[k] = String(f[k] ?? '').slice(0, 300);
+  for (const k of ['code', 'title', 'name', 'name_en', 'name_local', 'admin', 'note']) if (f[k] !== undefined) out[k] = String(f[k] ?? '').slice(0, 300);
   return out;
 }
 
@@ -33,6 +33,8 @@ function cleanFields(f) {
   if (f.related) out.related = Array.from(f.related);
   // 地名（都市・町。card-extras.sql で追加した列。使っていないときは送らない）
   if (f.places) out.places = Array.from(f.places);
+  // 関連付けた保存済みストリートビューの id（card-extras.sql で追加した列。使っていないときは送らない）
+  if (f.sv_ids) out.sv_ids = Array.from(f.sv_ids);
   return out;
 }
 
@@ -49,7 +51,7 @@ function explainSyncError(error) {
 // card-extras.sql をまだ実行していない（列がない）ときのエラーを分かりやすく
 function explainColumnError(error) {
   const msg = error?.message || '';
-  if (/(related|back_path|places)/.test(msg) && /(column|schema cache)/i.test(msg)) {
+  if (/(related|back_path|places|sv_ids)/.test(msg) && /(column|schema cache)/i.test(msg)) {
     return new Error('データベースに新しい列がありません。Supabase の SQL Editor で supabase/card-extras.sql を実行してください');
   }
   return error;
@@ -154,6 +156,7 @@ function createSupabaseApi(sb) {
       const row = { id, image_path: path, ...cleanFields(fields) };
       if (!row.related?.length) delete row.related;
       if (!row.places?.length) delete row.places;
+      if (!row.sv_ids?.length) delete row.sv_ids;
       const uploaded = [path];
       // 一覧・地図用の低画質版（失敗しても本体の保存は続ける）
       let thumbPath = null;
@@ -191,6 +194,7 @@ function createSupabaseApi(sb) {
       const patch = { ...cleanFields(fields), updated_at: new Date().toISOString() };
       if (!patch.related?.length && !card.related?.length) delete patch.related;
       if (!patch.places?.length && !card.places?.length) delete patch.places;
+      if (!patch.sv_ids?.length && !card.sv_ids?.length) delete patch.sv_ids;
       const added = [];
       const old = [];
       if (imageBlob) {
@@ -247,8 +251,8 @@ function createSupabaseApi(sb) {
     },
     async addSavedSv(fields) {
       let { data, error } = await sb.from('saved_streetviews').insert(cleanSv(fields)).select('*').single();
-      if (error && /heading|pitch|fov/.test(error.message || '')) { // 向き・ズームの列がまだ無いとき（SQL 実行前）は、それらを除いて保存する
-        const { heading, pitch, fov, ...rest } = cleanSv(fields);
+      if (error && /heading|pitch|fov|title/.test(error.message || '')) { // 向き・ズーム・名前の列がまだ無いとき（SQL 実行前）は、それらを除いて保存する
+        const { heading, pitch, fov, title, ...rest } = cleanSv(fields);
         ({ data, error } = await sb.from('saved_streetviews').insert(rest).select('*').single());
       }
       if (error) throw new Error(/saved_streetviews/.test(error.message || '') ? '保存したストリートビューの表を作る必要があります（supabase/card-extras.sql を実行してください）' : error.message);
@@ -256,7 +260,7 @@ function createSupabaseApi(sb) {
     },
     async updateSavedSv(id, fields) {
       const { data, error } = await sb.from('saved_streetviews').update(cleanSv(fields)).eq('id', id).select('*').single();
-      if (error) throw new Error(/heading|pitch|fov/.test(error.message || '') ? '向きとズームの列を作る必要があります（supabase/card-extras.sql を実行してください）' : error.message);
+      if (error) throw new Error(/heading|pitch|fov|title/.test(error.message || '') ? '名前・向き・ズームの列を作る必要があります（supabase/card-extras.sql を実行してください）' : error.message);
       return data;
     },
     async deleteSavedSv(id) {

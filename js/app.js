@@ -2,7 +2,7 @@ import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
 import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen } from './svwin.js';
-import { initSavedSv, loadSavedSv, saveSv, isSavedSv, renderSavedSvView, renderSavedSvPicker } from './savedsv.js';
+import { initSavedSv, loadSavedSv, saveSv, isSavedSv, renderSavedSvView, renderSavedSvPicker, savedSvById, savedSvAt, svLabel, placeLabel, rowView } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
@@ -627,14 +627,17 @@ async function enterApp() {
   // 保存したストリートビュー・ストリートビューのウィンドウ（どのタブからでも開く）
   initSavedSv({
     api: () => api, isEditor: () => !!state.user?.isEditor, toast, esc, flagImg, countryName, countryAt,
-    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, codePromise: p.codePromise || countryAt(p.lat, p.lng) }),
+    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: p.svId, codePromise: p.codePromise || countryAt(p.lat, p.lng) }),
     openSv: (lat, lng, v) => openSvWindow(lat, lng, v || {}),
+    cardsFor: (svId) => state.cards.filter((c) => (c.sv_ids || []).includes(svId)),
+    cardLabel: (c) => c.description || catOf(c).name,
+    openCard: (id, src) => { const c = cardById(id); if (c) openCardModal(c, src); },
     confirmDialog: async (m) => confirm(m),
   });
   setSvHooks({
     toast, syncPosition: window.desktop?.getSvPosition ? () => syncSvPosition?.() : null,
     isEditor: () => !!state.user?.isEditor, canSave: () => !!state.user?.isEditor, save: saveSv, isSaved: isSavedSv,
-    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, codePromise: countryAt(p.lat, p.lng) }),
+    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: savedSvAt(p)?.id, codePromise: countryAt(p.lat, p.lng) }), // 保存済みの場所なら、そのストリートビューと関連付ける
   });
   loadSavedSv().then(refreshSvWindow).catch(() => {}); // 保存済みの表示のため（表がまだ無いときは何もしない）
   initChat({ api, user: state.user, toast });
@@ -789,8 +792,8 @@ function bindGlobal() {
   document.addEventListener('click', (e) => {
     const b = e.target.closest?.('[data-sv-open]');
     if (!b) return;
-    const [lat, lng, heading] = b.dataset.svOpen.split(',').map(Number);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) { e.preventDefault(); openSvWindow(lat, lng, { heading: heading || 0 }); }
+    const [lat, lng, heading, pitch, fov] = b.dataset.svOpen.split(',').map(Number);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) { e.preventDefault(); e.stopPropagation(); openSvWindow(lat, lng, { heading: heading || 0, pitch: pitch || 0, fov: fov || 0 }); }
   });
   document.addEventListener('keydown', onKeydown);
   // 再読み込みで引き継ぐ状態の保存: 閉じる・隠れる直前と、一定の間隔で
@@ -1113,10 +1116,20 @@ function relatedCards(card) {
   for (const c of state.cards) if (c.id !== card.id && (c.related || []).includes(card.id)) ids.add(c.id);
   return [...ids].map((id) => state.cards.find((c) => c.id === id)).filter(Boolean);
 }
+// 関連付けた保存済みストリートビュー（押すと、ウィンドウで開く）
+function svLinksHtml(card) {
+  const rows = (card.sv_ids || []).map(savedSvById).filter(Boolean);
+  if (!rows.length || card.photo) return '';
+  return `<div class="related sv-links">
+    <div class="related-head">🧍 関連ストリートビュー <span class="muted">${rows.length}</span></div>
+    <div class="sv-link-list">${rows.map((r) => { const v = rowView(r); return `<button type="button" class="btn btn-sm sv-link" data-sv-open="${r.lat},${r.lng},${v.heading},${v.pitch},${v.fov}" title="ストリートビューをウィンドウで開く">${r.code ? flagImg(r.code) : '📍'}<b>${esc(svLabel(r))}</b>${r.title ? `<span class="muted">${esc(placeLabel(r))}</span>` : ''}</button>`; }).join('')}</div>
+  </div>`;
+}
 function relatedHtml(card) {
   const list = relatedCards(card);
-  if (!list.length) return '';
-  return `<div class="related">
+  const sv = svLinksHtml(card);
+  if (!list.length) return sv;
+  return sv + `<div class="related">
     <div class="related-head">🔗 関連カード <span class="muted">${list.length}</span></div>
     <div class="related-list">${list.map((c) => `<button type="button" class="related-item" data-related="${c.id}" style="${catStyle(c)}" title="${esc(c.description || catOf(c).name)}">
       <span class="related-thumb">${thumbUrl(c) ? `<img src="${esc(thumbUrl(c))}" alt="" loading="lazy">` : ''}</span>
@@ -3555,7 +3568,7 @@ function renderQuizResult() {
 /* ================= 検索 ================= */
 // 検索: 国名・地域名に当てはまるカードを先に、続けて説明文・解説・詳細エリア・カテゴリー名に含むカード
 // （文の検索はスペース区切りの語をすべて含むもの）
-const cardText = (card) => `${card.description || ''}\n${card.notes || ''}\n${card.area || ''}\n${(card.places || []).map((p) => [p.name, p.en, p.local, p.sub].filter(Boolean).join(' ')).join(' ')}\n${catOf(card).id === 'none' ? '' : catOf(card).name}`.toLowerCase();
+const cardText = (card) => `${card.description || ''}\n${card.notes || ''}\n${card.area || ''}\n${(card.sv_ids || []).map(savedSvById).filter(Boolean).map((r) => `${r.title || ''} ${placeLabel(r)}`).join(' ')}\n${(card.places || []).map((p) => [p.name, p.en, p.local, p.sub].filter(Boolean).join(' ')).join(' ')}\n${catOf(card).id === 'none' ? '' : catOf(card).name}`.toLowerCase();
 function matchCards(query) {
   const q = query.trim().toLowerCase();
   if (!q) return state.cards;
@@ -4087,6 +4100,7 @@ function openEditor(card, preset = {}) {
     backPreview: card ? backUrl(card) : '',
     related: new Set((card?.related || []).filter((id) => state.cards.some((c) => c.id === id))),
     places: Array.isArray(card?.places) ? card.places.map((p) => ({ ...p })) : [],
+    svIds: new Set(card ? card.sv_ids || [] : preset.svIds || []), // 関連付けた保存済みストリートビュー
   };
 
   openModal(`
@@ -4175,6 +4189,12 @@ function openEditor(card, preset = {}) {
           <div class="ed-related" id="ed-related"></div>
           <input type="search" id="ed-rel-q" class="input" placeholder="国名・地域名・説明でカードを検索して追加" autocomplete="off">
           <div class="ed-rel-results" id="ed-rel-results"></div>
+        </div>
+        <div class="field">
+          <span>関連ストリートビュー（保存したストリートビューと関連付け。カードを開くと、ここから開ける）</span>
+          <div class="ed-related" id="ed-svlinks"></div>
+          <button type="button" class="btn btn-sm ed-sv-toggle" id="ed-svlink-toggle" aria-expanded="false">🧍 保存したストリートビューから選ぶ</button>
+          <div class="ed-sv-picker" id="ed-svlink-picker" hidden></div>
         </div>
       </section>
     </div>
@@ -4357,6 +4377,22 @@ function openEditor(card, preset = {}) {
     $('#ed-place-q').value = '';
     $('#ed-place-results').innerHTML = '';
   };
+  // 関連ストリートビュー: 保存したストリートビューを選んで、このカードと関連付ける
+  const renderSvLinks = () => {
+    const rows = [...ed.svIds].map(savedSvById).filter(Boolean);
+    $('#ed-svlinks').innerHTML = rows.length
+      ? rows.map((r) => `<span class="chip chip-removable place-chip">${r.code ? flagImg(r.code) : '🧍'}<b>${esc(svLabel(r))}</b>${r.title ? `<em>${esc(placeLabel(r))}</em>` : ''}<button type="button" data-svlink-rm="${esc(r.id)}" aria-label="関連付けを外す">✕</button></span>`).join('')
+      : '<span class="muted small">まだありません</span>';
+    $$('#ed-svlinks [data-svlink-rm]').forEach((b) => b.addEventListener('click', () => { ed.svIds.delete(b.dataset.svlinkRm); renderSvLinks(); }));
+  };
+  loadSavedSv().then(renderSvLinks).catch(() => {});
+  renderSvLinks();
+  $('#ed-svlink-toggle').addEventListener('click', () => {
+    const box = $('#ed-svlink-picker');
+    box.hidden = !box.hidden;
+    $('#ed-svlink-toggle').setAttribute('aria-expanded', String(!box.hidden));
+    if (!box.hidden) renderSavedSvPicker(box, (c) => { ed.svIds.add(c.id); renderSvLinks(); box.hidden = true; $('#ed-svlink-toggle').setAttribute('aria-expanded', 'false'); }, ed.svIds);
+  });
   // 保存したストリートビューから、地名として足す（国と大まかな地名は保存時に自動で付いている）
   $('#ed-sv-toggle').addEventListener('click', () => {
     const box = $('#ed-sv-picker');
@@ -4453,6 +4489,7 @@ function openEditor(card, preset = {}) {
       notes: $('#ed-notes').value.trim(),
       category_id: (() => { const v = $('input[name=ed-cat]:checked')?.value; return v && v !== 'none' ? v : null; })(),
       related: [...ed.related],
+      sv_ids: [...ed.svIds].filter((id) => savedSvById(id)), // 削除済みの保存は除く
       places: ed.places,
     };
     const btn = e.currentTarget;
@@ -4800,7 +4837,7 @@ const EXT_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none
 
 /* ================= 地図 ================= */
 // ストリートビューで見つけた場所からカードを作る: 国・場所の名前・Google マップのリンクを入れた作成画面を開く（画像は作成画面で選ぶ）
-async function cardFromSv({ lat, lng, codePromise }) {
+async function cardFromSv({ lat, lng, codePromise, svId = null }) {
   const code = await Promise.resolve(codePromise).catch(() => null);
   let area = '';
   try { // 場所の名前（県・市など）を OpenStreetMap で調べる。調べられなくても作成は続ける
@@ -4814,7 +4851,7 @@ async function cardFromSv({ lat, lng, codePromise }) {
   if (!code) toast('国を判定できなかったので、国は選び直してください');
   closeModal();
   openEditor(null, {
-    countries: code ? [code] : [], area,
+    countries: code ? [code] : [], area, svIds: svId ? [svId] : [],
     notes: `ストリートビュー: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`,
   });
 }
