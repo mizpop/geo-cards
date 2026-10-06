@@ -70,7 +70,7 @@ export async function saveSv({ lat, lng, heading = 0, pitch = 0, fov = 0 }) {
   return row;
 }
 
-async function removeSv(id) {
+export async function deleteSv(id) {
   await deps.api().deleteSavedSv(id);
   list = (list || []).filter((x) => x.id !== id);
   changed();
@@ -175,7 +175,7 @@ export function renderSavedSvView(view, setFit) {
     else if (del) {
       const r = find(del.dataset.del);
       if (r && (await deps.confirmDialog(`「${svLabel(r)}」の保存を削除しますか？`))) {
-        try { await removeSv(r.id); draw(); refreshSvWindow(); } catch (err) { deps.toast(err.message || '削除できませんでした', 'error'); }
+        try { await deleteSv(r.id); draw(); refreshSvWindow(); } catch (err) { deps.toast(err.message || '削除できませんでした', 'error'); }
       }
     }
   });

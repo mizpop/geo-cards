@@ -49,7 +49,7 @@ let frame = null;
 let point = null; // [lat, lng]
 let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
 const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
@@ -79,6 +79,17 @@ export function openSvPop(anchor, html, cls = '') {
   bringFront(pop);
   setTimeout(() => { document.addEventListener('pointerdown', onPopOutside, true); document.addEventListener('keydown', onPopKey, true); }, 0);
   return pop;
+}
+// 保存した場所の削除（保存ボタンの右クリック）
+function showDeletePop(anchor, row) {
+  if (svPopOpenFor(anchor)) { closeSvPop(); return; }
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const el = openSvPop(anchor, `<p class="sv-pop-msg"><b>${esc(hooks.label?.(row) || '')}</b><br><span class="muted small">${esc(hooks.sub?.(row) || '')}</span></p>
+    <button type="button" class="btn btn-sm btn-danger sv-pop-del">このストリートビューを削除</button>
+    <p class="muted small sv-pop-msg">保存した場所から消します（関連付けたカードからも外れて見えなくなります）</p>`, 'sv-pop-delete');
+  el.querySelector('.sv-pop-del').addEventListener('click', async () => {
+    try { await hooks.deleteSaved(row); closeSvPop(); refreshButtons(); hooks.toast('保存を削除しました'); } catch (err) { hooks.toast(err.message || '削除できませんでした', 'error'); }
+  });
 }
 // 保存したストリートビューの一覧（押すと開く）
 function showSavedList(anchor) {
@@ -228,7 +239,12 @@ function ensure() {
   });
   panel.querySelector('#sv-list').addEventListener('click', (e) => showSavedList(e.currentTarget));
   // 保存ボタンを右クリック: 保存したストリートビューの一覧をポップアップで出して、そこから開く
-  panel.querySelector('#sv-save').addEventListener('contextmenu', (e) => { e.preventDefault(); showSavedList(e.currentTarget); });
+  panel.querySelector('#sv-save').addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const row = point && hooks.savedAt ? hooks.savedAt({ lat: point[0], lng: point[1], heading: view.heading }) : null;
+    if (row && hooks.canSave() && hooks.deleteSaved) showDeletePop(e.currentTarget, row); // 保存した場所にいるときは、削除のボタン
+    else showSavedList(e.currentTarget);
+  });
   panel.querySelector('#sv-link').addEventListener('click', (e) => {
     if (svPopOpenFor(e.currentTarget)) { closeSvPop(); return; } // 開いている状態でもう一度押したら閉じる
     if (!point) return;

@@ -2427,3 +2427,7 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-head { gap: 3px; }
 .sv-head .sv-btn { width: 28px; }
 .sv-head .sv-coord { font-size: 11px; }
+
+/* 保存した場所の削除のポップアップ */
+.sv-pop.sv-pop-delete { width: 280px; padding: 12px; gap: 8px; }
+.sv-pop-msg { margin: 0; line-height: 1.5; }
