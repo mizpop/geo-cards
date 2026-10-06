@@ -69,6 +69,7 @@ function createWindow() {
   });
   // ストリートビューのウィンドウ（Google の埋め込み）の中の「Google マップで見る」のリンクは、今いる地点の URL。
   // このアプリ（Electron）なら、別のサイトの iframe の中でも読み取れるので、アプリ本体から頼まれたときに返す
+  ipcMain.handle('app-version', (e) => (e.sender === wc ? app.getVersion() : null)); // 更新の通知用（Windows 版アプリ本体の版）
   ipcMain.handle('sv-position', async (e) => {
     if (e.sender !== wc) return null;
     try {

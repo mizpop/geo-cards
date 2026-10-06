@@ -1,6 +1,7 @@
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
+import { showUpdateNoticeIfNeeded } from './updatenotice.js';
 import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, svWindowView, openSvPop, closeSvPop } from './svwin.js';
 import { initSavedSv, loadSavedSv, savedSvList, saveSv, deleteSv, isSavedSv, renderSavedSvView, renderSavedSvPicker, savedSvById, savedSvAt, nearestSavedSv, svLabel, placeLabel, rowView } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
@@ -649,6 +650,7 @@ async function enterApp() {
   const restored = restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
   await route();
   restoreOverlays(restored); // 開いていたウィンドウなど
+  setTimeout(() => showUpdateNoticeIfNeeded({ openChangelog }), 1200); // 更新されて初めて起動したときの通知（右上）
   sessionReady = true;
   startLive();
   if (!lobbyWatching) { // 公開された対戦の部屋のお知らせ（ポップアップから参加できる）
