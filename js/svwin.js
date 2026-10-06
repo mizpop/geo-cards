@@ -52,7 +52,7 @@ let acceptAfter = 0; // 映像の読み込み完了から少しの間（Google �
 let frameReady = true; // 映像（iframe）の読み込みが終わるまでは false。読み込み中は、前の映像の位置が読み取られて、位置が元に戻らないように、位置の更新を受け付けない
 let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, renameSaved: null, placeName: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
 const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
@@ -87,12 +87,24 @@ export function openSvPop(anchor, html, cls = '') {
 function showDeletePop(anchor, row) {
   if (svPopOpenFor(anchor)) { closeSvPop(); return; }
   const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const el = openSvPop(anchor, `<p class="sv-pop-msg"><b>${esc(hooks.label?.(row) || '')}</b><br><span class="muted small">${esc(hooks.sub?.(row) || '')}</span></p>
+  const el = openSvPop(anchor, `<label class="sv-pop-field"><span class="muted small">名前（空にすると地名の表示に戻ります）</span>
+      <input type="text" class="input sv-pop-name" maxlength="60" value="${esc(row.title || '')}" placeholder="${esc(hooks.placeName?.(row) || '名前')}" autocomplete="off"></label>
+    <p class="sv-pop-msg muted small">${esc(hooks.sub?.(row) || '')}</p>
     <button type="button" class="btn btn-sm btn-danger sv-pop-del">このストリートビューを削除</button>
     <p class="muted small sv-pop-msg">保存した場所から消します（関連付けたカードからも外れて見えなくなります）</p>`, 'sv-pop-delete');
+  const input = el.querySelector('.sv-pop-name');
+  let applied = (row.title || '').trim();
+  const applyName = async () => { // Enter か、欄から離れたときに、名前を変える
+    const v = input.value.trim();
+    if (v === applied || !hooks.renameSaved) return;
+    try { await hooks.renameSaved(row, v); applied = v; refreshButtons(); hooks.toast('名前を変えました'); } catch (err) { hooks.toast(err.message || '変えられませんでした', 'error'); }
+  };
+  input.addEventListener('keydown', (e) => { if (e.isComposing) return; if (e.key === 'Enter') { e.preventDefault(); applyName().then(closeSvPop); } });
+  input.addEventListener('blur', applyName);
   el.querySelector('.sv-pop-del').addEventListener('click', async () => {
     try { await hooks.deleteSaved(row); closeSvPop(); refreshButtons(); hooks.toast('保存を削除しました'); } catch (err) { hooks.toast(err.message || '削除できませんでした', 'error'); }
   });
+  input.focus(); input.select();
 }
 // 保存したストリートビューの一覧（押すと開く）
 function showSavedList(anchor) {

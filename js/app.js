@@ -3,7 +3,7 @@ import { initApi } from './api.js';
 import { initLoading } from './loading.js';
 import { showUpdateNoticeIfNeeded } from './updatenotice.js';
 import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, svWindowView, openSvPop, closeSvPop } from './svwin.js';
-import { initSavedSv, loadSavedSv, savedSvList, saveSv, deleteSv, isSavedSv, renderSavedSvView, renderSavedSvPicker, savedSvById, savedSvAt, nearestSavedSv, svLabel, placeLabel, rowView } from './savedsv.js';
+import { initSavedSv, loadSavedSv, savedSvList, saveSv, deleteSv, renameSv, isSavedSv, renderSavedSvView, renderSavedSvPicker, savedSvById, savedSvAt, nearestSavedSv, svLabel, placeLabel, rowView } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
@@ -636,7 +636,7 @@ async function enterApp() {
     confirmDialog: async (m) => confirm(m),
   });
   setSvHooks({
-    listSaved: () => savedSvList(), savedAt: savedSvAt, nearSaved: nearestSavedSv, deleteSaved: (r) => deleteSv(r.id), label: svLabel, flag: (code) => (code ? flagImg(code) : '🧍'),
+    listSaved: () => savedSvList(), savedAt: savedSvAt, nearSaved: nearestSavedSv, deleteSaved: (r) => deleteSv(r.id), renameSaved: (r, t) => renameSv(r.id, t), placeName: placeLabel, label: svLabel, flag: (code) => (code ? flagImg(code) : '🧍'),
     sub: (r) => [r.code ? countryName(r.code) : '', r.title ? placeLabel(r) : r.admin].filter(Boolean).join(' · '),
     linkCard: (getCurrent, anchor) => openCardLinkPop(getCurrent, anchor),
     toast, syncPosition: window.desktop?.getSvPosition ? () => syncSvPosition?.() : null,

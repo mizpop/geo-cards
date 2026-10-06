@@ -80,6 +80,17 @@ export async function saveSv({ lat, lng, heading = 0, pitch = 0, fov = 0 }) {
   return row;
 }
 
+/** 名前（自分でつけた名前）を変える。空にすると、地名の表示に戻る。変えた行を返す */
+export async function renameSv(id, title) {
+  const r = (list || []).find((x) => x.id === id);
+  if (!r) throw new Error('見つかりません');
+  const row = await deps.api().updateSavedSv(id, { title: String(title || '').trim() });
+  Object.assign(r, row);
+  changed();
+  refreshSvWindow();
+  return r;
+}
+
 export async function deleteSv(id) {
   await deps.api().deleteSavedSv(id);
   list = (list || []).filter((x) => x.id !== id);
@@ -136,7 +147,7 @@ function startRename(item, r, redraw) {
   const finish = async (save) => {
     if (done) return; done = true;
     if (save && input.value.trim() !== (r.title || '')) {
-      try { const row = await deps.api().updateSavedSv(r.id, { title: input.value.trim() }); Object.assign(r, row); changed(); refreshSvWindow(); deps.toast('名前を変えました'); } catch (err) { deps.toast(err.message || '変えられませんでした', 'error'); }
+      try { await renameSv(r.id, input.value); deps.toast('名前を変えました'); } catch (err) { deps.toast(err.message || '変えられませんでした', 'error'); }
     }
     redraw();
   };

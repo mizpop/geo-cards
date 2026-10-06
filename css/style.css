@@ -2455,3 +2455,6 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 #update-notice .un-ver { margin: 6px 0 0; font-weight: 700; color: var(--accent); font-size: 13px; }
 #update-notice .un-list { margin: 8px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--text); }
 #update-notice .un-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+.sv-pop-field { display: flex; flex-direction: column; gap: 4px; }
+.sv-pop-delete .sv-pop-name { width: 100%; }
