@@ -49,18 +49,21 @@ let frame = null;
 let point = null; // [lat, lng]
 let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
-let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
+let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
 const notify = () => listeners.forEach((fn) => { try { fn(point); } catch { /* 無視 */ } });
 
 // ポップアップ（保存した一覧・カードの選択）の共通部品: ボタンのそばに出して、外を押す・Esc で閉じる
 let pop = null;
-export function closeSvPop() { if (pop) { pop.remove(); pop = null; document.removeEventListener('pointerdown', onPopOutside, true); document.removeEventListener('keydown', onPopKey, true); } }
+let popOwner = null; // ポップアップを出したボタン（同じボタンをもう一度押したら閉じる）
+export const svPopOpenFor = (anchor) => !!pop && popOwner === anchor;
+export function closeSvPop() { if (pop) { pop.remove(); pop = null; popOwner = null; document.removeEventListener('pointerdown', onPopOutside, true); document.removeEventListener('keydown', onPopKey, true); } }
 const onPopOutside = (e) => { if (pop && !pop.contains(e.target) && !e.target.closest?.('#sv-save, #sv-link, #sv-list')) closeSvPop(); };
 const onPopKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSvPop(); } };
 export function openSvPop(anchor, html, cls = '') {
   closeSvPop();
+  popOwner = anchor;
   pop = document.createElement('div');
   pop.className = `sv-pop ${cls}`;
   pop.innerHTML = html;
@@ -79,6 +82,7 @@ export function openSvPop(anchor, html, cls = '') {
 }
 // 保存したストリートビューの一覧（押すと開く）
 function showSavedList(anchor) {
+  if (svPopOpenFor(anchor)) { closeSvPop(); return; } // 開いている状態でもう一度押したら閉じる
   const rows = hooks.listSaved?.() || [];
   const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const item = (r) => `<button type="button" class="sv-pop-item" data-i="${rows.indexOf(r)}">${hooks.flag?.(r.code) || ''}<span class="sv-pop-text"><b>${esc(hooks.label?.(r) || '')}</b><span class="muted small">${esc(hooks.sub?.(r) || '')}</span></span></button>`;
@@ -149,11 +153,17 @@ function refreshButtons() {
   if (link) link.hidden = !editor || !hooks.linkCard;
   const ext = panel.querySelector('#sv-ext');
   if (ext) ext.hidden = editor && !!hooks.linkCard;
-  // 保存した場所（同じ場所・同じ向き）にいるときは、題名にそのストリートビューの名前を出す
-  const row = point && hooks.savedAt ? hooks.savedAt({ lat: point[0], lng: point[1], heading: view.heading }) : null;
+  // 題名: 保存した場所（同じ場所・同じ向き）にいるときはその名前、保存した地点の 100m 以内なら「〜付近」
+  const cur = point ? { lat: point[0], lng: point[1], heading: view.heading } : null;
+  const row = cur && hooks.savedAt ? hooks.savedAt(cur) : null;
+  const near = !row && cur && hooks.nearSaved ? hooks.nearSaved(cur, 100) : null;
   const tt = panel.querySelector('#sv-title-text');
-  if (tt) { tt.textContent = row ? (hooks.label?.(row) || 'ストリートビュー') : 'ストリートビュー'; tt.title = row ? [hooks.sub?.(row), `${point[0].toFixed(4)}, ${point[1].toFixed(4)}`, '保存済みの場所'].filter(Boolean).join(' · ') : ''; }
+  if (tt) {
+    tt.textContent = row ? (hooks.label?.(row) || 'ストリートビュー') : near ? `${hooks.label?.(near) || ''} 付近` : 'ストリートビュー';
+    tt.title = row || near ? [hooks.sub?.(row || near), row ? '保存済みの場所' : `保存した地点の近く（約 ${Math.round(near._dist || 0)}m）`].filter(Boolean).join(' · ') : '';
+  }
   panel.classList.toggle('is-named', !!row);
+  panel.classList.toggle('is-nearby', !!near);
   const save = panel.querySelector('#sv-save');
   if (save) {
     save.hidden = false; // 保存できない（閲覧のみ）ときも、保存した一覧を開くために出す
@@ -220,6 +230,7 @@ function ensure() {
   // 保存ボタンを右クリック: 保存したストリートビューの一覧をポップアップで出して、そこから開く
   panel.querySelector('#sv-save').addEventListener('contextmenu', (e) => { e.preventDefault(); showSavedList(e.currentTarget); });
   panel.querySelector('#sv-link').addEventListener('click', (e) => {
+    if (svPopOpenFor(e.currentTarget)) { closeSvPop(); return; } // 開いている状態でもう一度押したら閉じる
     if (!point) return;
     // すぐにカードの一覧を出す。選んだ時点で、いる位置を読み取り直して（Windows 版）から、関連付ける
     hooks.linkCard?.(async () => { await hooks.syncPosition?.(); return point ? { lat: point[0], lng: point[1], ...view } : null; }, e.currentTarget);

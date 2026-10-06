@@ -2419,6 +2419,11 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-head .sv-title { flex: 0 1 auto; min-width: 0; max-width: 60%; }
 .sv-head .sv-title #sv-title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sv-panel.is-named .sv-title { color: var(--accent); }
-/* 名前を出すときは、場所を取るので座標は隠す（題名にポインターを乗せると座標も出る） */
-.sv-panel.is-named .sv-coord { display: none; }
-.sv-panel.is-named .sv-head .sv-title { flex: 1 1 auto; max-width: none; }
+/* 名前を出すときも座標は出す（名前が長ければ名前を省略する） */
+.sv-head .sv-title { flex: 1 1 auto; max-width: none; }
+.sv-head .sv-coord { flex: 0 1 auto; }
+.sv-panel.is-nearby .sv-title { color: var(--text); }
+/* ヘッダーのボタンが多いので、間隔と座標の文字を少し小さくして、名前と座標が両方入るように */
+.sv-head { gap: 3px; }
+.sv-head .sv-btn { width: 28px; }
+.sv-head .sv-coord { font-size: 11px; }

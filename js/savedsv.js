@@ -33,6 +33,13 @@ const sameSpot = (row, p) => distM(row, p) <= MOVE_M && (!Number(row.heading) ||
 /** p = { lat, lng, heading? } と同じ場所とみなせる、保存済みの行 */
 export const savedSvAt = (p) => list?.find((x) => sameSpot(x, p)) || null;
 export const isSavedSv = (p) => !!savedSvAt(p);
+/** p から maxM メートル以内で、いちばん近い保存済みの行（_dist に距離を入れて返す）。なければ null */
+export function nearestSavedSv(p, maxM = 100) {
+  let best = null;
+  let bestD = Infinity;
+  for (const x of list || []) { const d = distM(x, p); if (d < bestD) { bestD = d; best = x; } }
+  return best && bestD <= maxM ? { ...best, _dist: bestD } : null;
+}
 
 /** 地名だけ: 日本語 → 英語 → 現地の言語 → 座標 */
 export const placeLabel = (r) => r.name || r.name_en || r.name_local || `${Number(r.lat).toFixed(4)}, ${Number(r.lng).toFixed(4)}`;
