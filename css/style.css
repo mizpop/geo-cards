@@ -2435,3 +2435,6 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 /* 「〜 付近」の題名は、押すと保存した場所へ移動できる */
 .sv-head .sv-title.is-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 .sv-head .sv-title.is-link:hover { color: var(--accent); }
+
+/* 保存した場所の名前も、押せる題名（保存した位置へ戻る） */
+.sv-panel.is-named .sv-title.is-link { text-decoration: underline dotted; }

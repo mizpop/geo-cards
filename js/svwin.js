@@ -178,7 +178,7 @@ function refreshButtons() {
   }
   panel.classList.toggle('is-named', !!row);
   panel.classList.toggle('is-nearby', !!near);
-  panel.querySelector('.sv-title')?.classList.toggle('is-link', !!near); // 「〜 付近」の題名は、押すとその場所へ移動できる
+  panel.querySelector('.sv-title')?.classList.toggle('is-link', !!(row || near)); // 保存した場所の名前・「〜 付近」の題名は、押すと、保存した位置へ正確に移動できる
   const save = panel.querySelector('#sv-save');
   if (save) {
     save.hidden = false; // 保存できない（閲覧のみ）ときも、保存した一覧を開くために出す
@@ -223,21 +223,12 @@ function ensure() {
   panel.addEventListener('pointerdown', () => bringFront(panel), true); // 触ったウィンドウを手前に
 
   panel.querySelector('#sv-close').addEventListener('click', closeSvWindow);
-  // 「〜 付近」の題名を押すと、その保存した場所（保存したときの向き・ズームで）へ移動する
+  // 保存した場所の名前・「〜 付近」の題名を押すと、その保存した位置へ、保存したときの向き・ズームで正確に移動する
   panel.querySelector('.sv-title').addEventListener('click', () => {
-    if (!point || !hooks.nearSaved) return;
-    const r = hooks.savedAt?.({ lat: point[0], lng: point[1], heading: view.heading }) ? null : hooks.nearSaved({ lat: point[0], lng: point[1], heading: view.heading }, 100);
+    if (!point) return;
+    const cur = { lat: point[0], lng: point[1], heading: view.heading };
+    const r = hooks.savedAt?.(cur) || hooks.nearSaved?.(cur, 100);
     if (r) openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
-  });
-  // 矢印をたどって移動したあとの位置は、Google の埋め込みからは読み取れないので、「Google マップで見る」のリンク（今いる地点の URL）を貼り付けて取り込む
-  panel.querySelector('#sv-paste').addEventListener('click', async () => {
-    if (hooks.syncPosition) { hooks.toast((await hooks.syncPosition()) ? `今いる位置: ${point[0].toFixed(4)}, ${point[1].toFixed(4)}` : '位置を読み取れませんでした（映像の読み込み後にもう一度）'); return; } // Windows 版アプリ: 自動で読める
-    let text = '';
-    try { text = await navigator.clipboard.readText(); } catch { hooks.toast('クリップボードを読み取れませんでした（許可してください）', 'error'); return; }
-    const p = parseLatLng(text);
-    if (!p) { hooks.toast('位置を読み取れません。ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押してください', 'error'); return; }
-    openSvWindow(p.lat, p.lng, { heading: p.heading, pitch: p.pitch, fov: p.fov });
-    hooks.toast(`位置を取り込みました: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}（保存すると、この位置で保存されます）`);
   });
   panel.querySelector('#sv-card').addEventListener('click', async () => { await hooks.syncPosition?.(); if (point) hooks.createCard?.({ lat: point[0], lng: point[1], ...view }); });
   panel.querySelector('#sv-save').addEventListener('click', async (e) => {
