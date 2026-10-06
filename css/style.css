@@ -1840,6 +1840,8 @@ textarea { resize: vertical; line-height: 1.6; }
 }
 .modal.is-window .modal-inner { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .modal.is-window .modal-inner > .modal-head:first-child { cursor: move; user-select: none; touch-action: none; }
+/* 見出しは、スクロールする .modal-inner の上の余白（20px）の分だけ上に寄せて貼りつける（そうしないと、余白の部分から画像がはみ出して見える） */
+.modal.is-window .modal-inner > .modal-head:first-child { top: -20px; }
 .modal.is-window .detail { grid-template-columns: 1fr; }
 .modal.is-window .detail-front { height: min(46vh, 420px); }
 .modal.is-window .detail-back { max-height: none; overflow: visible; }
