@@ -1,7 +1,7 @@
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
-import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, openSvPop, closeSvPop } from './svwin.js';
+import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, svWindowView, openSvPop, closeSvPop } from './svwin.js';
 import { initSavedSv, loadSavedSv, savedSvList, saveSv, isSavedSv, renderSavedSvView, renderSavedSvPicker, savedSvById, savedSvAt, svLabel, placeLabel, rowView } from './savedsv.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
@@ -640,7 +640,7 @@ async function enterApp() {
     linkCard: (getCurrent, anchor) => openCardLinkPop(getCurrent, anchor),
     toast, syncPosition: window.desktop?.getSvPosition ? () => syncSvPosition?.() : null,
     isEditor: () => !!state.user?.isEditor, canSave: () => !!state.user?.isEditor, save: saveSv, isSaved: isSavedSv,
-    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: savedSvAt(p)?.id, codePromise: countryAt(p.lat, p.lng) }), // 保存済みの場所なら、そのストリートビューと関連付ける
+    createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: savedSvAt({ lat: p.lat, lng: p.lng, heading: p.heading })?.id, codePromise: countryAt(p.lat, p.lng) }), // 保存済みの場所なら、そのストリートビューと関連付ける
   });
   loadSavedSv().then(refreshSvWindow).catch(() => {}); // 保存済みの表示のため（表がまだ無いときは何もしない）
   initChat({ api, user: state.user, toast });
@@ -4846,7 +4846,7 @@ function openCardLinkPop(getCurrent, anchor) {
   const input = pop.querySelector('.sv-pop-q');
   const draw = () => {
     const pt = svWindowPoint();
-    const here = pt ? savedSvAt({ lat: pt[0], lng: pt[1] }) : null;
+    const here = pt ? savedSvAt({ lat: pt[0], lng: pt[1], heading: svWindowView().heading }) : null;
     const hits = sortCards(matchCards(input.value)).filter((c) => !c.photo && !c.sv).slice(0, 40);
     // カードタブと同じタイル（画像の下にテキスト）を、小さくして並べる
     list.innerHTML = hits.length ? hits.map((c) => tileHtml(c, here && (c.sv_ids || []).includes(here.id) ? '<p class="tile-given sv-pop-linked">🔗 関連付け済み</p>' : '')).join('') : '<p class="muted small sv-pop-empty">カードが見つかりません</p>';

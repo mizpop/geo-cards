@@ -23,34 +23,28 @@ export async function loadSavedSv(force = false) {
   return loading;
 }
 
-const near = (a, b) => Math.abs(a.lat - b.lat) < 0.0002 && Math.abs(a.lng - b.lng) < 0.0003; // 約 20m 以内は同じ場所
-export const isSavedSv = (p) => !!list?.some((x) => near(x, p));
+// 同じ場所とみなす条件: ほぼ動いていない（約 3m 以内）、かつ、向きの違いが 30 度未満。
+// 少しでも動いたり、30 度以上向きを変えたりしたら、別の場所として扱う（向きが分からない=0 のときは、向きは比べない）
+const MOVE_M = 3;
+const TURN_DEG = 30;
+const distM = (a, b) => Math.hypot((a.lat - b.lat) * 111320, (a.lng - b.lng) * 111320 * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180));
+const turnDeg = (a, b) => { const d = Math.abs(((a - b) % 360 + 360) % 360); return Math.min(d, 360 - d); };
+const sameSpot = (row, p) => distM(row, p) <= MOVE_M && (!Number(row.heading) || !Number(p.heading) || turnDeg(Number(row.heading), Number(p.heading)) < TURN_DEG);
+/** p = { lat, lng, heading? } と同じ場所とみなせる、保存済みの行 */
+export const savedSvAt = (p) => list?.find((x) => sameSpot(x, p)) || null;
+export const isSavedSv = (p) => !!savedSvAt(p);
 
 /** 地名だけ: 日本語 → 英語 → 現地の言語 → 座標 */
 export const placeLabel = (r) => r.name || r.name_en || r.name_local || `${Number(r.lat).toFixed(4)}, ${Number(r.lng).toFixed(4)}`;
 /** 表示用の名前: 自分でつけた名前があればそれ、なければ地名 */
 export const svLabel = (r) => r.title || placeLabel(r);
 export const savedSvById = (id) => list?.find((x) => x.id === id) || null;
-/** その地点（約 20m 以内）の保存済みの行 */
-export const savedSvAt = (p) => list?.find((x) => near(x, p)) || null;
 
 /** 今開いているストリートビューを保存する（国と地名は自動で付ける）。保存した行を返す */
 export async function saveSv({ lat, lng, heading = 0, pitch = 0, fov = 0 }) {
   await loadSavedSv().catch((e) => { deps.toast(e.message, 'error'); throw e; });
-  const dup = list.find((x) => near(x, { lat, lng }));
-  const hasView = heading || pitch || fov;
-  if (dup) {
-    // 同じ場所でも、向きやズームが変わっていれば、それを更新する
-    if (hasView && (Math.abs((dup.heading || 0) - heading) > 1 || Math.abs((dup.pitch || 0) - pitch) > 1 || Math.abs((dup.fov || 0) - fov) > 1)) {
-      const row = await deps.api().updateSavedSv(dup.id, { heading, pitch, fov }).catch((e) => { deps.toast(e.message || '更新できませんでした', 'error'); throw e; });
-      Object.assign(dup, row);
-      changed();
-      deps.toast('向きとズームを更新しました');
-      return dup;
-    }
-    deps.toast('この場所は、すでに保存してあります');
-    return dup;
-  }
+  const dup = savedSvAt({ lat, lng, heading });
+  if (dup) { deps.toast('この場所（この向き）は、すでに保存してあります'); return dup; } // 少し動いたり、30 度以上向きを変えたりしていれば、別の場所として保存する
   deps.toast('地名を調べています…');
   const [place, code] = await Promise.all([
     reversePlace(lat, lng).catch(() => null), // 大まかな地名（OpenStreetMap）。調べられなくても保存は続ける

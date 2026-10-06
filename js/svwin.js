@@ -152,7 +152,7 @@ function refreshButtons() {
   const save = panel.querySelector('#sv-save');
   if (save) {
     save.hidden = false; // 保存できない（閲覧のみ）ときも、保存した一覧を開くために出す
-    const saved = point ? !!hooks.isSaved({ lat: point[0], lng: point[1] }) : false;
+    const saved = point ? !!hooks.isSaved({ lat: point[0], lng: point[1], heading: view.heading }) : false; // 同じ場所・同じ向きで保存済みのときだけ、色つき
     save.classList.toggle('is-saved', saved);
     save.title = hooks.canSave()
       ? `${saved ? '保存済み（ストリートビュータブにあります）' : 'この場所を保存する（ストリートビュータブから開けます）'}／右クリックで、保存した場所の一覧`
@@ -202,7 +202,7 @@ function ensure() {
     openSvWindow(p.lat, p.lng, { heading: p.heading, pitch: p.pitch, fov: p.fov });
     hooks.toast(`位置を取り込みました: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}（保存すると、この位置で保存されます）`);
   });
-  panel.querySelector('#sv-card').addEventListener('click', async () => { await hooks.syncPosition?.(); if (point) hooks.createCard?.({ lat: point[0], lng: point[1] }); });
+  panel.querySelector('#sv-card').addEventListener('click', async () => { await hooks.syncPosition?.(); if (point) hooks.createCard?.({ lat: point[0], lng: point[1], ...view }); });
   panel.querySelector('#sv-save').addEventListener('click', async (e) => {
     if (!hooks.canSave()) { showSavedList(e.currentTarget); return; } // 保存できない（閲覧のみ）ときは、一覧を出す
     await hooks.syncPosition?.(); // Windows 版アプリは、移動したあとの今いる位置を読み取る

@@ -2411,3 +2411,6 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-pop-cards .tile .chip { font-size: 11px; padding: 2px 6px; }
 .sv-pop-cards .tile-desc { font-size: 12px; -webkit-line-clamp: 1; }
 .sv-pop-cards .sv-pop-linked { font-size: 11px; color: var(--accent); }
+/* 行が内容の高さを保つように（カードが多いと、行が縮んで縦幅が小さくなっていた） */
+.sv-pop-cards .sv-pop-list.tiles { grid-auto-rows: max-content; }
+.sv-pop-cards .tile { flex: none; min-height: 150px; }
