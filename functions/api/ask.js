@@ -2,6 +2,7 @@
 //
 // 必要な設定（Cloudflare Pages の「設定 → 変数とシークレット」）:
 //   GEMINI_API_KEY     … Google AI Studio（https://aistudio.google.com/apikey）で作る API キー。「シークレット」として追加（ブラウザには出ない）。無料枠で使える
+//   AI（バインディング）… 任意。Cloudflare の Workers AI を「予備」として使う（Settings → Bindings → Add → Workers AI、変数名は AI）。Gemini が混み合っている・回数の上限・キー未設定のとき、自動でこちらに切り替わる。1 日 10,000 ニューロンまで無料
 //   CHAT_MODEL         … 任意。最初に使うモデル（初期値 gemini-3.8-flash。無料枠で使える）
 //   CHAT_FALLBACK_MODELS … 任意。混み合っている・回数の上限のときに、順に切り替えるモデル（カンマ区切り。初期値は下の FALLBACK_MODELS）
 //   CHAT_EFFORT        … 任意。考える深さ minimal / low / medium / high（Gemini 3 以降のモデル。初期値 low）
@@ -18,8 +19,11 @@ const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 // 新しいモデルは混み合って 503（high demand）になりやすいので、そのときは、無料枠で使える別のモデルに順に切り替える
 // 手動で選べるモデル（無料枠で使える文章のモデル。画面の選択欄 js/assistant.js の MODELS と合わせる）。これ以外の指定は受け付けない
-const FREE_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
-const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+const FREE_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview'];
+// 予備（と、手動で選べる）Cloudflare Workers AI のモデル。画像も読める
+const CF_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
+const CF_LABEL = 'cloudflare:llama-4-scout';
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const SWITCH_ON = new Set([429, 500, 502, 503, 504]); // これらのときだけ次のモデルを試す（キーや入力の問題は、どのモデルでも同じなので切り替えない）
 const MAX_MESSAGES = 20; // 会話の履歴の最大数
 const MAX_TEXT = 4000; // 1 つの発言の最大文字数
@@ -111,14 +115,73 @@ function simplify(upstream, model, first) {
   }));
 }
 
+// Cloudflare Workers AI の Server-Sent Events（{"response":"…"} または OpenAI 形式の choices[].delta.content）を、同じ簡単な形に変えて流す
+function simplifyCf(upstream, label, switched) {
+  const dec = new TextDecoder();
+  const enc = new TextEncoder();
+  let buf = '';
+  const emit = (ctl, obj) => ctl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+  const handle = (chunk, ctl) => {
+    for (const line of chunk.split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') continue;
+      let ev;
+      try { ev = JSON.parse(data); } catch { continue; }
+      const text = typeof ev.response === 'string' ? ev.response : ev.choices?.[0]?.delta?.content ?? ev.choices?.[0]?.text ?? '';
+      if (typeof text === 'string' && text) emit(ctl, { text });
+    }
+  };
+  return upstream.pipeThrough(new TransformStream({
+    transform(chunk, ctl) {
+      buf += dec.decode(chunk, { stream: true });
+      for (let m = /\r?\n\r?\n/.exec(buf); m; m = /\r?\n\r?\n/.exec(buf)) {
+        handle(buf.slice(0, m.index), ctl);
+        buf = buf.slice(m.index + m[0].length);
+      }
+    },
+    flush(ctl) {
+      if (buf.trim()) handle(buf, ctl);
+      emit(ctl, { done: true, reason: 'STOP', model: label, ...(switched ? { switched: true } : {}) });
+    },
+  }));
+}
+
+// Cloudflare Workers AI に質問する。画像つきで失敗したときは、画像なしでやり直す（そのときは本文の先頭に断りを入れる）
+async function askCloudflare(env, system, messages, img, label, switched) {
+  const chat = [{ role: 'system', content: system }, ...messages.map((m) => ({ role: m.role, content: m.text }))];
+  const run = (withImage) => {
+    const msgs = chat.map((m) => ({ ...m }));
+    if (withImage && img) msgs[msgs.length - 1].content = [{ type: 'text', text: msgs[msgs.length - 1].content }, { type: 'image_url', image_url: { url: `data:${img.media_type};base64,${img.data}` } }];
+    return env.AI.run(CF_MODEL, { messages: msgs, stream: true, max_tokens: 2048 });
+  };
+  let out;
+  let noImage = false;
+  try {
+    out = await run(true);
+  } catch (e) {
+    if (!img) throw e;
+    out = await run(false); // 画像を読めなかったとき
+    noImage = true;
+  }
+  let stream = out instanceof ReadableStream ? out : new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ response: String(out?.response ?? '') })}\n\n`)); c.close(); } });
+  stream = simplifyCf(stream, label, switched);
+  if (!noImage) return stream;
+  const note = new TextEncoder().encode(`data: ${JSON.stringify({ text: '（この AI は画像を読み取れなかったため、画像なしで答えます）\n\n' })}\n\n`);
+  return new ReadableStream({ async start(c) { c.enqueue(note); const r = stream.getReader(); for (;;) { const { value, done } = await r.read(); if (done) break; c.enqueue(value); } c.close(); } });
+}
+const cfError = (e, manual) => (/daily free allocation|neurons|quota|limit|429/i.test(String(e?.message || e))
+  ? json({ error: 'rate_limited', manual, model: CF_LABEL, message: 'Cloudflare AI の無料枠（1 日 10,000 ニューロン）を使い切りました。日本時間の朝 9 時にリセットされます' }, 429)
+  : json({ error: 'busy', manual, model: CF_LABEL, message: 'Cloudflare AI からも答えをもらえませんでした。少し待ってからもう一度お試しください' }, 503));
+
 export async function onRequestPost({ request, env }) {
   const origin = new URL(request.url).origin;
   const reqOrigin = request.headers.get('origin');
   if (reqOrigin && reqOrigin !== origin) return json({ error: 'forbidden' }, 403);
-  if (!env.GEMINI_API_KEY) {
+  if (!env.GEMINI_API_KEY && !env.AI) {
     // 設定の確認用: 似た名前の変数があるか・空でないか（名前と「空かどうか」だけ。値は出さない）
     const similar = Object.keys(env).filter((k) => /gemini|google|api.?key/i.test(k)).slice(0, 10).map((k) => ({ name: k, empty: !String(env[k] ?? '').trim() }));
-    return json({ error: 'not_configured', similar, vars: Object.keys(env).length }, 503);
+    return json({ error: 'not_configured', similar, vars: Object.keys(env).length, ai: !!env.AI }, 503);
   }
   const who = await authorized(request, env);
   if (who === 'unauthorized') return json({ error: 'unauthorized' }, 401);
@@ -145,9 +208,11 @@ export async function onRequestPost({ request, env }) {
   const context = typeof body.context === 'string' ? body.context.slice(0, MAX_CONTEXT) : '';
   const system = context.trim() ? `${SYSTEM}\n\n<参考資料>\n${context}\n</参考資料>` : SYSTEM;
 
-  const valid = (m) => /^[\w.\-]+$/.test(m || '');
-  // 画面で選ばれたモデル（'auto' なら自動）。手動で選ばれたときは、そのモデルだけを使い、混み合っていても勝手に切り替えない
+  // 画面で選ばれたモデル: 'auto'（自動）/ Gemini のモデル / 'cloudflare'
+  const wantCf = body.model === 'cloudflare' && !!env.AI; // 予備の AI が設定されていないときは、自動と同じ
   const manual = typeof body.model === 'string' && FREE_MODELS.includes(body.model);
+  const useGemini = !!env.GEMINI_API_KEY && !wantCf;
+  const valid = (m) => /^[\w.\-]+$/.test(m || '');
   const chain = manual ? [body.model] : [...new Set([
     valid(env.CHAT_MODEL) ? env.CHAT_MODEL : DEFAULT_MODEL,
     ...(env.CHAT_FALLBACK_MODELS ? String(env.CHAT_FALLBACK_MODELS).split(',').map((x) => x.trim()).filter(valid) : FALLBACK_MODELS),
@@ -178,21 +243,30 @@ export async function onRequestPost({ request, env }) {
   };
   let res = null;
   let used = '';
-  for (const m of chain) {
-    const r = await attempt(m);
-    if (r) { res = r; used = m; }
-    if (r?.ok || (r && !SWITCH_ON.has(r.status))) break;
+  if (useGemini) {
+    for (const m of chain) {
+      const r = await attempt(m);
+      if (r) { res = r; used = m; }
+      if (r?.ok || (r && !SWITCH_ON.has(r.status))) break;
+    }
+    if (res?.ok) return new Response(simplify(res.body, used, manual ? '' : chain[0]), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+  }
+  // Cloudflare AI: 手動で選ばれたとき、または、自動のときに Gemini が使えなかったとき（キー未設定・混み合い・上限・エラー）の予備
+  if (env.AI && (wantCf || (!manual && !res?.ok))) {
+    try {
+      const stream = await askCloudflare(env, system, messages, img ? { media_type: img.media_type, data: img.data } : null, CF_LABEL, useGemini);
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+    } catch (e) {
+      return cfError(e, wantCf);
+    }
   }
   if (!res) return json({ error: 'network', message: 'Gemini に接続できませんでした' }, 502);
-  if (!res.ok) {
-    let message = '';
-    try { message = (await res.json())?.error?.message || ''; } catch { /* 本文なし */ }
-    if (/api key|API_KEY/i.test(message) || res.status === 401 || res.status === 403) return json({ error: 'bad_key', message: 'API キーが無効か、権限がありません' }, 502);
-    if (res.status === 429) return json({ error: 'rate_limited', manual, model: used, message: '無料枠の利用回数の上限に達しました。少し待ってからもう一度お試しください（1 日の上限は、日本時間の夕方（16〜17 時ごろ）にリセットされます）' }, 429);
-    if (res.status >= 500) return json({ error: 'busy', manual, model: used, status: res.status, message: 'AI（Gemini）が混み合っています。少し待ってからもう一度お試しください' }, 503);
-    return json({ error: 'upstream', status: res.status, message }, 502);
-  }
-  return new Response(simplify(res.body, used, manual ? '' : chain[0]), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+  let message = '';
+  try { message = (await res.json())?.error?.message || ''; } catch { /* 本文なし */ }
+  if (/api key|API_KEY/i.test(message) || res.status === 401 || res.status === 403) return json({ error: 'bad_key', message: 'API キーが無効か、権限がありません' }, 502);
+  if (res.status === 429) return json({ error: 'rate_limited', manual, model: used, message: '無料枠の利用回数の上限に達しました。少し待ってからもう一度お試しください（1 日の上限は、日本時間の夕方（16〜17 時ごろ）にリセットされます）' }, 429);
+  if (res.status >= 500) return json({ error: 'busy', manual, model: used, status: res.status, message: 'AI（Gemini）が混み合っています。少し待ってからもう一度お試しください' }, 503);
+  return json({ error: 'upstream', status: res.status, message }, 502);
 }
 
 // POST 以外（onRequestPost が先に処理される）

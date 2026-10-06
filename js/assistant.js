@@ -24,16 +24,14 @@ const show = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')
 const hide = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* 非対応 */ } } };
 const isOpen = () => panel?.classList.contains('open');
 
-// 手動で選べるモデル（functions/api/ask.js の FREE_MODELS と合わせる）。'auto' は、混み合っているときに順に切り替える
+// 手動で選べるモデル（functions/api/ask.js の FREE_MODELS と合わせる）。'auto' は、混み合っている・上限のときに、Gemini の別のモデル → Cloudflare AI の順に切り替える
 const MODELS = [
   ['auto', '自動（混んでいたら切り替え）'],
   ['gemini-3.8-flash', 'Gemini 3.8 Flash（最新）'],
   ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
   ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite（軽い）'],
   ['gemini-3.1-flash-lite', 'Gemini 3.1 Flash-Lite（軽い）'],
-  ['gemini-2.5-pro', 'Gemini 2.5 Pro（じっくり考える）'],
-  ['gemini-2.5-flash', 'Gemini 2.5 Flash'],
-  ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite（いちばん軽い）'],
+  ['cloudflare', 'Cloudflare AI（Llama 4 Scout）'],
 ];
 const MODEL_KEY = 'geochecker-ai-model';
 let model = (() => { try { const v = localStorage.getItem(MODEL_KEY); return MODELS.some(([id]) => id === v) ? v : 'auto'; } catch { return 'auto'; } })();
@@ -251,7 +249,7 @@ function messageHtml(m, i) {
   if (m.error) return `<div class="ai-msg ai-bot"><div class="ai-bubble ai-error">${m.error}</div></div>`;
   const body = m.content ? renderMarkdown(m.content, m.refs) : '<span class="ai-typing" aria-label="考え中"><i></i><i></i><i></i></span>';
   const srcs = (m.sources || []).length ? `<details class="ai-src"><summary>参照した資料 ${m.sources.length} 件</summary><div class="ai-src-list">${m.sources.map((s) => `<button type="button" class="ai-ref" data-msg="${i}" data-ref="${s.id}" title="${esc(s.label)}">${s.id.startsWith('C') ? '📇' : '📷'} ${esc(s.label)}</button>`).join('')}</div></details>` : '';
-  const meta = m.model && m.content ? `<div class="ai-meta">${esc(m.model)}${m.switched ? '（混み合っていたため、自動で切り替えました）' : ''}</div>` : '';
+  const meta = m.model && m.content ? `<div class="ai-meta">${esc(m.model)}${m.switched ? '（Gemini が使えなかったため、自動で切り替えました）' : ''}</div>` : '';
   return `<div class="ai-msg ai-bot"><div class="ai-bubble">${body}</div>${meta}${srcs}</div>`;
 }
 
@@ -356,7 +354,7 @@ async function send(text) {
 async function errorText(res) {
   let data = {};
   try { data = await res.json(); } catch { /* 本文なし */ }
-  if (data.error === 'not_configured') return 'AI アシスタントは、まだ使えるように設定されていません。<br><span class="small">管理者が Cloudflare Pages の「設定 → 変数とシークレット」に <code>GEMINI_API_KEY</code>（Google AI Studio で無料で作れる API キー）をシークレットとして追加し、再デプロイすると使えます（README の「AI アシスタントの設定」を参照）。</span>';
+  if (data.error === 'not_configured') return 'AI アシスタントは、まだ使えるように設定されていません。<br><span class="small">管理者が Cloudflare Pages の「設定 → 変数とシークレット」に <code>GEMINI_API_KEY</code>（Google AI Studio で無料で作れる API キー）をシークレットとして追加するか、「バインディング」に Workers AI（変数名 <code>AI</code>）を追加して、再デプロイすると使えます（README の「AI アシスタントの設定」を参照）。</span>';
   if (data.error === 'unauthorized') return 'ログインの確認ができませんでした。いったんログアウトして、もう一度ログインしてください。';
   if (data.error === 'editors_only') return 'AI アシスタントは、今のところ編集者のアカウントだけが使えます。';
   if ((data.error === 'busy' || data.error === 'rate_limited') && data.manual) return `選んだモデル（${esc(data.model || model)}）が${data.error === 'busy' ? '混み合っている' : '無料枠の上限に達している'}ようです。少し待つか、上の欄で別のモデルを選ぶか、「自動」にしてもう一度お試しください。`;

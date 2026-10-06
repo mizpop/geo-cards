@@ -2,6 +2,19 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v8',
+    date: '2026-10-06',
+    sections: [
+      {
+        title: 'AI アシスタント',
+        items: [
+          'Cloudflare の AI（Workers AI・Llama 4 Scout）を予備に追加。Gemini が混み合っている・無料枠の上限・キーが使えないときは、自動でこちらに切り替える（1 日 10,000 ニューロンまで無料。Cloudflare の「バインディング」に Workers AI を AI という名前で追加すると使える）',
+          'モデルの選択欄に、Cloudflare AI を追加。Gemini は、無料では使えなかった 2.5 系（2.5 Pro・2.5 Flash・2.5 Flash-Lite）を外して、3 系の Flash・Flash-Lite だけにした',
+        ],
+      },
+    ],
+  },
+  {
     version: 'v7',
     date: '2026-10-06',
     sections: [
