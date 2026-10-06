@@ -1997,11 +1997,13 @@ function openModal(html, cls = '', nav = false) {
   m.innerHTML = `<div class="modal-inner">${html}</div>`;
   modalPasteHandler = null;
   $$('[data-close]', m).forEach((b) => b.addEventListener('click', closeModal));
+  const keepY = window.scrollY;
   if (!m.open) {
     if (asWindow) { m.show(); winFocused = true; } else m.showModal();
     spotOverModal = false;
   }
   if (asWindow) setupWindow(m);
+  if (asWindow && window.scrollY !== keepY) window.scrollTo(0, keepY); // 浮かぶウィンドウは、位置が決まるまで一瞬ページの末尾に置かれて、ページがそこまでスクロールされてしまうので戻す
   foldChipRows(m); // 隣接国が 3 行以上なら折りたたむ
   raiseChat(); // メモのボタン・欄をモーダルの手前に
   raiseAssistant(); // AI アシスタントも同じく
