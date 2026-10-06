@@ -1,7 +1,7 @@
 # Windows 版アプリ（electron/）を自動でビルドして、公開リポジトリ mizpop/geochecker-releases の Releases に公開する。
 # 動くとき: electron/ の中を変えて push したとき（electron/package.json の version を上げておく）／ Actions から手動で実行したとき。
 # 事前準備（1 回だけ）: geochecker-releases に書き込める個人用アクセストークンを、このリポジトリのシークレット RELEASES_TOKEN に登録する（README の「Windows 版の自動公開」）。
-name: desktop-release
+name: desktop-release # RELEASES_TOKEN 登録後の最初の実行
 
 on:
   push:
