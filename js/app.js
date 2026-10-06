@@ -2004,8 +2004,8 @@ function openModal(html, cls = '', nav = false) {
     spotOverModal = false;
   }
   if (asWindow) setupWindow(m);
-  if (asWindow && opening) setPopOrigin(m); // クリックした場所から飛び出すように
   if (asWindow && window.scrollY !== keepY) window.scrollTo(0, keepY); // 浮かぶウィンドウは、位置が決まるまで一瞬ページの末尾に置かれて、ページがそこまでスクロールされてしまうので戻す
+  if (asWindow && opening) setPopOrigin(m); // クリック（キー操作ならフォーカス）した要素から、拡大して現れるように。ページの位置を戻したあとに、要素の位置を測る
   foldChipRows(m); // 隣接国が 3 行以上なら折りたたむ
   raiseChat(); // メモのボタン・欄をモーダルの手前に
   raiseAssistant(); // AI アシスタントも同じく

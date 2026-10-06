@@ -5,14 +5,33 @@ export function bringFront(el) {
   if (el) el.style.zIndex = String(++z);
 }
 
-// 開くときのアニメーション用: 最後にクリックした場所を覚えておき、ウィンドウをそこから飛び出すように見せる
-let lastDown = { x: 0, y: 0, t: 0 };
-document.addEventListener('pointerdown', (e) => { lastDown = { x: e.clientX, y: e.clientY, t: Date.now() }; }, true);
+// 開くときのアニメーション用: クリックした要素（キーボードで開いたときは、フォーカスのある要素）から、ウィンドウが拡大して現れるように見せる
+const SRC = 'a, button, .tile, [data-open], [role="button"], li, .fan-card, .pin-card';
+let lastSrc = { el: null, rect: null, t: 0 };
+const remember = (el, x, y) => {
+  const target = el?.closest?.(SRC) || el;
+  const r = target?.getBoundingClientRect?.();
+  lastSrc = { el: target, rect: r && r.width && r.height && r.width < innerWidth * 0.9 ? { left: r.left, top: r.top, width: r.width, height: r.height } : { left: x - 12, top: y - 12, width: 24, height: 24 }, t: Date.now() };
+};
+document.addEventListener('pointerdown', (e) => remember(e.target, e.clientX, e.clientY), true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { const el = document.activeElement; if (el && el !== document.body) { const r = el.getBoundingClientRect(); remember(el, r.left + r.width / 2, r.top + r.height / 2); } } }, true);
 export function setPopOrigin(el) {
-  const r = el.getBoundingClientRect();
-  const recent = Date.now() - lastDown.t < 2000; // キー操作などで開いたときは、ウィンドウの中央から
-  el.style.setProperty('--ox', recent ? `${Math.round(lastDown.x - r.left)}px` : '50%');
-  el.style.setProperty('--oy', recent ? `${Math.round(lastDown.y - r.top)}px` : '50%');
+  if (document.documentElement.classList.contains('no-anim') || !el.animate) return;
+  const w = { left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }; // 変形の途中でも、本来の位置と大きさ
+  if (!w.width || !w.height) return;
+  let src = null;
+  if (Date.now() - lastSrc.t < 2000) {
+    const live = lastSrc.el?.isConnected ? lastSrc.el.getBoundingClientRect() : null;
+    src = live && live.width && live.height ? live : lastSrc.rect;
+  } else if (document.activeElement && document.activeElement !== document.body && !el.contains(document.activeElement)) {
+    const r = document.activeElement.getBoundingClientRect();
+    if (r.width && r.height) src = r;
+  }
+  const scx = src ? src.left + src.width / 2 : w.left + w.width / 2;
+  const scy = src ? src.top + src.height / 2 : w.top + w.height / 2;
+  const sc = src ? Math.max(0.04, Math.min(0.5, Math.max(src.width / w.width, src.height / w.height))) : 0.9;
+  const from = `translate(${scx - (w.left + w.width / 2)}px, ${scy - (w.top + w.height / 2)}px) scale(${sc})`;
+  el.animate([{ opacity: 0, transform: from, transformOrigin: '50% 50%' }, { opacity: 1, offset: 0.3, transform: `translate(${(scx - (w.left + w.width / 2)) * 0.5}px, ${(scy - (w.top + w.height / 2)) * 0.5}px) scale(${(1 + sc) / 2})`, transformOrigin: '50% 50%' }, { opacity: 1, transform: 'none', transformOrigin: '50% 50%' }], { duration: 340, easing: 'cubic-bezier(.3, .1, .2, 1)' });
 }
 // 大きさ・位置が変わる操作（最大化・縮小など）を、元の形から新しい形へなめらかに動かす。change() の中で、クラスなどを切り替える
 let flipBusy = false;
