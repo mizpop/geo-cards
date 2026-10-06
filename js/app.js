@@ -29,7 +29,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
 
 // Windows 版（exe）のダウンロード先（Google ドライブの共有リンク）。exe の中・スマホ・Windows 以外では出さない
-const DESKTOP_DOWNLOAD_URL = 'https://drive.google.com/uc?export=download&id=1i8LmhVIhyaMxy-Z0f4Mw9UdQAAJMNYnz';
+const DESKTOP_DOWNLOAD_URL = 'https://github.com/mizpop/geochecker-releases/releases/download/v1.1.0/GeoChecker-Setup-1.1.0.exe';
 const canDownloadApp = () => /Windows/i.test(navigator.userAgent) && !/Electron/i.test(navigator.userAgent) && !window.matchMedia?.('(pointer: coarse)').matches;
 function shuffle(arr) {
   const a = arr.slice();
@@ -235,7 +235,7 @@ function openSettings() {
     </section>
     ${canDownloadApp() ? `<h3 class="set-group-title">💻 デスクトップ版（Windows）</h3>
     <section class="set-group">
-      ${item('Windows 版アプリ（exe）', 'インストール不要で、ダブルクリックで起動できます。中身はこのサイトなので、サイトの更新は自動で反映されます（インターネット接続が必要）。初めて開くとき Windows の警告が出たら、「詳細情報」→「実行」で開けます。', `<a class="btn btn-primary btn-sm" href="${esc(DESKTOP_DOWNLOAD_URL)}" target="_blank" rel="noopener">ダウンロード（約 74MB）</a>`)}
+      ${item('Windows 版アプリ（exe）', 'インストーラーをダブルクリックするだけで入れられます（管理者権限は不要）。中身はこのサイトなので、サイトの更新は自動で反映され、アプリ本体の新しい版も起動時に自動で更新されます（インターネット接続が必要）。初めて開くとき Windows の警告が出たら、「詳細情報」→「実行」で開けます。', `<a class="btn btn-primary btn-sm" href="${esc(DESKTOP_DOWNLOAD_URL)}" target="_blank" rel="noopener">ダウンロード（約 74MB）</a>`)}
       <p class="set-desc set-dl-note">⚠ Google ドライブで「ウイルススキャンできません」という画面が出ます（exe は Google が中身を確認できないため、必ず出ます）。そのまま <b>「ダウンロード」</b> を押してください。</p>
     </section>` : ''}
     <h3 class="set-group-title">⌨ キーボード操作</h3>
