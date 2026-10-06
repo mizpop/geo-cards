@@ -1,7 +1,9 @@
 # エディタ・OS のごみ
-.DS_Store
-Thumbs.db
 *.swp
-.vscode/
-__pycache__/
+.DS_Store
 .ask-last.json
+.vscode/
+Thumbs.db
+__pycache__/
+electron/dist/
+electron/node_modules/

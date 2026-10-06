@@ -1,6 +1,6 @@
 // GeoChecker のデスクトップ版: 公開中のサイトを読み込むだけの入れ物。サイトを更新すれば、このアプリにも自動で反映される
 // 上の細いバー（タイトルバー）に再読み込みボタンを置くため、バーとサイトを別々の画面（WebContentsView）にしている
-const { app, BrowserWindow, WebContentsView, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 
 const SITE = 'https://geo-cards-533.pages.dev/';
@@ -76,8 +76,23 @@ function createWindow() {
   });
 }
 
+// 自動更新: 起動したときに、新しい版（公開の GitHub Releases）があれば裏でダウンロードして、終了時に入れ替える。インストール版だけ（開発中の npm start では動かさない）
+function setupAutoUpdate() {
+  if (!app.isPackaged) return;
+  let autoUpdater;
+  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('update-downloaded', (info) => {
+    dialog.showMessageBox({ type: 'info', buttons: ['今すぐ再起動して更新', '後で（終了時に更新）'], defaultId: 0, cancelId: 1, title: 'GeoChecker の更新', message: `新しい版 ${info.version} をダウンロードしました。`, detail: '再起動すると更新されます。「後で」を選んでも、アプリを終了したときに更新されます。' })
+      .then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+  });
+  autoUpdater.on('error', () => { /* オフラインなどは無視（次の起動でまた確認する） */ });
+  autoUpdater.checkForUpdates().catch(() => {});
+}
+
 app.whenReady().then(() => {
   createWindow();
+  setupAutoUpdate();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

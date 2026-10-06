@@ -1,18 +1,51 @@
 {
   "name": "geochecker",
   "productName": "GeoChecker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "GeoChecker（GeoGuessr 学習アプリ）のデスクトップ版。公開中のサイトを読み込むので、サイトの更新は自動で反映されます",
   "main": "main.js",
   "author": "mizpop",
-  "scripts": { "start": "electron .", "build": "electron-builder --win portable" },
-  "devDependencies": { "electron": "^33.0.0", "electron-builder": "^25.1.8" },
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis --publish never",
+    "release": "electron-builder --win nsis --publish always"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
   "build": {
     "appId": "net.pages.geo-cards.geochecker",
     "productName": "GeoChecker",
-    "files": ["main.js", "preload.js", "icon.png", "package.json"],
-    "win": { "target": "portable", "signAndEditExecutable": false, "icon": "icon.png" },
-    "portable": { "artifactName": "GeoChecker.exe" },
-    "directories": { "output": "dist" }
+    "files": [
+      "main.js",
+      "preload.js",
+      "icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false,
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "GeoChecker-Setup-${version}.exe"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mizpop",
+        "repo": "geochecker-releases"
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   }
 }
