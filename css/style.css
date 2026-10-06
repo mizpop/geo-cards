@@ -2357,3 +2357,8 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-pick-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: inherit; cursor: pointer; font: inherit; }
 .sv-pick-item:hover { background: var(--surface-2); }
 .sv-pick-item .pl-flag img { width: 26px; }
+
+/* 地図の上の、保存したストリートビューの目印 */
+.sv-saved-pin span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #1c7ed6; color: #fff; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .45); cursor: pointer; }
+.sv-saved-pin svg { width: 15px; height: 15px; }
+.sv-saved-pin:hover span { background: #1971c2; transform: scale(1.12); }

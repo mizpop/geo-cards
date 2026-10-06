@@ -3,6 +3,11 @@
 import { reversePlace } from './cities.js';
 import { svOpenUrl, refreshSvWindow } from './svwin.js';
 
+const listeners = new Set();
+const changed = () => listeners.forEach((fn) => { try { fn(); } catch { /* 無視 */ } });
+/** 保存したストリートビューが増えた・消えた・読み込まれたときに呼ばれる（地図の目印の更新用）。解除する関数を返す */
+export function onSavedSvChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
 let deps = null;
 let list = null; // 読み込み前は null
 let loading = null;
@@ -14,7 +19,7 @@ export const savedSvList = () => list || [];
 
 export async function loadSavedSv(force = false) {
   if (list && !force) return list;
-  if (!loading) loading = deps.api().listSavedSv().then((l) => { list = l; return l; }).finally(() => { loading = null; });
+  if (!loading) loading = deps.api().listSavedSv().then((l) => { list = l; changed(); return l; }).finally(() => { loading = null; });
   return loading;
 }
 
@@ -40,6 +45,7 @@ export async function saveSv({ lat, lng }) {
     name: place?.name || '', name_en: place?.en || '', name_local: place?.local || '', admin: place?.admin || '',
   }).catch((e) => { deps.toast(e.message || '保存できませんでした', 'error'); throw e; });
   list.unshift(row);
+  changed();
   const c = row.code ? deps.countryName(row.code) : '';
   deps.toast(`保存しました: ${[c, svLabel(row)].filter(Boolean).join(' ')}（ストリートビュータブから開けます）`);
   refreshSvWindow();
@@ -49,6 +55,7 @@ export async function saveSv({ lat, lng }) {
 async function removeSv(id) {
   await deps.api().deleteSavedSv(id);
   list = (list || []).filter((x) => x.id !== id);
+  changed();
 }
 
 const dateText = (iso) => { try { return new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' }); } catch { return ''; } };

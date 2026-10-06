@@ -1,4 +1,5 @@
 // 世界地図ビュー: 国を拡大すると、その国のカードが地図上に現れる
+import { savedSvList, loadSavedSv, onSavedSvChange, svLabel } from './savedsv.js';
 import { svEmbedUrl, svOpenUrl, SV_ICON, openSvWindow, closeSvWindow, svWindowPoint, onSvChange } from './svwin.js';
 import { COUNTRY_BY_CODE } from './countries.js';
 import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
@@ -52,6 +53,8 @@ let escHandler = null; // 地図で国を選んでいるとき Esc で解除
 let svOn = false;
 let svTemp = false; // スペース長押しで一時的にオンにしている間は true
 let svSpace = null; // スペースキー長押しの一時オンのイベント（描き直すとき外す）
+let unsubSaved = null; // 保存したストリートビューの変更を受け取る登録（描き直すとき外す）
+const SV_SAVED_MIN_ZOOM = 8; // このくらい拡大すると、保存したストリートビューの目印を出す
 let unsubSv = null; // ストリートビューのウィンドウの開閉を受け取る登録（描き直すとき外す）
 export { svEmbedUrl, svOpenUrl };
 // ストリートビューのある道路（青い線）のタイル。キー不要。クリックした地点の近くの線を探すのにも使う
@@ -751,6 +754,27 @@ export async function renderMap(view, ctx) {
   };
   unsubSv?.();
   unsubSv = onSvChange(showSvMarker);
+  // 保存したストリートビューの場所: ある程度拡大すると、地図に目印を出す（押すと、その場所をウィンドウで開く）
+  const savedLayer = L.layerGroup();
+  const drawSaved = () => {
+    savedLayer.clearLayers();
+    if (map.getZoom() < SV_SAVED_MIN_ZOOM) return;
+    const view = map.getBounds().pad(0.3);
+    for (const r of savedSvList()) {
+      const ll = [Number(r.lat), Number(r.lng)];
+      if (!view.contains(ll)) continue;
+      const m = L.marker(ll, { icon: L.divIcon({ className: 'sv-saved-pin', html: `<span>${SV_ICON}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] }), keyboard: false, zIndexOffset: 3000 });
+      m.bindTooltip(`${r.code ? `${ctx.countryName(r.code)} · ` : ''}${svLabel(r)}`, { direction: 'top', offset: [0, -12] });
+      m.on('click', () => openSvWindow(ll[0], ll[1]));
+      savedLayer.addLayer(m);
+    }
+  };
+  savedLayer.addTo(map);
+  map.on('zoomend moveend', drawSaved);
+  unsubSaved?.();
+  unsubSaved = onSavedSvChange(drawSaved);
+  loadSavedSv().then(drawSaved).catch(() => {}); // 表がまだ無いときなどは、何も出さない
+  drawSaved();
   showSvMarker(svWindowPoint());
   function setSv(on, init = false) {
     svOn = on;
@@ -810,7 +834,7 @@ export async function renderMap(view, ctx) {
   let svDown = null;
   mapEl.addEventListener('mousedown', (e) => { svDown = [e.clientX, e.clientY]; }, true);
   mapEl.addEventListener('click', async (e) => {
-    if (!svOn || e.target.closest('.leaflet-control')) return;
+    if (!svOn || e.target.closest('.leaflet-control, .sv-saved-pin')) return; // 保存した場所の目印は、その場所をそのまま開く（目印自身の処理）
     if (e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl / Alt を押しながらのクリックは、ストリートビューではなく Plonkit・国の情報（いつもの動作）
     e.stopPropagation();
     e.preventDefault();
