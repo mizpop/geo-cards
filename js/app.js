@@ -4841,25 +4841,19 @@ const EXT_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none
 // ストリートビューで見つけた場所からカードを作る: 国・場所の名前・Google マップのリンクを入れた作成画面を開く（画像は作成画面で選ぶ）
 // ストリートビューのウィンドウの「既存のカードに関連付ける」: カードを探して選ぶ。いる地点を保存していなければ、保存してから関連付ける
 function openCardLinkPop(getCurrent, anchor) {
-  const pop = openSvPop(anchor, '<input type="search" class="input sv-pop-q" placeholder="カードを探す（国名・説明・地域）" autocomplete="off"><div class="sv-pop-list"></div>', 'sv-pop-cards');
+  const pop = openSvPop(anchor, '<input type="search" class="input sv-pop-q" placeholder="カードを探す（国名・説明・地域）" autocomplete="off"><div class="sv-pop-list tiles tiles-compact"></div>', 'sv-pop-cards');
   const list = pop.querySelector('.sv-pop-list');
   const input = pop.querySelector('.sv-pop-q');
   const draw = () => {
     const pt = svWindowPoint();
     const here = pt ? savedSvAt({ lat: pt[0], lng: pt[1] }) : null;
     const hits = sortCards(matchCards(input.value)).filter((c) => !c.photo && !c.sv).slice(0, 40);
-    list.innerHTML = hits.length ? hits.map((c) => {
-      const linked = here && (c.sv_ids || []).includes(here.id);
-      // 編集画面の関連カードの検索結果と同じ見た目（カテゴリーの色・サムネイル・国・カテゴリー）
-      return `<button type="button" class="rel-hit sv-pop-card" data-id="${esc(c.id)}" style="${catStyle(c)}" title="${esc(c.description || '')}">
-        <span class="related-thumb">${thumbUrl(c) ? `<img src="${esc(thumbUrl(c))}" alt="" loading="lazy">` : ''}</span>
-        <span class="related-text"><span class="related-country">${c.countries[0] ? flagImg(c.countries[0]) : ''}${esc(c.countries[0] ? countryName(c.countries[0]) : '国なし')}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}${c.description ? `・${esc(c.description)}` : ''}${linked ? ' ・関連付け済み' : ''}</span></span>
-      </button>`;
-    }).join('') : '<p class="muted small sv-pop-empty">カードが見つかりません</p>';
+    // カードタブと同じタイル（画像の下にテキスト）を、小さくして並べる
+    list.innerHTML = hits.length ? hits.map((c) => tileHtml(c, here && (c.sv_ids || []).includes(here.id) ? '<p class="tile-given sv-pop-linked">🔗 関連付け済み</p>' : '')).join('') : '<p class="muted small sv-pop-empty">カードが見つかりません</p>';
   };
   input.addEventListener('input', draw);
   list.addEventListener('click', async (e) => {
-    const b = e.target.closest('.sv-pop-card');
+    const b = e.target.closest('.tile');
     const card = b && cardById(b.dataset.id);
     if (!card) return;
     try {

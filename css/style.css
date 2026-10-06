@@ -2402,3 +2402,12 @@ img.img-loaded { animation: fade-in .35s ease-out; }
 .sv-head .sv-title { white-space: nowrap; flex: none; }
 .sv-head .sv-coord { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sv-head .sv-btn { flex: none; }
+
+/* カードの選択（関連付け）: カードタブのタイルを小さくして並べる */
+.sv-pop.sv-pop-cards { width: 480px; }
+.sv-pop-cards .sv-pop-list.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; padding: 2px; align-content: start; }
+.sv-pop-cards .tile { cursor: pointer; }
+.sv-pop-cards .tile-body { padding: 6px 8px 8px; gap: 4px; }
+.sv-pop-cards .tile .chip { font-size: 11px; padding: 2px 6px; }
+.sv-pop-cards .tile-desc { font-size: 12px; -webkit-line-clamp: 1; }
+.sv-pop-cards .sv-pop-linked { font-size: 11px; color: var(--accent); }
