@@ -339,6 +339,7 @@ async function errorText(res) {
   if (data.error === 'not_configured') return 'AI アシスタントは、まだ使えるように設定されていません。<br><span class="small">管理者が Cloudflare Pages の「設定 → 変数とシークレット」に <code>GEMINI_API_KEY</code>（Google AI Studio で無料で作れる API キー）をシークレットとして追加し、再デプロイすると使えます（README の「AI アシスタントの設定」を参照）。</span>';
   if (data.error === 'unauthorized') return 'ログインの確認ができませんでした。いったんログアウトして、もう一度ログインしてください。';
   if (data.error === 'editors_only') return 'AI アシスタントは、今のところ編集者のアカウントだけが使えます。';
+  if (data.error === 'busy') return 'AI（Gemini）が混み合っていて、答えをもらえませんでした。少し待ってから、もう一度お試しください。';
   if (data.error === 'bad_key') return 'AI の API キーが無効か、権限がありません。管理者に伝えてください。';
   if (data.error === 'rate_limited') return esc(data.message || '利用が集中しています。少し待ってからもう一度お試しください。');
   if (data.error === 'too_large' || data.error === 'bad_image') return '画像が大きすぎるか、形式に対応していません。別の画像でお試しください。';

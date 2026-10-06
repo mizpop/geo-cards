@@ -109,6 +109,7 @@ AI アシスタントは、Google の **Gemini API の無料枠**を使います
 | 変数 | 意味 |
 |---|---|
 | `CHAT_MODEL` | 使うモデル。初期値は `gemini-3.8-flash`（無料枠で使える）。回数に余裕がほしいときは、より軽い `gemini-3.5-flash-lite` などに変えられます |
+| `CHAT_FALLBACK_MODELS` | モデルが混み合っている（503）・回数の上限（429）のときに、順に切り替えるモデル（カンマ区切り）。初期値は `gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite`。新しいモデルは混みやすいので、自動で別のモデルに切り替わります |
 | `CHAT_EFFORT` | 考える深さ（`minimal` / `low` / `medium` / `high`）。初期値は `low`（速い）。Gemini 3 以降のモデルだけに効きます |
 | `CHAT_EDITORS_ONLY` | `1` にすると、編集者のアカウントだけが使えます（閲覧用アカウントでは使えない）。無料枠の回数を守りたいときに |
 | `CHAT_ALLOW_ANON` | `1` にすると、ログインなしでも使えます（デモ用。公開サイトでは設定しないでください） |

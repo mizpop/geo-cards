@@ -2,7 +2,8 @@
 //
 // 必要な設定（Cloudflare Pages の「設定 → 変数とシークレット」）:
 //   GEMINI_API_KEY     … Google AI Studio（https://aistudio.google.com/apikey）で作る API キー。「シークレット」として追加（ブラウザには出ない）。無料枠で使える
-//   CHAT_MODEL         … 任意。使うモデル（初期値 gemini-3.8-flash。無料枠で使える）
+//   CHAT_MODEL         … 任意。最初に使うモデル（初期値 gemini-3.8-flash。無料枠で使える）
+//   CHAT_FALLBACK_MODELS … 任意。混み合っている・回数の上限のときに、順に切り替えるモデル（カンマ区切り。初期値は下の FALLBACK_MODELS）
 //   CHAT_EFFORT        … 任意。考える深さ minimal / low / medium / high（Gemini 3 以降のモデル。初期値 low）
 //   CHAT_EDITORS_ONLY  … 任意。1 にすると、編集者（Supabase の editors に登録された人）だけが使える（閲覧用アカウントは使えない。無料枠の回数を守りたいとき）
 //   CHAT_ALLOW_ANON    … 任意。1 にすると、Supabase のログインなしでも使える（デモ用。公開サイトでは設定しない）
@@ -10,11 +11,14 @@
 //
 // ブラウザには、Gemini の形式ではなく、次の簡単な Server-Sent Events を返す:
 //   data: {"text":"…"}                  … 答えの続き
-//   data: {"done":true,"reason":"STOP"}  … 終わり（reason: STOP / MAX_TOKENS / BLOCKED / SAFETY など）
+//   data: {"done":true,"reason":"STOP","model":"gemini-3.8-flash"} … 終わり（reason: STOP / MAX_TOKENS / BLOCKED / SAFETY など。model は実際に答えたモデル）
 //   data: {"error":"…"}                 … 途中のエラー
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-3.8-flash';
+// 新しいモデルは混み合って 503（high demand）になりやすいので、そのときは、無料枠で使える別のモデルに順に切り替える
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+const SWITCH_ON = new Set([429, 500, 502, 503, 504]); // これらのときだけ次のモデルを試す（キーや入力の問題は、どのモデルでも同じなので切り替えない）
 const MAX_MESSAGES = 20; // 会話の履歴の最大数
 const MAX_TEXT = 4000; // 1 つの発言の最大文字数
 const MAX_CONTEXT = 40000; // 参考資料の最大文字数
@@ -72,7 +76,7 @@ async function authorized(request, env) {
 }
 
 // Gemini の Server-Sent Events（candidates[].content.parts[].text）を、上の簡単な形に変えて流す
-function simplify(upstream) {
+function simplify(upstream, model) {
   const dec = new TextDecoder();
   const enc = new TextEncoder();
   let buf = '';
@@ -100,7 +104,7 @@ function simplify(upstream) {
     },
     flush(ctl) {
       if (buf.trim()) handle(buf, ctl);
-      emit(ctl, { done: true, reason: blocked ? 'BLOCKED' : finish || 'STOP' });
+      emit(ctl, { done: true, reason: blocked ? 'BLOCKED' : finish || 'STOP', model });
     },
   }));
 }
@@ -139,38 +143,52 @@ export async function onRequestPost({ request, env }) {
   const context = typeof body.context === 'string' ? body.context.slice(0, MAX_CONTEXT) : '';
   const system = context.trim() ? `${SYSTEM}\n\n<参考資料>\n${context}\n</参考資料>` : SYSTEM;
 
-  const model = /^[\w.\-]+$/.test(env.CHAT_MODEL || '') ? env.CHAT_MODEL : DEFAULT_MODEL;
-  const payload = { systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { maxOutputTokens: 4096 } };
+  const valid = (m) => /^[\w.\-]+$/.test(m || '');
+  const chain = [...new Set([
+    valid(env.CHAT_MODEL) ? env.CHAT_MODEL : DEFAULT_MODEL,
+    ...(env.CHAT_FALLBACK_MODELS ? String(env.CHAT_FALLBACK_MODELS).split(',').map((x) => x.trim()).filter(valid) : FALLBACK_MODELS),
+  ])].slice(0, 4);
   // 考える深さは Gemini 3 以降のモデルだけに指定できる（古いモデルに送るとエラーになる）
   const level = ['minimal', 'low', 'medium', 'high'].includes(env.CHAT_EFFORT) ? env.CHAT_EFFORT : 'low';
-  const withThinking = /^gemini-[3-9]/.test(model);
-  if (withThinking) payload.generationConfig.thinkingConfig = { thinkingLevel: level.toUpperCase() };
-
-  const call = async (p) => {
+  const base = { systemInstruction: { parts: [{ text: system }] }, contents };
+  const send = async (model, generationConfig) => {
     try {
       return await fetch(`${API}/${model}:streamGenerateContent?alt=sse`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
-        body: JSON.stringify(p),
+        body: JSON.stringify({ ...base, generationConfig }),
       });
     } catch {
       return null;
     }
   };
-  let res = await call(payload);
-  if (!res) return json({ error: 'network', message: 'Gemini に接続できませんでした' }, 502);
-  if (res.status === 400 && withThinking) { // 考える深さの指定が合わないモデルのときは、指定なしでやり直す
-    const res2 = await call({ ...payload, generationConfig: { maxOutputTokens: 4096 } });
-    if (res2?.ok) res = res2;
+  const attempt = async (model) => {
+    const withThinking = /^gemini-[3-9]/.test(model);
+    const cfg = { maxOutputTokens: 4096, ...(withThinking ? { thinkingConfig: { thinkingLevel: level.toUpperCase() } } : {}) };
+    let r = await send(model, cfg);
+    if (r && r.status === 400 && withThinking) { // 考える深さの指定が合わないモデルのときは、指定なしでやり直す
+      const r2 = await send(model, { maxOutputTokens: 4096 });
+      if (r2?.ok) r = r2;
+    }
+    return r;
+  };
+  let res = null;
+  let used = '';
+  for (const m of chain) {
+    const r = await attempt(m);
+    if (r) { res = r; used = m; }
+    if (r?.ok || (r && !SWITCH_ON.has(r.status))) break;
   }
+  if (!res) return json({ error: 'network', message: 'Gemini に接続できませんでした' }, 502);
   if (!res.ok) {
     let message = '';
     try { message = (await res.json())?.error?.message || ''; } catch { /* 本文なし */ }
     if (/api key|API_KEY/i.test(message) || res.status === 401 || res.status === 403) return json({ error: 'bad_key', message: 'API キーが無効か、権限がありません' }, 502);
     if (res.status === 429) return json({ error: 'rate_limited', message: '無料枠の利用回数の上限に達しました。少し待ってからもう一度お試しください（1 日の上限は、日本時間の夕方（16〜17 時ごろ）にリセットされます）' }, 429);
-    return json({ error: 'upstream', status: res.status, message }, res.status >= 500 ? 503 : 502);
+    if (res.status >= 500) return json({ error: 'busy', status: res.status, message: 'AI（Gemini）が混み合っています。少し待ってからもう一度お試しください' }, 503);
+    return json({ error: 'upstream', status: res.status, message }, 502);
   }
-  return new Response(simplify(res.body), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+  return new Response(simplify(res.body, used), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
 }
 
 // POST 以外（onRequestPost が先に処理される）
