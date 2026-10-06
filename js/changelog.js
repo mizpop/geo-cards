@@ -2,6 +2,19 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v10',
+    date: '2026-10-06',
+    sections: [
+      {
+        title: '都市の検索',
+        items: [
+          'ローマ字でも都市を検索できるように。tokyo・osaka・kyoto のほか、oosaka・toukyou・kyouto（長音の書き方）や、berurin・warushawa・nyuuyooku・rondon（外国の都市のカタカナ名）も見つかる',
+          '複数の書き方で探したときは、人口の多い都市を先に表示',
+        ],
+      },
+    ],
+  },
+  {
     version: 'v9',
     date: '2026-10-06',
     sections: [

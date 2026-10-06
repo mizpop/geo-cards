@@ -5,6 +5,8 @@
 //     漢字だけの名前は、「市」を付けた名前（京都 → 京都市）でも探す
 // 戻り値の都市: { id, name, sub（県・国など）, code（国コード・大文字）, lat, lng, zoom, pop, src }
 
+import { romajiToKana } from './countries.js';
+
 const OM = 'https://geocoding-api.open-meteo.com/v1/search';
 const OSM = 'https://nominatim.openstreetmap.org/search';
 
@@ -31,6 +33,23 @@ const zoomForOSM = (x) => {
 const PLACE_OK = /^(city|town|village|municipality|county|state|province|region|island|borough|suburb|state_district|city_district|district|quarter|neighbourhood|hamlet)$/;
 const PLACE_BIG = /^(city|town|village|municipality|county|state|province|region|island|borough|state_district)$/;
 
+// ローマ字の入力も探せるように、検索する言葉を何通りか作る（入力のまま・カタカナ・長音をまとめた形）
+//   tokyo / osaka / kyoto → そのまま（英語のローマ字の名前でも、日本語の名前で見つかる）
+//   berurin / warushawa / nyuuyooku → ベルリン / ワルシャワ / ニューヨーク（外国の都市のカタカナ名）
+//   oosaka / toukyou / kyouto → osaka / tokyo / kyoto（日本の都市の長音の書き方）
+export function queryVariants(query) {
+  const q = query.trim();
+  if (!/^[A-Za-z][A-Za-z' -]*$/.test(q)) return [q];
+  const lower = q.toLowerCase().replace(/[\s']+/g, '');
+  const out = [q];
+  const roman = lower.replace(/([aiueo])\1/g, '$1-'); // nyuuyooku → nyu-yo-ku（長音）
+  const kana = romajiToKana(roman) ?? romajiToKana(roman.replace(/[bcdfghjklmpqrstvwxyz]+$/, '')); // 打ちかけの子音は除く
+  if (kana && kana.length >= 2) out.push(kana);
+  const collapsed = lower.replace(/oo|ou/g, 'o').replace(/uu/g, 'u');
+  if (collapsed !== lower) out.push(collapsed);
+  return [...new Set(out)].slice(0, 3);
+}
+
 // 「大阪市」「福岡県」のように、市・区・県などの語尾をふくむか（「京都」の「都」は都市名の一部なので、2 文字のときは語尾とみなさない。「東京都」は語尾）
 const hasSuffix = (s) => /[市区町村県府郡]$/.test(s) || (s.length >= 3 && /都$/.test(s));
 const isCjk = (s) => /^[぀-ヿ㐀-鿿]+$/.test(s);
@@ -46,14 +65,11 @@ function dedupe(list) {
   });
 }
 
-/** 入力に合わせた候補（Open-Meteo）。signal で前の問い合わせをやめられる */
-export async function suggestCities(query, { signal, count = 8 } = {}) {
-  const q = query.trim();
-  if (q.length < 2 && !/[㐀-鿿]/.test(q)) return [];
+async function omOne(q, signal, count) {
   const res = await fetch(`${OM}?name=${encodeURIComponent(q)}&count=${count}&language=ja&format=json`, { signal });
   if (!res.ok) throw new Error(`都市の検索に失敗しました（${res.status}）`);
   const data = await res.json();
-  return dedupe((data.results || [])
+  return (data.results || [])
     .filter((x) => /^(PPL(?![XHQW])|ADM[123]|ISL)/.test(x.feature_code || ''))
     .map((x) => ({
       id: `om${x.id}`,
@@ -65,7 +81,19 @@ export async function suggestCities(query, { signal, count = 8 } = {}) {
       zoom: zoomForOM(x),
       pop: x.population || 0,
       src: 'open-meteo',
-    })));
+    }));
+}
+
+/** 入力に合わせた候補（Open-Meteo）。ローマ字は、カタカナなどに直した形でも探して、人口の多い順にまとめる。signal で前の問い合わせをやめられる */
+export async function suggestCities(query, { signal, count = 8 } = {}) {
+  const q = query.trim();
+  if (q.length < 2 && !/[\u3400-\u9fff]/.test(q)) return [];
+  const lists = await Promise.all(queryVariants(q).map((v) => omOne(v, signal, count).catch((e) => { if (e.name === 'AbortError') throw e; return []; })));
+  const merged = dedupe(lists.flat());
+  // 複数の言葉で探したときは、人口の多い順（大きな都市が先）。1 通りだけなら、サービスの並びのまま
+  return (lists.filter((l) => l.length).length > 1 || queryVariants(q).length > 1
+    ? merged.map((c, i) => ({ c, i })).sort((a, b) => (b.c.pop - a.c.pop) || (a.i - b.i)).map((x) => x.c)
+    : merged).slice(0, count);
 }
 
 // Nominatim は 1 秒に 1 回まで（利用ポリシー）。続けて呼ばれたら間をあける
@@ -87,7 +115,7 @@ async function osmQuery(q, signal) {
 export async function searchCitiesOSM(query, { signal } = {}) {
   const q = query.trim();
   if (!q) return [];
-  const queries = [q];
+  const queries = queryVariants(q);
   if (isCjk(q) && !hasSuffix(q) && q.length <= 4) queries.push(`${q}市`); // 京都 → 京都市（駅や集落より先に市が出るように）
   const rows = [];
   for (const one of queries) rows.push(...(await osmQuery(one, signal)));
