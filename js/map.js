@@ -957,7 +957,7 @@ export async function renderMap(view, ctx) {
   if (svPoint) {
     openSv(svPoint[0], svPoint[1]);
     if (carry?.open && !mobileSv()) {
-      if (carry.side) snapWindow(svPanel, carry.side, () => { svPanel.classList.remove('is-snap'); placePanel(); });
+      if (carry.side) snapWindow(svPanel, carry.side, () => { svPanel.classList.remove('is-snap'); placePanel(); }, true);
       else if (carry.max) svPanel.classList.add('is-max');
       else if (carry.min) setMin(true);
     }

@@ -127,16 +127,15 @@ function clearIfEmpty() {
 }
 
 // ウィンドウを side に入れる。restore: 浮かぶ状態に戻すとき（ドラッグで外したとき・縮小・拡大）に呼ぶ関数
-let restoring = true; // 起動して状態を戻している間は、保存した分割の幅をそのまま使う（左右そろっても 3 等分に直さない）
-export const finishRestore = () => { restoring = false; };
-export function snapWindow(el, side, restore) {
+// keep: 再読み込み・描き直しで戻すとき（保存した幅をそのまま使い、左右そろっても 3 等分に直さない）
+export function snapWindow(el, side, restore, keep = false) {
   const cur = sideOf(el);
   if (cur) slots[cur] = null; // もう片側に入っていたら、こちらへ移す
   const prev = slots[side];
   slots[side] = null;
   if (prev && prev.el !== el) { prev.el.classList.remove('is-snap'); prev.restore?.(); } // その側にいた別のウィンドウは、浮かぶ状態に戻す
   slots[side] = { el, restore };
-  if (slots.left && slots.right && !restoring) ratio.left = ratio.right = Math.min(ratio.left, ratio.right, 1 / 3); // 左右そろったら、同じ幅で 3 つに分ける
+  if (slots.left && slots.right && !keep) ratio.left = ratio.right = Math.min(ratio.left, ratio.right, 1 / 3); // 左右そろったら、同じ幅で 3 つに分ける
   showSnapPreview(null);
   clearIfEmpty();
   layout();
