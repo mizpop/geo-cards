@@ -24,6 +24,20 @@ const show = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')
 const hide = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* 非対応 */ } } };
 const isOpen = () => panel?.classList.contains('open');
 
+// 手動で選べるモデル（functions/api/ask.js の FREE_MODELS と合わせる）。'auto' は、混み合っているときに順に切り替える
+const MODELS = [
+  ['auto', '自動（混んでいたら切り替え）'],
+  ['gemini-3.8-flash', 'Gemini 3.8 Flash（最新）'],
+  ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
+  ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite（軽い）'],
+  ['gemini-3.1-flash-lite', 'Gemini 3.1 Flash-Lite（軽い）'],
+  ['gemini-2.5-pro', 'Gemini 2.5 Pro（じっくり考える）'],
+  ['gemini-2.5-flash', 'Gemini 2.5 Flash'],
+  ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite（いちばん軽い）'],
+];
+const MODEL_KEY = 'geochecker-ai-model';
+let model = (() => { try { const v = localStorage.getItem(MODEL_KEY); return MODELS.some(([id]) => id === v) ? v : 'auto'; } catch { return 'auto'; } })();
+
 const SUGGESTIONS = [
   'ポーランドのボラードの特徴は？',
   '黄色地に黒の矢印のシェブロンは、どの国に多い？',
@@ -101,8 +115,8 @@ function build() {
   panel.setAttribute('aria-label', 'AI アシスタント');
   panel.innerHTML = `
     <header class="ai-head">
-      <b>✨ AI に質問</b>
-      <span class="grow"></span>
+      <b>✨ AI</b>
+      <select class="select select-sm ai-model" aria-label="使うモデル" title="使うモデル（「自動」は、混み合っているときに別のモデルへ切り替えます。選んだモデルは、そのモデルだけを使います）">${MODELS.map(([id, label]) => `<option value="${id}" ${id === model ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <button type="button" class="btn btn-ghost btn-sm ai-new" title="会話を新しく始める">新しい会話</button>
       <button type="button" class="icon-btn ai-close" aria-label="閉じる">✕</button>
     </header>
@@ -143,6 +157,11 @@ function build() {
     send(text || 'この画像について教えてください');
   });
   panel.querySelector('.ai-close').addEventListener('click', closePanel);
+  panel.querySelector('.ai-model').addEventListener('change', (e) => {
+    model = e.target.value;
+    try { localStorage.setItem(MODEL_KEY, model); } catch { /* 保存できなくても使える */ }
+    toast(model === 'auto' ? 'モデル: 自動' : `モデル: ${MODELS.find(([id]) => id === model)?.[1] || model}`);
+  });
   panel.querySelector('.ai-new').addEventListener('click', () => {
     controller?.abort();
     messages = [];
@@ -232,7 +251,8 @@ function messageHtml(m, i) {
   if (m.error) return `<div class="ai-msg ai-bot"><div class="ai-bubble ai-error">${m.error}</div></div>`;
   const body = m.content ? renderMarkdown(m.content, m.refs) : '<span class="ai-typing" aria-label="考え中"><i></i><i></i><i></i></span>';
   const srcs = (m.sources || []).length ? `<details class="ai-src"><summary>参照した資料 ${m.sources.length} 件</summary><div class="ai-src-list">${m.sources.map((s) => `<button type="button" class="ai-ref" data-msg="${i}" data-ref="${s.id}" title="${esc(s.label)}">${s.id.startsWith('C') ? '📇' : '📷'} ${esc(s.label)}</button>`).join('')}</div></details>` : '';
-  return `<div class="ai-msg ai-bot"><div class="ai-bubble">${body}</div>${srcs}</div>`;
+  const meta = m.model && m.content ? `<div class="ai-meta">${esc(m.model)}${m.switched ? '（混み合っていたため、自動で切り替えました）' : ''}</div>` : '';
+  return `<div class="ai-msg ai-bot"><div class="ai-bubble">${body}</div>${meta}${srcs}</div>`;
 }
 
 // 簡単な Markdown（太字・インラインコード・箇条書き・見出し）と、[C1] [P2] [国:PL] を押せる印にする
@@ -312,7 +332,7 @@ async function send(text) {
     const ctx = buildContext({ question, history, deps: deps.getDeps(), pinned: pin });
     bot.refs = ctx.refs;
     bot.sources = ctx.sources;
-    const payload = { messages: [...history.slice(-10), { role: 'user', content: question }], context: ctx.text };
+    const payload = { messages: [...history.slice(-10), { role: 'user', content: question }], context: ctx.text, model };
     if (image) payload.image = { media_type: image.blob.type, data: (await blobToDataUrl(image.blob)).split(',')[1] };
     const token = await api.getAccessToken();
     const res = await fetch('/api/ask', {
@@ -339,6 +359,7 @@ async function errorText(res) {
   if (data.error === 'not_configured') return 'AI アシスタントは、まだ使えるように設定されていません。<br><span class="small">管理者が Cloudflare Pages の「設定 → 変数とシークレット」に <code>GEMINI_API_KEY</code>（Google AI Studio で無料で作れる API キー）をシークレットとして追加し、再デプロイすると使えます（README の「AI アシスタントの設定」を参照）。</span>';
   if (data.error === 'unauthorized') return 'ログインの確認ができませんでした。いったんログアウトして、もう一度ログインしてください。';
   if (data.error === 'editors_only') return 'AI アシスタントは、今のところ編集者のアカウントだけが使えます。';
+  if ((data.error === 'busy' || data.error === 'rate_limited') && data.manual) return `選んだモデル（${esc(data.model || model)}）が${data.error === 'busy' ? '混み合っている' : '無料枠の上限に達している'}ようです。少し待つか、上の欄で別のモデルを選ぶか、「自動」にしてもう一度お試しください。`;
   if (data.error === 'busy') return 'AI（Gemini）が混み合っていて、答えをもらえませんでした。少し待ってから、もう一度お試しください。';
   if (data.error === 'bad_key') return 'AI の API キーが無効か、権限がありません。管理者に伝えてください。';
   if (data.error === 'rate_limited') return esc(data.message || '利用が集中しています。少し待ってからもう一度お試しください。');
@@ -377,6 +398,8 @@ async function readStream(res, bot) {
       if (typeof ev.text === 'string') bot.content += ev.text;
       else if (ev.error) bot.error = esc(ev.error || '途中でエラーが起きました');
       else if (ev.done) {
+        bot.model = ev.model || '';
+        bot.switched = !!ev.switched;
         if (/^(BLOCKED|SAFETY|PROHIBITED_CONTENT|RECITATION)/.test(ev.reason || '')) bot.content += bot.content ? '\n\n（ここで止まりました。この質問にはお答えできません）' : '';
         else if (ev.reason === 'MAX_TOKENS') bot.content += '\n\n（長くなったため、ここで終わっています）';
       }

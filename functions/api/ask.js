@@ -11,12 +11,14 @@
 //
 // ブラウザには、Gemini の形式ではなく、次の簡単な Server-Sent Events を返す:
 //   data: {"text":"…"}                  … 答えの続き
-//   data: {"done":true,"reason":"STOP","model":"gemini-3.8-flash"} … 終わり（reason: STOP / MAX_TOKENS / BLOCKED / SAFETY など。model は実際に答えたモデル）
+//   data: {"done":true,"reason":"STOP","model":"gemini-3.8-flash","switched":true} … 終わり（reason: STOP / MAX_TOKENS / BLOCKED / SAFETY など。model は実際に答えたモデル、switched は混み合いなどで自動で切り替えたとき）
 //   data: {"error":"…"}                 … 途中のエラー
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 // 新しいモデルは混み合って 503（high demand）になりやすいので、そのときは、無料枠で使える別のモデルに順に切り替える
+// 手動で選べるモデル（無料枠で使える文章のモデル。画面の選択欄 js/assistant.js の MODELS と合わせる）。これ以外の指定は受け付けない
+const FREE_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const SWITCH_ON = new Set([429, 500, 502, 503, 504]); // これらのときだけ次のモデルを試す（キーや入力の問題は、どのモデルでも同じなので切り替えない）
 const MAX_MESSAGES = 20; // 会話の履歴の最大数
@@ -76,7 +78,7 @@ async function authorized(request, env) {
 }
 
 // Gemini の Server-Sent Events（candidates[].content.parts[].text）を、上の簡単な形に変えて流す
-function simplify(upstream, model) {
+function simplify(upstream, model, first) {
   const dec = new TextDecoder();
   const enc = new TextEncoder();
   let buf = '';
@@ -104,7 +106,7 @@ function simplify(upstream, model) {
     },
     flush(ctl) {
       if (buf.trim()) handle(buf, ctl);
-      emit(ctl, { done: true, reason: blocked ? 'BLOCKED' : finish || 'STOP', model });
+      emit(ctl, { done: true, reason: blocked ? 'BLOCKED' : finish || 'STOP', model, ...(first && model !== first ? { switched: true } : {}) });
     },
   }));
 }
@@ -144,7 +146,9 @@ export async function onRequestPost({ request, env }) {
   const system = context.trim() ? `${SYSTEM}\n\n<参考資料>\n${context}\n</参考資料>` : SYSTEM;
 
   const valid = (m) => /^[\w.\-]+$/.test(m || '');
-  const chain = [...new Set([
+  // 画面で選ばれたモデル（'auto' なら自動）。手動で選ばれたときは、そのモデルだけを使い、混み合っていても勝手に切り替えない
+  const manual = typeof body.model === 'string' && FREE_MODELS.includes(body.model);
+  const chain = manual ? [body.model] : [...new Set([
     valid(env.CHAT_MODEL) ? env.CHAT_MODEL : DEFAULT_MODEL,
     ...(env.CHAT_FALLBACK_MODELS ? String(env.CHAT_FALLBACK_MODELS).split(',').map((x) => x.trim()).filter(valid) : FALLBACK_MODELS),
   ])].slice(0, 4);
@@ -184,11 +188,11 @@ export async function onRequestPost({ request, env }) {
     let message = '';
     try { message = (await res.json())?.error?.message || ''; } catch { /* 本文なし */ }
     if (/api key|API_KEY/i.test(message) || res.status === 401 || res.status === 403) return json({ error: 'bad_key', message: 'API キーが無効か、権限がありません' }, 502);
-    if (res.status === 429) return json({ error: 'rate_limited', message: '無料枠の利用回数の上限に達しました。少し待ってからもう一度お試しください（1 日の上限は、日本時間の夕方（16〜17 時ごろ）にリセットされます）' }, 429);
-    if (res.status >= 500) return json({ error: 'busy', status: res.status, message: 'AI（Gemini）が混み合っています。少し待ってからもう一度お試しください' }, 503);
+    if (res.status === 429) return json({ error: 'rate_limited', manual, model: used, message: '無料枠の利用回数の上限に達しました。少し待ってからもう一度お試しください（1 日の上限は、日本時間の夕方（16〜17 時ごろ）にリセットされます）' }, 429);
+    if (res.status >= 500) return json({ error: 'busy', manual, model: used, status: res.status, message: 'AI（Gemini）が混み合っています。少し待ってからもう一度お試しください' }, 503);
     return json({ error: 'upstream', status: res.status, message }, 502);
   }
-  return new Response(simplify(res.body, used), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+  return new Response(simplify(res.body, used, manual ? '' : chain[0]), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
 }
 
 // POST 以外（onRequestPost が先に処理される）

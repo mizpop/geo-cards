@@ -2240,3 +2240,6 @@ body:has(.sv-front) { overflow-x: clip; }
   .ai-panel { inset: 60px 8px auto 8px; width: auto; height: min(82dvh, calc(100dvh - 76px)); }
 }
 @media print { .ai-panel, .ai-btn { display: none !important; } }
+
+.ai-head .ai-model { flex: 1; min-width: 0; max-width: 210px; margin-left: auto; font-size: 12px; }
+.ai-meta { font-size: 11px; color: var(--muted); padding: 0 4px; }

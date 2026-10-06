@@ -54,7 +54,8 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
         for i in range(0, len(text), 6):
             ev({'text': text[i:i + 6]})
             time.sleep(0.02)
-        ev({'done': True, 'reason': 'STOP'})
+        m = req.get('model') or 'auto'
+        ev({'done': True, 'reason': 'STOP', 'model': 'gemini-3.8-flash' if m == 'auto' else m})
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
