@@ -93,6 +93,10 @@ function onRemoteChange(type, row, old) {
   }
 }
 
+// 再読み込みしても、メモのパネルを開いたままにするため
+export const chatIsOpen = () => !!panel?.classList.contains('open');
+export function reopenChat() { if (btn && !btn.hidden && !isOpen()) openPanel(); }
+
 export function teardownChat() {
   if (!btn) return;
   closePanel();

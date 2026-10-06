@@ -3,14 +3,15 @@ import { initApi } from './api.js';
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
-import { initChat, teardownChat, raiseChat } from './chat.js';
-import { initAssistant, teardownAssistant, raiseAssistant, openAssistant } from './assistant.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, showCityOnNextRender, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
+import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat } from './chat.js';
+import { saveSession, loadSession, clearSession } from './session.js';
+import { initAssistant, teardownAssistant, raiseAssistant, openAssistant, getAssistantSession, setAssistantSession } from './assistant.js';
+import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, showCityOnNextRender, getMapSession, setMapSession, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
 import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from './cities.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
 import { play, setMuted, playedRecently } from './sound.js';
-import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, releaseSnap } from './floatz.js';
+import { bringFront, snapSideAt, showSnapPreview, snapWindow, unsnapWindow, isSnapped, snappedSide, releaseSnap } from './floatz.js';
 import { getCode, setCode, clearCode, newCode, normalizeCode, formatCode, isValidCode, lastSyncAt, syncNow, startAutoSync } from './sync.js';
 import { record, getProg, isDue, reviewOrder, weakness, stats as progStats, levelHtml, logActivity, activity, streak, dayKey, resetActivity, logConfusion, confusions, saveBest } from './progress.js';
 import { mountQuizMap, nearestKm, mountPinMap, distanceBetween } from './quizmap.js';
@@ -177,6 +178,8 @@ function saveSettings() {
 applySettings();
 
 async function doLogout() {
+  sessionReady = false;
+  clearSession();
   await api.logout();
   teardownChat();
   teardownAssistant();
@@ -500,6 +503,119 @@ const assistantDeps = {
   },
 };
 
+/* ================= 再読み込みしても引き継ぐ（クイズ・暗記の途中・開いていたウィンドウなど） =================
+   このタブの sessionStorage に、今の状態を定期的に（と、閉じる・再読み込みの直前に）保存し、起動したときに戻す */
+let sessionReady = false; // 戻し終わるまでは保存しない（途中の空の状態で、前の状態を上書きしないように）
+const sessionUser = () => state.user?.id || state.user?.email || '';
+function snapshotSession() {
+  if (!sessionReady || !state.user) return;
+  const q = state.quiz;
+  const s = state.study;
+  const m = $('#modal');
+  const cur = modalCurrent;
+  let modal = null;
+  if (m?.open && cur) {
+    if (cur.kind === 'card') modal = { kind: 'card', id: cur.id, list: cur.list || null };
+    else if (cur.kind === 'country') modal = { kind: 'country', code: cur.code, lang: cur.lang || null };
+    else if (cur.kind === 'photo') modal = { kind: 'photo', topic: cur.topic, code: cur.code, srcs: cur.srcs, i: cur.i };
+  }
+  const dialog = m?.open && !cur ? (m.querySelector('#set-changelog') ? 'settings' : m.querySelector('.cl-version') ? 'changelog' : null) : null;
+  const svUsed = [...new Set((q.questions || []).map((x) => x.cardId).filter((id) => String(id).startsWith('sv|')))].map((id) => svCards.get(id)).filter(Boolean);
+  saveSession({
+    v: 1,
+    at: Date.now(),
+    user: sessionUser(),
+    view: state.view,
+    study: { regionsOff: s.regionsOff, catsOff: s.catsOff, review: s.review, shuffled: s.shuffled, deck: s.deck, index: s.index, flipped: s.flipped, factsOpen: !!s.factsOpen },
+    quiz: q,
+    svCards: svUsed,
+    manage: { q: state.manage.q, regionsOff: state.manage.regionsOff, catsOff: state.manage.catsOff },
+    search: state.search,
+    mapFilter: { regionsOff: state.mapFilter.regionsOff, catsOff: state.mapFilter.catsOff },
+    mapMatch: state.mapMatch,
+    compare: { codes: state.compare.codes, closed: state.compare.closed },
+    lang: { q: state.lang.q, chars: state.lang.chars, open: state.lang.open },
+    map: getMapSession(),
+    assistant: getAssistantSession(),
+    chat: chatIsOpen(),
+    scroll: { y: window.scrollY, view: $('#view')?.scrollTop || 0 },
+    ui: {
+      modal,
+      dialog,
+      win: m?.open && modalIsWindow() ? { max: m.classList.contains('is-max'), min: m.classList.contains('is-min'), snap: snappedSide(m) } : null,
+      spotlight: !!$('#spotlight')?.open,
+    },
+  });
+}
+// 起動時: 保存した状態（暗記の位置・クイズの途中・絞り込み・地図の位置など）を戻す。戻した内容を返す
+function restoreSession() {
+  const sn = loadSession();
+  if (!sn || sn.user !== sessionUser()) return null;
+  const set = (x) => (x instanceof Set ? x : new Set(Array.isArray(x) ? x : []));
+  try {
+    const st = sn.study;
+    if (st) {
+      const deck = (st.deck || []).filter((id) => cardById(id));
+      Object.assign(state.study, { regionsOff: set(st.regionsOff), catsOff: set(st.catsOff), review: !!st.review, shuffled: !!st.shuffled, deck, index: Math.max(0, Math.min(deck.length - 1, st.index || 0)), flipped: !!st.flipped, factsOpen: !!st.factsOpen });
+      rebuildStudyDeck(true);
+    }
+    const sq = sn.quiz;
+    if (sq && sq.kind !== 'battle') { // 対戦は、通信の状態があるので引き継がない
+      for (const c of sn.svCards || []) svCards.set(c.id, c);
+      const q = state.quiz;
+      Object.assign(q, sq, { regions: set(sq.regions), catsOff: set(sq.catsOff), photoTopics: set(sq.photoTopics) });
+      const item = q.questions?.[q.i];
+      const valid = (q.phase !== 'question' && q.phase !== 'result') || (q.phase === 'result' ? q.answers?.length : item && (item.cardId ? cardById(item.cardId) : true));
+      if (!valid) { q.phase = 'setup'; q.questions = []; q.answers = []; q.i = 0; q.answered = null; }
+      q.qKey = null; // 1 問ごとの制限時間は、続きから数え直す
+      q.qDeadline = undefined;
+      if (q.phase === 'question' && q.deadline) {
+        if (Date.now() >= q.deadline) q.phase = 'result'; // 再読み込みの間に、制限時間が過ぎていた
+        else armQuizTimer(q); // 残りの時間のまま続ける
+      }
+    }
+    if (sn.manage) Object.assign(state.manage, { q: sn.manage.q || '', regionsOff: set(sn.manage.regionsOff), catsOff: set(sn.manage.catsOff) });
+    if (sn.search) Object.assign(state.search, { q: sn.search.q || '', cat: sn.search.cat || null });
+    if (sn.mapFilter) Object.assign(state.mapFilter, { regionsOff: set(sn.mapFilter.regionsOff), catsOff: set(sn.mapFilter.catsOff) });
+    if (sn.mapMatch && typeof sn.mapMatch === 'object') state.mapMatch = sn.mapMatch;
+    if (sn.compare) Object.assign(state.compare, { codes: (sn.compare.codes || []).filter((c) => COUNTRY_BY_CODE.has(c)), closed: set(sn.compare.closed) });
+    if (sn.lang) Object.assign(state.lang, { q: sn.lang.q || '', chars: set(sn.lang.chars), open: set(sn.lang.open) });
+    setMapSession(sn.map);
+    if (!location.hash && sn.view) history.replaceState(null, '', `#${sn.view}`);
+  } catch (e) {
+    console.warn('前回の状態を戻せませんでした', e);
+    clearSession();
+    return null;
+  }
+  return sn;
+}
+// 画面を描いたあとに、開いていたウィンドウ・パネル・スクロール位置を戻す
+function restoreOverlays(sn) {
+  if (!sn) return;
+  const ui = sn.ui || {};
+  try {
+    const e = ui.modal;
+    if (e?.kind === 'card' && cardById(e.id)) openCardModal(cardById(e.id), null, e.list);
+    else if (e?.kind === 'country' && COUNTRY_INFO[e.code]) openCountryInfo(e.code, null, e.lang);
+    else if (e?.kind === 'photo' && e.srcs?.length) openPhotoModal(e.topic, e.code, e.srcs, e.i);
+    else if (ui.dialog === 'settings') openSettings();
+    else if (ui.dialog === 'changelog') openChangelog();
+    // ウィンドウの縮小・拡大・左右への分割
+    const w = $('#modal').__win;
+    if (e && ui.win && modalIsWindow() && w) {
+      if (ui.win.snap) w.snap(ui.win.snap);
+      else if (ui.win.min) w.setMin(true);
+      else if (ui.win.max) w.toggleMax();
+    }
+    if (ui.spotlight) openSpotlight();
+    if (sn.assistant) setAssistantSession(sn.assistant);
+    if (sn.chat) reopenChat();
+    if (sn.scroll && sn.view === state.view) setTimeout(() => { window.scrollTo(0, sn.scroll.y || 0); const v = $('#view'); if (v) v.scrollTop = sn.scroll.view || 0; }, 250);
+  } catch (err) {
+    console.warn('開いていた画面を戻せませんでした', err);
+  }
+}
+
 async function enterApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
@@ -508,7 +624,10 @@ async function enterApp() {
   initChat({ api, user: state.user, toast });
   initAssistant({ api, toast, ...assistantDeps });
   await reloadCards();
-  route();
+  const restored = restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
+  await route();
+  restoreOverlays(restored); // 開いていたウィンドウなど
+  sessionReady = true;
   startLive();
   if (!lobbyWatching) { // 公開された対戦の部屋のお知らせ（ポップアップから参加できる）
     lobbyWatching = true;
@@ -641,6 +760,11 @@ function bindGlobal() {
   $('#changelog-btn').title = `更新履歴（現在 ${APP_VERSION}）`;
   $('#changelog-btn').addEventListener('click', openChangelog);
   document.addEventListener('keydown', onKeydown);
+  // 再読み込みで引き継ぐ状態の保存: 閉じる・隠れる直前と、一定の間隔で
+  window.addEventListener('pagehide', snapshotSession);
+  window.addEventListener('beforeunload', snapshotSession);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') snapshotSession(); });
+  setInterval(() => { if (document.visibilityState === 'visible') snapshotSession(); }, 4000);
   // カードの地名を押したら、地図でその場所を見る
   document.addEventListener('click', (e) => {
     const b = e.target.closest?.('[data-place-card]');
@@ -1817,6 +1941,8 @@ function setupWindow(m) {
     if (!on) place();
   };
   const toggleMax = () => { unsnapWindow(m); setMin(false); remember(); m.classList.toggle('is-max'); if (!m.classList.contains('is-max')) place(); };
+  // 再読み込みで、ウィンドウの状態（縮小・拡大・左右への分割）を戻すための口
+  m.__win = { place, setMin, toggleMax, snap: (side) => snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }) };
   mk('win-min', m.classList.contains('is-min') ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）', m.classList.contains('is-min') ? '□' : '—', () => setMin(!m.classList.contains('is-min')));
   mk('win-max', '大きく / 元の大きさ（ヘッダーのダブルクリックでも）', '⤢', toggleMax);
   // ヘッダーのドラッグで動かす（少し動かしてから動かし始める。ダブルクリックで拡大）
@@ -2587,10 +2713,14 @@ function renderQuiz() {
 /* ---- タイムアタック（制限時間つき） ---- */
 let quizTimer = null;
 function startQuizClock(q) {
-  clearInterval(quizTimer);
   q.deadline = q.timeLimit ? Date.now() + q.timeLimit * 1000 : 0;
   q.bestSaved = false;
   q.qKey = null; // 1 問ごとの制限時間は、問題が変わったときに数え直す
+  armQuizTimer(q);
+}
+// 制限時間の針を動かす（再読み込みで引き継いだときは、残りの時間のまま続ける）
+function armQuizTimer(q) {
+  clearInterval(quizTimer);
   if (!q.deadline) return;
   quizTimer = setInterval(() => {
     const left = Math.max(0, q.deadline - Date.now());

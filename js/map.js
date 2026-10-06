@@ -246,6 +246,19 @@ export async function randomSvPoint(code, attempts = 8) {
 }
 // パネルの位置と大きさ（画面全体の中で動かせる。開き直しても引き継ぐ）
 let svRect = null; // { left, top, width, height }
+// 再読み込みしても引き継ぐための、地図の状態（表示位置・選んでいる国・都市の目印・ストリートビュー）の取り出しと復元
+export function getMapSession() {
+  const view = map ? { center: [map.getCenter().lat, map.getCenter().lng], zoom: map.getZoom() } : lastView ? { center: Array.isArray(lastView.center) ? lastView.center : [lastView.center.lat, lastView.center.lng], zoom: lastView.zoom } : null;
+  return { view, focus: currentFocus, city: cityPoint, sv: { on: svOn && !svTemp, point: svPoint, rect: svRect } };
+}
+export function setMapSession(s) {
+  if (!s) return;
+  if (s.view?.center && Number.isFinite(s.view.zoom)) lastView = { center: s.view.center, zoom: s.view.zoom };
+  restoreFocus = s.focus || null;
+  cityPoint = s.city || null;
+  cityFly = false;
+  if (s.sv) { svOn = !!s.sv.on; svPoint = s.sv.point || null; if (s.sv.rect) svRect = s.sv.rect; }
+}
 export function removeSvPanel() { const p = document.getElementById('sv-panel'); if (p) { releaseSnap(p); p.remove(); } }
 
 const SV_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><path d="M12 9v6M8 11l4-2 4 2M9.5 21l2.5-6 2.5 6"/></svg>';

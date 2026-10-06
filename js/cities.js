@@ -40,7 +40,14 @@ const PLACE_BIG = /^(city|town|village|municipality|county|state|province|region
 //   berurin / warushawa / nyuuyooku → ベルリン / ワルシャワ / ニューヨーク（外国の都市のカタカナ名）
 //   oosaka / toukyou / kyouto → osaka / tokyo / kyoto（日本の都市の長音の書き方）
 export function queryVariants(query) {
-  const q = query.trim();
+  const q = query.normalize('NFKC').trim().replace(/\s+/g, ' ');
+  // ハイフン・スペース・ピリオド・中黒などの区切りは、あってもなくても同じ地名として探す（Saint-Denis / Saint Denis / SaintDenis、ニュー ヨーク / ニューヨーク）
+  if (/[\s\-‐-―・･.,'’]/.test(q)) {
+    const spaced = q.replace(/[\-‐-―・･]+/g, ' ').replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+    const joined = q.replace(/[\s\-‐-―・･.,'’]+/g, '');
+    const base = queryVariants(joined);
+    return [...new Set([q, spaced, ...base, joined])].filter((v) => v.length >= 2).slice(0, 5);
+  }
   // 漢字の短い都市名（京都・福岡・東京）は、「市」「都」を付けた形（京都市・福岡市・東京都）でも探す。Open-Meteo は、この形ならすぐ見つかる
   if (/[\u3400-\u9fff]/.test(q) && isCjk(q) && q.length <= 4 && !hasSuffix(q)) return q.length === 2 ? [q, `${q}市`, `${q}都`] : [q, `${q}市`];
   if (!/^[A-Za-z][A-Za-z' -]*$/.test(q)) return [q];

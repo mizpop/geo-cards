@@ -79,6 +79,19 @@ export async function openAssistant(opts = {}) {
   }
 }
 
+// 再読み込みしても会話を引き継ぐための、取り出しと復元（添付の画像は含めない）
+export function getAssistantSession() {
+  if (!panel) return null;
+  const msgs = messages.filter((m) => !(m.role === 'assistant' && !m.content && !m.error)).map((m) => ({ ...m, image: undefined })); // 答え待ちの途中のものは除く
+  return { open: isOpen(), messages: msgs.slice(-40), pinned };
+}
+export function setAssistantSession(s) {
+  if (!panel || !s) return;
+  messages = Array.isArray(s.messages) ? s.messages.filter((m) => m && (m.role === 'user' || m.role === 'assistant')) : [];
+  pinned = s.pinned || null;
+  if (s.open) openPanel(); else renderAll();
+}
+
 // ---- モーダルの手前に出すしくみ（chat.js と同じ）
 function topHost() {
   for (const sel of ['dialog.viewer', '#modal', '#spotlight']) {
