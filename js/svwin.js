@@ -47,6 +47,9 @@ export function parseLatLng(text) {
 let panel = null;
 let frame = null;
 let point = null; // [lat, lng]
+let readyTimer = null;
+let acceptAfter = 0; // 映像の読み込み完了から少しの間（Google の映像が準備できるまで）も、読み取った位置は受け付けない
+let frameReady = true; // 映像（iframe）の読み込みが終わるまでは false。読み込み中は、前の映像の位置が読み取られて、位置が元に戻らないように、位置の更新を受け付けない
 let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズーム）
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
 let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, toast: () => {}, syncPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
@@ -216,6 +219,7 @@ function ensure() {
     <p class="sv-note muted small">ヘッダーをドラッグすると、画面のどこにでも動かせます。</p>`;
   document.body.appendChild(panel);
   frame = panel.querySelector('#sv-frame');
+  frame.addEventListener('load', () => { frameReady = true; acceptAfter = Date.now() + 2500; clearTimeout(readyTimer); });
   panel.addEventListener('pointerdown', () => bringFront(panel), true); // 触ったウィンドウを手前に
 
   panel.querySelector('#sv-close').addEventListener('click', closeSvWindow);
@@ -320,6 +324,9 @@ export function openSvWindow(lat, lng, opts = {}) {
   panel.classList.remove('is-closing');
   if (panel.hidden) { panel.hidden = false; place(); bringFront(panel); setPopOrigin(panel); }
   view = { heading: Number(opts.heading) || 0, pitch: Number(opts.pitch) || 0, fov: Number(opts.fov) || 0 };
+  frameReady = false; // 新しい映像が読み込まれるまで、読み取った位置では上書きしない
+  clearTimeout(readyTimer);
+  readyTimer = setTimeout(() => { frameReady = true; acceptAfter = Date.now() + 2500; }, 15000); // 読み込み完了が通知されなくても、ずっと止まらないように
   frame.src = svEmbedUrl(lat, lng, view.heading, view.pitch, view.fov);
   panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng, view);
@@ -341,7 +348,7 @@ export function closeSvWindow() {
 
 /** 映像はそのままで、今いる位置だけを更新する（Windows 版アプリが、「Google マップで見る」の押下から位置を受け取ったとき） */
 export function setSvWindowPoint(lat, lng, v = {}) {
-  if (!panel || panel.hidden) return;
+  if (!panel || panel.hidden || !frameReady || Date.now() < acceptAfter) return;
   const nv = { heading: Number(v.heading) || 0, pitch: Number(v.pitch) || 0, fov: Number(v.fov) || 0 };
   if (point && Math.abs(point[0] - lat) < 1e-7 && Math.abs(point[1] - lng) < 1e-7 && nv.heading === view.heading && nv.pitch === view.pitch && nv.fov === view.fov) return;
   point = [lat, lng];
