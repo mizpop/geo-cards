@@ -54,7 +54,7 @@ let svOn = false;
 let svTemp = false; // スペース長押しで一時的にオンにしている間は true
 let svSpace = null; // スペースキー長押しの一時オンのイベント（描き直すとき外す）
 let unsubSaved = null; // 保存したストリートビューの変更を受け取る登録（描き直すとき外す）
-const SV_SAVED_MIN_ZOOM = 8; // このくらい拡大すると、保存したストリートビューの目印を出す
+const SV_SAVED_MIN_ZOOM = 4; // このくらい拡大すると、保存したストリートビューの目印を出す
 let unsubSv = null; // ストリートビューのウィンドウの開閉を受け取る登録（描き直すとき外す）
 export { svEmbedUrl, svOpenUrl };
 // ストリートビューのある道路（青い線）のタイル。キー不要。クリックした地点の近くの線を探すのにも使う
