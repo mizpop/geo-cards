@@ -5,4 +5,6 @@ contextBridge.exposeInMainWorld('desktop', {
   getSvPosition: (hint) => ipcRenderer.invoke('sv-position', hint || null),
   // Windows 版アプリ本体の版（更新されて初めて起動したときの通知に使う）
   getAppVersion: () => ipcRenderer.invoke('app-version'),
+  // Discord Rich Presence に出す内容（{ details, state }。null で消す）
+  setPresence: (data) => ipcRenderer.send('presence', data || null),
 });

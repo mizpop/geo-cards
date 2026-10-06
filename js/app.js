@@ -1,6 +1,7 @@
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
+import { startPresence, stopPresence } from './presence.js';
 import { showUpdateNoticeIfNeeded } from './updatenotice.js';
 import { initCardPreview } from './cardpreview.js';
 import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, svWindowView, openSvPop, closeSvPop } from './svwin.js';
@@ -157,6 +158,7 @@ const DEFAULT_SETTINGS = {
   mapMode: 'cards', // 地図の表示: カード / シェブロン / ガードレール / 通行 / 文字 / 苦手 // 暗記カード: 表面と裏面を左右に並べて表示（めくらない）
   liveSearch: true, // 地図: 検索バーに入力するたびに候補の国へ移動（オフなら Enter で移動）
   sound: true, // 効果音（右上のボタンでも切り替え）
+  discord: true, // Windows 版アプリ: Discord に、今見ているタブ・クイズの問題数を表示する
   dailyGoal: 30, // 1 日の目標（暗記の「覚えた / まだ」とクイズの回答の数）
   keys: {}, // キー割り当て（DEFAULT_KEYS からの変更分）
 };
@@ -188,6 +190,7 @@ applySettings();
 async function doLogout() {
   sessionReady = false;
   clearSession();
+  stopPresence(); // Discord の表示を消す
   for (const w of [...wins]) { w.docked = false; w.el.classList.remove('is-docked'); if (w.main) { if (w.el.open) w.el.close(); } else { w.el.close(); destroyWin(w); } } // 追加のウィンドウ・しまっていたウィンドウも閉じる
   await api.logout();
   teardownChat();
@@ -238,6 +241,10 @@ function openSettings() {
     <section class="set-group" id="sync-box"></section>
     ${offlineSupported() ? `<h3 class="set-group-title">📴 オフライン学習</h3>
     <section class="set-group" id="offline-box"></section>` : ''}
+    ${window.desktop?.setPresence ? `<h3 class="set-group-title">🎮 Discord</h3>
+    <section class="set-group">
+      ${item('Discord に表示する', '今見ているタブと、クイズのときは何問目かを、Discord のプロフィール（プレイ中）に表示します（Discord アプリが起動しているとき）', sw('discord'))}
+    </section>` : ''}
     ${canDownloadApp() ? `<h3 class="set-group-title">💻 デスクトップ版（Windows）</h3>
     <section class="set-group">
       ${item('Windows 版アプリ（exe）', 'インストーラーをダブルクリックするだけで入れられます（管理者権限は不要）。中身はこのサイトなので、サイトの更新は自動で反映され、アプリ本体の新しい版も起動時に自動で更新されます（インターネット接続が必要）。初めて開くとき Windows の警告が出たら、「詳細情報」→「実行」で開けます。', `<a class="btn btn-primary btn-sm" href="${esc(DESKTOP_DOWNLOAD_URL)}" target="_blank" rel="noopener">ダウンロード（約 74MB）</a>`)}
@@ -670,6 +677,7 @@ async function enterApp() {
   const restored = restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
   await route();
   restoreOverlays(restored); // 開いていたウィンドウなど
+  startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
   setTimeout(() => showUpdateNoticeIfNeeded({ openChangelog }), 1200); // 更新されて初めて起動したときの通知（右上）
   sessionReady = true;
   startLive();

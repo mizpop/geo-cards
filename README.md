@@ -206,3 +206,7 @@ supabase/country-facts.sql 地図のインフォグラフィックの値を保�
    - Name: `RELEASES_TOKEN` / Secret: 作ったトークン
 
 手元でビルドして公開したいときは、`electron/` で `GH_TOKEN`（同じトークン）を環境変数に入れて `npm run release` を実行します。
+
+### Discord Rich Presence（Windows 版）
+
+Windows 版アプリは、Discord アプリが起動しているとき、今見ているタブ（クイズのときは何問目か）を、Discord のプロフィール（プレイ中）に表示します（アプリケーション ID `1557091296546652160`。`electron/discord.js` が、Discord のローカル IPC に直接つなぎます）。設定の「Discord」で、オン・オフを切り替えられます。表示する内容は `js/presence.js` で決めています。

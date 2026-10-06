@@ -2,10 +2,14 @@
 // 上の細いバー（タイトルバー）に再読み込みボタンを置くため、バーとサイトを別々の画面（WebContentsView）にしている
 const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
+const { DiscordPresence } = require('./discord');
 
 const SITE = process.env.GEOCHECKER_SITE || 'https://geo-cards-533.pages.dev/'; // GEOCHECKER_SITE: 開発・動作確認用に、読み込む先を変える
 const ownHost = new URL(SITE).host;
 const BAR_H = 36;
+const DISCORD_CLIENT_ID = '1557091296546652160'; // Discord のアプリケーション ID（Rich Presence 用。公開してよい ID）
+const presence = new DiscordPresence(DISCORD_CLIENT_ID);
+const appStart = Date.now();
 
 const barHtml = `<!doctype html><meta charset="utf-8"><style>
   html,body{margin:0;height:100%;background:#141b21;color:#e6edf3;font:13px 'Segoe UI','Yu Gothic UI',sans-serif;user-select:none}
@@ -69,6 +73,12 @@ function createWindow() {
   });
   // ストリートビューのウィンドウ（Google の埋め込み）の中の「Google マップで見る」のリンクは、今いる地点の URL。
   // このアプリ（Electron）なら、別のサイトの iframe の中でも読み取れるので、アプリ本体から頼まれたときに返す
+  // Discord Rich Presence: サイトから、今見ているタブなどを受け取って、Discord に出す（null なら消す）
+  ipcMain.on('presence', (e, data) => {
+    if (e.sender !== wc) return;
+    const str = (t) => (typeof t === 'string' && t.trim().length >= 2 ? t.trim().slice(0, 120) : undefined);
+    presence.set(data && str(data.details) ? { details: str(data.details), state: str(data.state), timestamps: { start: appStart } } : null);
+  });
   ipcMain.handle('app-version', (e) => (e.sender === wc ? app.getVersion() : null)); // 更新の通知用（Windows 版アプリ本体の版）
   ipcMain.handle('sv-position', async (e, hint) => {
     if (e.sender !== wc) return null;
@@ -118,4 +128,5 @@ app.whenReady().then(() => {
   setupAutoUpdate();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
+app.on('before-quit', () => presence.close());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
