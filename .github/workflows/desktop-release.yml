@@ -1,7 +1,7 @@
 # Windows 版アプリ（electron/）を自動でビルドして、公開リポジトリ mizpop/geochecker-releases の Releases に公開する。
 # 動くとき: electron/ の中を変えて push したとき（electron/package.json の version を上げておく）／ Actions から手動で実行したとき。
 # 事前準備（1 回だけ）: geochecker-releases に書き込める個人用アクセストークンを、このリポジトリのシークレット RELEASES_TOKEN に登録する（README の「Windows 版の自動公開」）。
-name: desktop-release # RELEASES_TOKEN 登録後の最初の実行
+name: desktop-release
 
 on:
   push:
@@ -16,8 +16,8 @@ jobs:
       run:
         working-directory: electron
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: トークンの確認
@@ -26,6 +26,16 @@ jobs:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           if [ -z "$RELEASES_TOKEN" ]; then echo "::error::シークレット RELEASES_TOKEN が未設定です（README の「Windows 版の自動公開」を参照）"; exit 1; fi
+      - name: 公開先（geochecker-releases）に書き込めるか確認
+        shell: bash
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          code=$(curl -s -o repo.json -w '%{http_code}' -H "Authorization: Bearer $RELEASES_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/mizpop/geochecker-releases)
+          echo "geochecker-releases の取得: HTTP $code"
+          if [ "$code" != "200" ]; then echo "::error::トークンから geochecker-releases が見えません（HTTP $code）。トークンの Repository access に geochecker-releases を選んだか、期限が切れていないか確認してください"; exit 1; fi
+          if ! grep -q '"push": *true' repo.json; then echo "::error::このトークンには geochecker-releases への書き込み権限がありません。Permissions の Contents を Read and write にしてください"; exit 1; fi
+          rm -f repo.json
       - run: npm install --no-audit --no-fund
       - name: ビルドして Releases に公開
         run: npx electron-builder --win nsis --publish always
