@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v57',
+    date: '2026-10-07',
+    sections: [
+      {
+        title: 'Plonkit の画像',
+        items: ['画像を Cloudflare R2（バインディング PLONKIT_IMAGES）に保管して配信できるように（保管したものが優先。なければ今までどおり Plonkit から取得）。全画像を保存・R2 に入れるスクリプトを追加（README に手順）'],
+      },
+    ],
+  },
+  {
     version: 'v56',
     date: '2026-10-07',
     sections: [

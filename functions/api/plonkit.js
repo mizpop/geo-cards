@@ -150,8 +150,15 @@ async function guideResponse(request, env, ctx, slug) {
 }
 
 const safeEncode = (p) => { try { return encodeURI(decodeURI(p)); } catch { return p; } };
-async function imageResponse(path) {
+// 画像は、まず R2 に保管したもの（バインディング PLONKIT_IMAGES。scripts/upload-plonkit-images.mjs で入れる）を返す。なければ Plonkit から取得する
+async function imageResponse(path, env) {
   if (!/^\/(images|static|uploads)\/[^?#\\]+$/.test(path) || path.includes('..')) return new Response('bad request', { status: 400 });
+  if (env?.PLONKIT_IMAGES) {
+    let key = path.replace(/^\//, '');
+    try { key = decodeURI(key); } catch { /* そのまま */ }
+    const obj = await env.PLONKIT_IMAGES.get(key).catch(() => null);
+    if (obj) return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'image/webp', 'cache-control': 'public, max-age=2592000, immutable' } });
+  }
   // Plonkit は、短い間に続けて取りにいくと、断る（403・429）ことがあるので、少し待って、やり直す
   let res = null;
   for (let i = 0; i < 2; i++) {
@@ -184,7 +191,7 @@ async function resolveShort(raw) {
 
 export async function onRequestGet({ request, env, waitUntil }) {
   const q = new URL(request.url).searchParams;
-  if (q.has('img')) return imageResponse(q.get('img'));
+  if (q.has('img')) return imageResponse(q.get('img'), env);
   if ((await authorized(request, env)) !== 'ok') return json({ error: 'ログインが必要です' }, 401);
   if (q.has('go')) return resolveShort(q.get('go'));
   const slug = (q.get('slug') || '').toLowerCase();

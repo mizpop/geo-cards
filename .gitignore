@@ -7,3 +7,4 @@ Thumbs.db
 __pycache__/
 electron/dist/
 electron/node_modules/
+node_modules/
