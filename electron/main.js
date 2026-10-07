@@ -13,6 +13,7 @@ const DISCORD_CLIENT_ID = '1557091296546652160'; // Discord のアプリケー�
 const DISCORD_IMAGE = 'https://geo-cards-533.pages.dev/icons/icon-512.png';
 const presence = new DiscordPresence(DISCORD_CLIENT_ID);
 const appStart = Date.now();
+let mainWin = null; // 本体のウィンドウ（2 つ目を起動したときに、これを前に出す）
 let quitting = false; // 終了するとき（トレイの「終了」・更新・OS の終了）だけ true。それ以外で × を押したときは、閉じずにバックグラウンドへ
 
 const barHtml = `<!doctype html><meta charset="utf-8"><style>
@@ -54,6 +55,8 @@ function createWindow() {
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#141b21', symbolColor: '#e6edf3', height: BAR_H }, // 右端の最小化・最大化・閉じるのボタン
   });
+  mainWin = win;
+  win.on('closed', () => { if (mainWin === win) mainWin = null; });
   const bar = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js') } });
   const site = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'site-preload.js') } });
   win.contentView.addChildView(site);
@@ -278,7 +281,19 @@ function manualUpdateCheck() {
   autoUpdater.checkForUpdates().catch(() => {});
 }
 
+// 多重起動の防止: すでにアプリが動いているとき（バックグラウンドで動いているときも）は、新しいプロセスを増やさず、動いているアプリを前に出す
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWin || mainWin.isDestroyed()) return;
+    if (mainWin.isMinimized()) mainWin.restore();
+    mainWin.show();
+    mainWin.focus();
+  });
+}
 app.whenReady().then(() => {
+  if (!app.hasSingleInstanceLock()) return; // 2 つ目のプロセスは、ウィンドウを作らずに終了する
   createWindow();
   setupAutoUpdate();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
