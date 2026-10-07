@@ -2609,3 +2609,13 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .blur-range input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .blur-range output { min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .blur-sample { padding: 2px 10px; border-radius: 4px; background: #f2f2f2; color: #111; font: 700 16px/1.4 monospace; letter-spacing: .08em; filter: blur(var(--plate-blur, 16px)); overflow: hidden; }
+
+/* ストリートビューのウィンドウ: 場所を選ぶ小さい地図 */
+.sv-btn.is-on { background: var(--accent-soft); color: var(--accent); }
+.sv-minimap { position: absolute; left: 8px; bottom: 34px; z-index: 5; width: min(360px, calc(100% - 16px)); height: min(280px, calc(100% - 80px)); border: 2px solid var(--surface); border-radius: 10px; overflow: hidden; box-shadow: 0 6px 24px rgba(0, 0, 0, .55); background: #0b0f12; }
+.sv-minimap[hidden] { display: none; }
+.sv-minimap-map { position: absolute; inset: 0; cursor: crosshair; }
+.sv-minimap-map .leaflet-container, .sv-minimap-map.leaflet-container { cursor: crosshair; }
+.sv-minimap-close { position: absolute; top: 4px; right: 4px; z-index: 1000; width: 26px; height: 26px; background: rgba(0, 0, 0, .55); color: #fff; border-radius: 50%; }
+.sv-minimap-tip { position: absolute; left: 6px; bottom: 6px; z-index: 1000; padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 11px; pointer-events: none; }
+.sv-panel.is-min .sv-minimap { display: none; }

@@ -263,6 +263,7 @@ function ensure(inst) {
       <span class="sv-title">${SV_ICON} <span id="sv-title-text">ストリートビュー</span></span>
       <span class="sv-coord muted small" id="sv-coord"></span>
       <button type="button" class="icon-btn sv-btn" id="sv-paste" title="いる位置を取り込む（ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押す）" aria-label="位置を貼り付けて合わせる">📋</button>
+      <button type="button" class="icon-btn sv-btn" id="sv-map" title="地図で場所を選ぶ（小さい地図が開きます。いる場所の近くが表示されます）" aria-label="地図で場所を選ぶ" aria-expanded="false">🗺</button>
       <button type="button" class="icon-btn sv-btn" id="sv-list" title="保存したストリートビューの一覧を開く" aria-label="保存したストリートビューの一覧">📂</button>
       <button type="button" class="icon-btn sv-btn" id="sv-save" title="この場所を保存する（ストリートビュータブから開けます）" aria-label="この場所を保存する" hidden>${SAVE_ICON}</button>
       <button type="button" class="icon-btn sv-btn" id="sv-card" title="この場所でカードを作る（国と場所を入れた状態で作成画面を開きます）" aria-label="この場所でカードを作る" hidden>📍</button>
@@ -273,6 +274,7 @@ function ensure(inst) {
       <button type="button" class="icon-btn sv-btn" id="sv-close" title="閉じる（Esc）" aria-label="閉じる">✕</button>
     </div>
     <iframe id="sv-frame" name="svf-${inst.id}" title="Google ストリートビュー" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <div class="sv-minimap" hidden><div class="sv-minimap-map"></div><button type="button" class="icon-btn sv-minimap-close" aria-label="地図を閉じる" title="地図を閉じる">✕</button><span class="sv-minimap-tip">地図を押すと、その場所のストリートビューを開きます</span></div>
     <p class="sv-note muted small">ヘッダーをドラッグすると、画面のどこにでも動かせます。</p>`;
   document.body.appendChild(panel);
   frame = panel.querySelector('#sv-frame');
@@ -297,6 +299,49 @@ function ensure(inst) {
     if (r) openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
   });
   L(panel.querySelector('#sv-card')).addEventListener('click', async () => { await syncCurrent(); use(inst); if (point) hooks.createCard?.({ lat: point[0], lng: point[1], ...view }); });
+  // 小さい地図: いる場所に近づいた状態で開き、押した場所のストリートビューに移る
+  const mm = { map: null, marker: null, opening: false };
+  inst.mini = {
+    sync: () => { // いる場所が変わったら、目印と中心を合わせる
+      const pt = inst.point || (inst === cur ? point : null);
+      if (!mm.map || !pt) return;
+      mm.marker.setLatLng(pt);
+      if (!mm.map.getBounds().pad(-0.2).contains(pt)) mm.map.panTo(pt, { animate: false });
+    },
+  };
+  const miniEl = panel.querySelector('.sv-minimap');
+  const miniBtn = panel.querySelector('#sv-map');
+  const closeMini = () => { miniEl.hidden = true; miniBtn.setAttribute('aria-expanded', 'false'); miniBtn.classList.remove('is-on'); };
+  panel.querySelector('.sv-minimap-close').addEventListener('click', closeMini);
+  L(miniBtn).addEventListener('click', async () => {
+    if (!miniEl.hidden) { closeMini(); return; }
+    if (mm.opening) return;
+    mm.opening = true;
+    try {
+      const { loadLibs, addBaseTiles } = await import('./map.js');
+      await loadLibs();
+      use(inst);
+      const Lf = window.L;
+      miniEl.hidden = false;
+      miniBtn.setAttribute('aria-expanded', 'true');
+      miniBtn.classList.add('is-on');
+      const pt = point || [20, 0];
+      if (!mm.map) {
+        mm.map = Lf.map(miniEl.querySelector('.sv-minimap-map'), { zoomControl: true, attributionControl: false, minZoom: 2, maxZoom: 18, worldCopyJump: true });
+        addBaseTiles(mm.map, { updateWhenZooming: false });
+        mm.marker = Lf.circleMarker(pt, { radius: 7, color: '#fff', weight: 2, fillColor: '#e8590c', fillOpacity: 1, interactive: false }).addTo(mm.map);
+        mm.map.on('click', (e) => { // 押した場所のストリートビューを、このウィンドウに開く（近くの道路に合わせて表示される）
+          const { lat, lng } = e.latlng.wrap();
+          active = inst;
+          openSvWindow(lat, lng, {});
+          mm.marker.setLatLng([lat, lng]);
+        });
+      }
+      mm.map.invalidateSize();
+      mm.map.setView(pt, point ? 15 : 3, { animate: false }); // 今のいる場所に近づいた状態で開く
+      mm.marker.setLatLng(pt);
+    } catch { hooks.toast?.('地図を読み込めませんでした', 'error'); } finally { mm.opening = false; }
+  });
   L(panel.querySelector('#sv-save')).addEventListener('click', async (e) => {
     if (!hooks.canSave()) { showSavedList(e.currentTarget); return; } // 保存できない（閲覧のみ）ときは、一覧を出す
     await syncCurrent(); // Windows 版アプリは、移動したあとの今いる位置を読み取る
@@ -433,6 +478,7 @@ function applyPoint(lat, lng, v = {}) {
   if (point && Math.abs(point[0] - lat) < 1e-7 && Math.abs(point[1] - lng) < 1e-7 && nv.heading === view.heading && nv.pitch === view.pitch && nv.fov === view.fov) return;
   point = [lat, lng];
   view = nv;
+  cur?.mini?.sync();
   panel.querySelector('#sv-coord').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   panel.querySelector('#sv-ext').href = svOpenUrl(lat, lng, view);
   refreshButtons();
@@ -460,6 +506,7 @@ export function openSvWindow(lat, lng, opts = {}) {
   inst.req = [lat, lng];
   if (panel.classList.contains('is-docked')) { undockPanel(); if (!panel.classList.contains('is-max') && !isSnapped(panel)) place(); bringFront(panel); } // しまってあったら、取り出して開く（ドラッグ前の位置・大きさで）
   point = [lat, lng];
+  cur?.mini?.sync();
   setMin(false); // 縮小していても、新しい場所を開いたら戻す
   panel.classList.remove('is-closing');
   if (panel.hidden) { panel.hidden = false; place(); bringFront(panel); setPopOrigin(panel); }
