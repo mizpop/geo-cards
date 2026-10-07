@@ -9,7 +9,6 @@ import { initSavedSv, loadSavedSv, savedSvList, saveSv, deleteSv, renameSv, isSa
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
-import { editBlur, blurredUrl, cleanRegions } from './blur.js';
 import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
@@ -154,7 +153,7 @@ const DEFAULT_SETTINGS = {
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
   cardSort: 'new', // 編集画面・検索結果の並び順（CARD_SORTS）
-  blurPlates: false, // 暗記・クイズで、カードに指定したナンバープレートの範囲をぼかす
+  blurPlates: false, // 暗記・クイズで、「ナンバープレート」カテゴリーのカードの画像全体をぼかす
   mapLite: 'auto', // 地図の軽量表示: auto（低スペックの端末で自動）/ on / off
   mapTiles: 'en', // 地図の背景: en（国名・地名が英語表記）/ osm（OpenStreetMap・現地の言語）
   studySplit: false,
@@ -234,7 +233,7 @@ function openSettings() {
     <section class="set-group">
       ${item('最初に見る面', '「裏」から始めると、国名から特徴を思い出す練習に', seg('studyStart', [['front', '表（画像）'], ['back', '裏（国名）']]), true)}
       ${item('表面に説明文を表示', 'オフにすると画像だけで答える練習に', sw('showDesc'))}
-      ${item('ナンバープレートをぼかす', 'カードの編集で指定した「ぼかし範囲」を、暗記・クイズの画像でぼかします（範囲は、カードの編集画面の「ぼかし範囲」ボタンで指定。AI で自動検出もできます）', sw('blurPlates'))}
+      ${item('ナンバープレートをぼかす', '「ナンバープレート」カテゴリーのカードの画像を、暗記・クイズで、全体ぼかします（答えを見てもぼかしたまま。たとえば、ナンバーの文字が読めない状態で、色や形・位置から当てる練習に）', sw('blurPlates'))}
       ${item('正解したら自動で次へ', 'クイズで ○ のとき 1.2 秒後に次の問題へ', sw('autoNext'))}
     </section>
     <h3 class="set-group-title">🗺 地図</h3>
@@ -1183,20 +1182,9 @@ function svFrontHtml(card) {
 }
 const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
-// 暗記・クイズで、ぼかす指定のあるカードの画像: 先に元の画像を隠しておき、ぼかした画像ができたら差し替える（ぼかしていない画像が一瞬見えないように）
-const plateBlur = (card) => settings.blurPlates && (state.view === 'study' || state.view === 'quiz') && card.blur?.length;
-const faceImgAttrs = (card, src) => (plateBlur(card) ? `src="${esc(src)}" class="img-blur-wait" data-blur-card="${esc(card.id)}"` : `src="${esc(src)}"`);
-let blurTimer = null;
-function applyPlateBlur() {
-  for (const img of document.querySelectorAll('img[data-blur-card]')) {
-    const card = cardById(img.dataset.blurCard);
-    const orig = img.getAttribute('src');
-    delete img.dataset.blurCard;
-    if (!card) { img.classList.remove('img-blur-wait'); continue; }
-    blurredUrl(orig, card.blur).then((u) => { if (img.getAttribute('src') === orig) img.src = u; }).catch(() => {}).finally(() => img.classList.remove('img-blur-wait'));
-  }
-}
-new MutationObserver(() => { clearTimeout(blurTimer); blurTimer = setTimeout(applyPlateBlur, 0); }).observe(document.documentElement, { childList: true, subtree: true });
+// 暗記・クイズで、設定がオンのとき、「ナンバープレート」カテゴリーのカードの画像は、全体をぼかす
+const plateBlur = (card) => settings.blurPlates && (state.view === 'study' || state.view === 'quiz') && !card.sv && !card.photo && catOf(card).name === 'ナンバープレート';
+const faceImgAttrs = (card, src) => `src="${esc(src)}"${plateBlur(card) ? ' class="img-plate-blur"' : ''}`;
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
   if (card.sv) return svFrontHtml(card);
   const back = withBack && backUrl(card);
@@ -2349,8 +2337,9 @@ function emptyState(msg) {
 // 地域・カテゴリーの絞り込み（複数選択）。チェックを外した項目を off に持つ（off が空 = すべて）
 // 暗記カード・編集画面・地図で共通
 const pickMatch = (c, regionsOff, catsOff) => [...cardRegions(c)].some((r) => !regionsOff.has(r)) && !catsOff.has(catKey(c));
-const regionPickHtml = (id, off) => multiPickHtml(id, 'すべての地域', '地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: state.cards.filter((c) => cardRegions(c).has(r.id)).length })), off);
-const catPickHtml = (id, off) => multiPickHtml(id, 'すべてのカテゴリー', 'カテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: state.cards.filter((c) => catKey(c) === k.id).length })), off);
+// extra: 数に加える、ほかのカード（暗記で参考写真も出しているときの、参考写真）
+const regionPickHtml = (id, off, extra = []) => multiPickHtml(id, 'すべての地域', '地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: state.cards.filter((c) => cardRegions(c).has(r.id)).length + extra.filter((c) => cardRegions(c).has(r.id)).length })), off);
+const catPickHtml = (id, off, extra = []) => multiPickHtml(id, 'すべてのカテゴリー', 'カテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: state.cards.filter((c) => catKey(c) === k.id).length + extra.filter((c) => (CAT_TOPIC[k.name] ? CAT_TOPIC[k.name] === c.topic : catKey(c) === k.id)).length })), off);
 
 // 複数選択のドロップダウン。チェックが入っている項目が対象
 function multiPickHtml(id, allLabel, unit, options, off) {
@@ -2441,6 +2430,8 @@ function studyPhotoCards(s) {
   }
   return out;
 }
+// 暗記の絞り込みの枚数に加える参考写真（「写真も」がオンのときだけ。絞り込みに関係なく、すべての写真）
+function studyExtra() { return settings.studyPhotos && refInfoLoaded() ? studyPhotoCards({ catsOff: new Set(), regionsOff: new Set() }) : []; }
 // 日付から決まる並び（同じ日のうちは、組み直しても同じ写真が選ばれるように）
 function seededOrder(ids, seedText) {
   let h = 2166136261;
@@ -2501,8 +2492,8 @@ function renderStudy() {
   $('#view').classList.toggle('is-back', split || s.flipped);
   $('#view').innerHTML = `
     <div class="toolbar">
-      ${regionPickHtml('study-region', s.regionsOff)}
-      ${catPickHtml('study-cat', s.catsOff)}
+      ${regionPickHtml('study-region', s.regionsOff, studyExtra())}
+      ${catPickHtml('study-cat', s.catsOff, studyExtra())}
       <button class="btn" id="study-shuffle" aria-label="シャッフル" title="押すたびに順番をランダムに並べ替え">🔀<span class="tab-long"> シャッフル</span></button>
       <button class="btn ${s.review ? 'btn-on' : ''}" id="study-review" aria-pressed="${s.review}" title="期限が来たカード・苦手なカードと、まだ覚え具合をつけていないカードだけを出します">🧠<span class="tab-long"> 復習</span>${reviewCount ? ` <b class="badge-n">${reviewCount}</b>` : ''}</button>
       <button class="btn ${settings.studyPhotos ? 'btn-on' : ''}" id="study-photos" aria-pressed="${settings.studyPhotos}" aria-label="参考写真も出す" title="GeoHints の参考写真（約 1,000 枚）も暗記に混ぜます。復習では、まだ見ていない写真は 1 日 ${PHOTO_NEW_PER_DAY} 枚ずつ増えます">📷<span class="tab-long"> 写真も</span></button>
@@ -3895,7 +3886,20 @@ function openSpotlight() {
 
   // PC は入力欄の中に候補を薄く表示して Tab で補完（スマホは候補リスト）
   const drawGhost = attachInlineComplete(input);
-  input.addEventListener('input', () => { s.q = input.value; renderSearchResults(); syncChips(); });
+  // 国名がちょうど入力されたら、その国の詳細のウィンドウも開く（入力が止まってから。同じ国は 1 回だけ）
+  let countryTimer = null;
+  let lastCountry = null;
+  input.addEventListener('input', () => {
+    s.q = input.value; renderSearchResults(); syncChips();
+    clearTimeout(countryTimer);
+    const v = input.value;
+    const hit = !input.matches('[data-composing]') && v.trim() ? findCountry(v) : null;
+    if (!hit) { lastCountry = null; return; }
+    if (hit.code === lastCountry) return;
+    countryTimer = setTimeout(() => { if (input.value === v && sp.open) { lastCountry = hit.code; openCountryInfo(hit.code, input); } }, 450);
+  });
+  input.addEventListener('compositionstart', () => { input.dataset.composing = '1'; });
+  input.addEventListener('compositionend', () => { delete input.dataset.composing; });
   input.addEventListener('keydown', (e) => {
     // 地図と同じ: Ctrl+Enter で Plonkit、Alt+Enter で国の詳細（入力した国名から）
     if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey || e.altKey)) {
@@ -3910,6 +3914,7 @@ function openSpotlight() {
     }
     if (e.key === 'ArrowDown' || (e.key === 'Enter' && !e.isComposing)) {
       const first = $('.spot-results .tile', sp);
+      if (!first && e.key === 'Enter') { const code = resolveCountryCode(input.value); if (code) { e.preventDefault(); openCountryInfo(code, input); return; } } // カードが見つからないときは、入力に近い国の詳細
       if (first) { e.preventDefault(); first.focus(); }
     }
   });
@@ -4343,7 +4348,6 @@ function openEditor(card, preset = {}) {
     related: new Set((card?.related || []).filter((id) => state.cards.some((c) => c.id === id))),
     places: Array.isArray(card?.places) ? card.places.map((p) => ({ ...p })) : [],
     svIds: new Set(card ? card.sv_ids || [] : preset.svIds || []), // 関連付けた保存済みストリートビュー
-    blur: cleanRegions(card?.blur), // ナンバープレートをぼかす範囲
   };
 
   openModal(`
@@ -4367,7 +4371,6 @@ function openEditor(card, preset = {}) {
         <div class="row">
           <button class="btn" id="ed-paste" type="button">📋 クリップボードから貼り付け</button>
           <button class="btn btn-ghost" id="ed-annot" type="button" title="トリミング・丸や矢印の書き込み（裏面だけに表示する印も）" ${ed.preview ? '' : 'disabled'}>🎨 画像編集</button>
-          <button class="btn btn-ghost" id="ed-blur" type="button" title="暗記・クイズでぼかすナンバープレートの範囲を指定します" ${ed.preview ? '' : 'disabled'}>🔲 ぼかし範囲<span class="muted small" id="ed-blur-n"></span></button>
           <label class="btn btn-ghost">ファイルを選択<input type="file" id="ed-file" accept="image/*" hidden></label>
         </div>
         <div class="field">
@@ -4459,13 +4462,6 @@ function openEditor(card, preset = {}) {
     $('#ed-back-tag').hidden = !ed.backPreview;
   };
   // fromEditor: 画像編集の結果（裏面の印もそれに合わせてある）。それ以外の新しい画像では裏面の印を外す
-  const showBlurN = () => { const n = $('#ed-blur-n'); if (n) n.textContent = ed.blur.length ? ` ${ed.blur.length}` : ''; };
-  showBlurN();
-  $('#ed-blur').addEventListener('click', async () => {
-    if (!ed.preview) return;
-    const r = await editBlur(ed.preview, ed.blur, { api, toast, host: W.el });
-    if (r) { ed.blur = r; showBlurN(); }
-  });
   const setImage = async (blob, fromEditor = false) => {
     if (!blob || !blob.type.startsWith('image/')) { toast('画像ファイルではありません', 'error'); return; }
     ed.blob = blob;
@@ -4474,8 +4470,6 @@ function openEditor(card, preset = {}) {
     $('#ed-img-wrap').hidden = false;
     $('#ed-hint').hidden = true;
     $('#ed-annot').disabled = false;
-    $('#ed-blur').disabled = false;
-    if (ed.blur.length) { ed.blur = []; showBlurN(); toast('画像を変えたので、ぼかし範囲は消しました'); }
     if (!fromEditor && ed.backPreview) {
       ed.back = card?.back_path ? 'clear' : null;
       ed.backPreview = '';
@@ -4744,7 +4738,6 @@ function openEditor(card, preset = {}) {
       related: [...ed.related],
       sv_ids: [...ed.svIds].filter((id) => savedSvById(id)), // 削除済みの保存は除く
       places: ed.places,
-      blur: ed.blur,
     };
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -4913,7 +4906,7 @@ function renderPlonkitModal(entry) {
   const body = el.querySelector('.pk-body');
   loadGuide(slug, api).then((g) => {
     if (!el.contains(body) || w.current !== entry) return;
-    const { body: html, toc } = guideHtml(g);
+    const { body: html, toc } = guideHtml(g, { editor: !!state.user?.isEditor });
     body.innerHTML = `
       ${g.hero ? `<div class="pk-hero pk-pic"><img data-src="${esc(heroSrc(g.hero))}" data-fb="/api/plonkit?img=${encodeURIComponent(g.hero)}" alt=""></div>` : ''}
       ${g.translated ? '' : `<div class="pk-note">${g.lang === 'ja' ? '一部は翻訳できなかったため、英語のままです。' : '翻訳の設定（GEMINI_API_KEY）がないため、英語のままです。'}</div>`}
@@ -4924,6 +4917,13 @@ function renderPlonkitModal(entry) {
     bindGuide(body, {
       api: api,
       toast,
+      addCard: async (img) => { // この画像を、国を入れた状態で、カードの作成画面へ
+        if (!img?.src || !img.complete || !img.naturalWidth) { toast('画像の読み込みが終わってから押してください', 'error'); return; }
+        try {
+          const blob = await (await fetch(img.currentSrc || img.src)).blob();
+          openEditor(null, { countries: entry.code ? [entry.code] : [], blob });
+        } catch (ex) { toast(`画像を取り込めませんでした: ${ex.message}`, 'error'); }
+      },
       openSv: (lat, lng, v, newWindow) => openSvWindow(lat, lng, { heading: v.heading || 0, pitch: v.pitch || 0, fov: v.fov || 0, newWindow: !!newWindow }),
     });
   }).catch((e) => {

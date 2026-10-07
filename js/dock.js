@@ -37,6 +37,13 @@ function build() {
     const it = card && items.get(card._key);
     if (it) { e.stopPropagation(); it.close(); }
   });
+  // ホイールクリック（中ボタン）で、しまってあるウィンドウを閉じる（削除）
+  fan.addEventListener('mousedown', (e) => { if (e.button === 1 && e.target.closest('.dock-card')) e.preventDefault(); }); // 自動スクロールを出さない
+  fan.addEventListener('auxclick', (e) => {
+    const card = e.button === 1 && e.target.closest('.dock-card');
+    const it = card && items.get(card._key);
+    if (it) { e.preventDefault(); e.stopPropagation(); it.close(); }
+  });
   // 取り出しは、カードをドラッグして、画面の好きな場所で離す（クリックでは取り出さない）
   let drag = null;
   fan.addEventListener('pointerdown', (e) => {

@@ -91,7 +91,8 @@ function textHtml(lines) {
 }
 
 /** ガイド全体の HTML と、目次の項目 */
-export function guideHtml(g) {
+export function guideHtml(g, { editor = false } = {}) {
+  const addBtn = editor ? '<button type="button" class="pk-add" data-pk-add title="この画像で、カードを作る（国と画像を入れた状態で、作成画面を開きます）">＋ カード</button>' : '';
   const toc = [];
   let n = 0;
   const body = g.steps.map((s) => {
@@ -99,11 +100,11 @@ export function guideHtml(g) {
     toc.push({ id: sid, title: s.title, level: 1 });
     const items = s.items.map((it) => {
       if (it.k === 'div') { const id = `pk-${n++}`; toc.push({ id, title: it.title, level: 2 }); return `<h4 class="pk-div" id="${id}">${esc(it.title)}</h4>`; }
-      if (it.k === 'img') return `<figure class="pk-wide pk-pic"><img ${imgAttrs(it.img)} alt=""></figure>`;
+      if (it.k === 'img') return `<figure class="pk-wide pk-pic"><img ${imgAttrs(it.img)} alt="">${addBtn}</figure>`;
       const link = it.link || '';
       const sv = link && !/\.(png|jpe?g|webp|gif)(\?|$)/i.test(link) ? svAttr(link) : '';
       const w = it.w > 0 ? Math.max(28, Math.min(60, Math.round(it.w * 100))) : 40;
-      const img = it.img ? `<figure class="pk-img pk-pic" style="--w:${w}%"><img ${imgAttrs(it.img)} alt="${esc(it.alt)}" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}</figure>` : '';
+      const img = it.img ? `<figure class="pk-img pk-pic" style="--w:${w}%"><img ${imgAttrs(it.img)} alt="${esc(it.alt)}" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}${addBtn}</figure>` : '';
       return `<div class="pk-tip ${img ? '' : 'is-text'}">${img}<div class="pk-text">${textHtml(it.text)}</div></div>`;
     }).join('');
     return `<section class="pk-step" id="${sid}"><h3 class="pk-step-title">${esc(s.title)}</h3>${items}</section>`;
@@ -156,7 +157,7 @@ export function loadImages(root) {
 }
 
 /** 画像・リンクを押したときの動作。openSv(lat, lng, {heading, pitch, fov}, newWindow) はアプリのストリートビュー */
-export function bindGuide(root, { openSv, api, toast }) {
+export function bindGuide(root, { openSv, api, toast, addCard }) {
   const open = (v, newWindow) => {
     const [lat, lng, heading, pitch, fov] = v.split(',').map(Number);
     openSv(lat, lng, { heading, pitch, fov }, newWindow);
@@ -171,6 +172,12 @@ export function bindGuide(root, { openSv, api, toast }) {
       window.open(j.url || short, '_blank', 'noopener');
     } catch { toast?.('リンクを開けませんでした', 'error'); }
   };
+  root.addEventListener('click', (e) => { // 画像でカードを作る
+    const b = e.target.closest('[data-pk-add]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    addCard?.(b.closest('.pk-pic')?.querySelector('img'));
+  }, true);
   const handle = (e, newWindow) => {
     const t = e.target.closest?.('[data-pk-sv], [data-pk-go], .pk-zoom, [data-pk-ext]');
     if (!t || !root.contains(t)) return false;

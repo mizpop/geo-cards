@@ -2569,18 +2569,8 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 /* スマホで、ストリートビューを最前面の層（popover）に出すときの、ブラウザ既定の配置を打ち消す */
 .sv-panel[popover] { margin: 0; padding: 0; color: var(--text); overflow: hidden; }
 
-/* ---------- ナンバープレートのぼかし範囲の指定 ---------- */
-.modal-blur { width: min(860px, calc(100vw - 16px)); }
-.blur-stage { display: grid; place-items: center; background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px; }
-.blur-box { position: relative; display: inline-block; max-width: 100%; touch-action: none; cursor: crosshair; line-height: 0; user-select: none; }
-.blur-box img { display: block; max-width: 100%; max-height: 60vh; }
-.blur-rects { position: absolute; inset: 0; }
-.blur-rect { position: absolute; box-sizing: border-box; border: 2px solid #ffd60a; background: rgba(255, 214, 10, .22); border-radius: 3px; padding: 0; cursor: pointer; }
-.blur-rect:hover { background: rgba(255, 59, 48, .3); border-color: #ff3b30; }
-.blur-rect.is-draft { pointer-events: none; }
-.blur-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-.blur-foot .grow { flex: 1; }
-.img-blur-wait { visibility: hidden; }
+/* ---------- ナンバープレートのカードの画像を、全体ぼかす（設定） ---------- */
+.img-plate-blur { filter: blur(16px); }
 
 /* Plonkit の画像: 読み込み中・失敗しても、高さを保って、仕切りの線やバッジと重ならないようにする */
 .pk-pic { min-height: 110px; background: var(--surface-2); border-radius: var(--radius-sm); overflow: hidden; }
@@ -2593,3 +2583,10 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .pk-pic.is-failed::after { content: '画像を読み込めませんでした（押すと再試行）'; padding: 12px; text-align: center; font-size: 12px; color: var(--muted); }
 .pk-pic:not(.is-loaded) .pk-badge { display: none; }
 .pk-tip { padding: 14px 0; }
+
+/* Plonkit の画像から、カードを作るボタン（編集者のみ。画像にポインターを乗せると出る） */
+.pk-pic { position: relative; }
+.pk-add { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--accent); color: var(--accent-text); font-size: 12px; font-weight: 700; cursor: pointer; opacity: 0; transition: opacity .15s; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+.pk-pic:hover .pk-add, .pk-add:focus-visible { opacity: 1; }
+.pk-pic:not(.is-loaded) .pk-add { display: none; }
+@media (hover: none) { .pk-add { opacity: .92; } }

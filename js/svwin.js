@@ -332,6 +332,12 @@ function ensure(inst) {
     drag = { dx: e.clientX - pr.left, dy: e.clientY - pr.top, w: pr.width, sx: e.clientX, sy: e.clientY, started: false };
     head.setPointerCapture(e.pointerId);
   });
+  L(head).addEventListener('mousedown', (e) => { if (e.button === 1 && !e.target.closest('button, a')) e.preventDefault(); }); // 中ボタンの自動スクロールを出さない
+  L(head).addEventListener('auxclick', (e) => { // ウィンドウの上部（見出し）のホイールクリックで閉じる
+    if (e.button !== 1 || e.target.closest('button, a')) return;
+    e.preventDefault();
+    closeSvWindow(inst);
+  });
   L(head).addEventListener('pointermove', (e) => {
     if (!drag) return;
     if (!drag.started) { // 少し動かしてから動かし始める（ダブルクリックで拡大するときに、位置が動かないように）
