@@ -269,6 +269,7 @@ function ensure(inst) {
       <button type="button" class="icon-btn sv-btn" id="sv-card" title="この場所でカードを作る（国と場所を入れた状態で作成画面を開きます）" aria-label="この場所でカードを作る" hidden>📍</button>
       <button type="button" class="icon-btn sv-btn" id="sv-link" title="いる地点を、既存のカードに関連付ける（保存していなければ、保存してから関連付けます）" aria-label="既存のカードに関連付ける" hidden>🔗</button>
       <a class="icon-btn sv-btn" id="sv-ext" target="_blank" rel="noopener" title="Google マップで開く" aria-label="Google マップで開く">↗</a>
+      ${window.desktop?.popOut && !document.documentElement.classList.contains('is-popout') ? '<button type="button" class="icon-btn sv-btn" id="sv-pop" title="ウィンドウを外に出す（独立した Windows のウィンドウで開く）" aria-label="ウィンドウを外に出す">↗</button>' : ''}
       <button type="button" class="icon-btn sv-btn" id="sv-min" title="一時的に縮小（ヘッダーだけにする）" aria-label="縮小">—</button>
       <button type="button" class="icon-btn sv-btn" id="sv-max" title="大きく / 元の大きさ（ヘッダーのダブルクリックでも）" aria-label="大きく表示">⤢</button>
       <button type="button" class="icon-btn sv-btn" id="sv-close" title="閉じる（Esc）" aria-label="閉じる">✕</button>
@@ -290,7 +291,13 @@ function ensure(inst) {
   window.addEventListener('blur', () => { if (document.activeElement === F) { active = inst; bringFront(P); } });
   document.addEventListener('mousemove', (e) => { if (document.activeElement === F && !P.contains(e.target)) releaseFocus(); }, true); // ウィンドウの外でポインターが動いたら（mouseleave が届かない場合の備え）
 
-  L(panel.querySelector('#sv-close')).addEventListener('click', () => closeSvWindow(inst));
+  L(panel.querySelector('#sv-close')).addEventListener('click', () => { closeSvWindow(inst); if (document.documentElement.classList.contains('is-popout')) setTimeout(() => window.close(), 60); }); // 外に出したウィンドウは、閉じたら Windows のウィンドウも閉じる
+  L(panel.querySelector('#sv-pop'))?.addEventListener('click', async () => { // Windows 版: 独立した Windows のウィンドウに出す
+    if (!point) return;
+    const r = panel.getBoundingClientRect();
+    const ok = await window.desktop.popOut({ entry: { kind: 'sv', lat: point[0], lng: point[1], heading: view.heading, pitch: view.pitch, fov: view.fov }, size: { width: Math.max(r.width, 640), height: Math.max(r.height, 480) } }).catch(() => false);
+    if (ok) closeSvWindow(inst);
+  });
   // 保存した場所の名前・「〜 付近」の題名を押すと、その保存した位置へ、保存したときの向き・ズームで正確に移動する
   L(panel.querySelector('.sv-title')).addEventListener('click', () => {
     if (!point) return;

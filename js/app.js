@@ -560,6 +560,9 @@ const assistantDeps = {
 
 /* ================= 再読み込みしても引き継ぐ（クイズ・暗記の途中・開いていたウィンドウなど） =================
    このタブの sessionStorage に、今の状態を定期的に（と、閉じる・再読み込みの直前に）保存し、起動したときに戻す */
+// Windows 版: 「外に出す」で開いたウィンドウ（?popout=…）。その 1 つの内容だけを、独立した Windows のウィンドウに表示する
+const POPOUT = (() => { try { return JSON.parse(new URLSearchParams(location.search).get('popout') || 'null'); } catch { return null; } })();
+if (POPOUT) document.documentElement.classList.add('is-popout');
 let desktopCaptureBound = false;
 let sessionReady = false; // 戻し終わるまでは保存しない（途中の空の状態で、前の状態を上書きしないように）
 const sessionUser = () => state.user?.id || state.user?.email || '';
@@ -721,11 +724,12 @@ async function enterApp() {
   initChat({ api, user: state.user, toast, openWindow: (w) => openPanelWindow(w), closeWindow: (w) => closePanelWindow(w) });
   initAssistant({ api, toast, ...assistantDeps, openWindow: (w) => openPanelWindow(w), closeWindow: (w) => closePanelWindow(w) });
   await reloadCards();
-  const restored = restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
+  const restored = POPOUT ? null : restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
   await route();
   restoreOverlays(restored); // 開いていたウィンドウなど
-  startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
-  if (window.desktop?.onCapture && !desktopCaptureBound) { // Windows 版: Ctrl+Alt+S で取り込んだ画面を、カードの作成画面へ
+  if (POPOUT) openPopoutContent(POPOUT);
+  else startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
+  if (window.desktop?.onCapture && !desktopCaptureBound && !POPOUT) { // Windows 版: Ctrl+Alt+S で取り込んだ画面を、カードの作成画面へ
     desktopCaptureBound = true;
     window.desktop.onCapture(async (url) => {
       if (!state.user) return;
@@ -733,8 +737,8 @@ async function enterApp() {
       try { openEditor(null, { blob: await (await fetch(url)).blob(), editCrop: true }); } catch (ex) { toast(`取り込めませんでした: ${ex.message}`, 'error'); }
     });
   }
-  setTimeout(() => showUpdateNoticeIfNeeded({ openChangelog }), 1200); // 更新されて初めて起動したときの通知（右上）
-  sessionReady = true;
+  if (!POPOUT) setTimeout(() => showUpdateNoticeIfNeeded({ openChangelog }), 1200); // 更新されて初めて起動したときの通知（右上）
+  sessionReady = !POPOUT; // 外に出したウィンドウは、再読み込みで引き継ぐ状態を保存しない
   startLive();
   if (!lobbyWatching) { // 公開された対戦の部屋のお知らせ（ポップアップから参加できる）
     lobbyWatching = true;
@@ -973,6 +977,7 @@ function bindWinEvents(w) {
     releaseSnap(modal); modal.innerHTML = ''; modal.className = 'modal'; modal.removeAttribute('style'); delete modal.dataset.winFront;
     w.focused = false; w.paste = null; w.stack = []; w.current = null;
     if (!w.main) destroyWin(w); // 追加のウィンドウは、閉じたら片付ける
+    if (POPOUT) setTimeout(() => { if (!wins.some((x) => x.el.open) && !svWindowIsOpen()) window.close(); }, 60); // 外に出したウィンドウは、中身を閉じたら、Windows のウィンドウも閉じる
   });
 }
 
@@ -2155,6 +2160,7 @@ function setupWindow(m) {
   m.__win = { place, setMin, toggleMax, snap: (side) => snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }, true) };
   mk('win-min', m.classList.contains('is-min') ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）', m.classList.contains('is-min') ? '□' : '—', () => setMin(!m.classList.contains('is-min')));
   mk('win-max', '大きく / 元の大きさ（ヘッダーのダブルクリックでも）', '⤢', toggleMax);
+  if (window.desktop?.popOut && !POPOUT) mk('win-pop', 'ウィンドウを外に出す（独立した Windows のウィンドウで開く）', '↗', () => popOutWindow(win));
   // ヘッダーのドラッグで動かす（少し動かしてから動かし始める。ダブルクリックで拡大）
   let drag = null;
   head.addEventListener('pointerdown', (e) => {
@@ -4870,6 +4876,31 @@ function langCountries(l) {
     .filter((k) => COUNTRY_BY_CODE.get(k) && COUNTRY_INFO[k].lang.includes(l))
     .sort((a, b) => (COUNTRY_INFO[b].un - COUNTRY_INFO[a].un) || countryName(a).localeCompare(countryName(b), 'ja'));
 }
+// ---- ウィンドウを外に出す（Windows 版）: 今のウィンドウの内容を、独立した Windows のウィンドウで開き直す ----
+function popOutEntry(w) {
+  const e = w.current;
+  if (!e) return null;
+  if (e.kind === 'card' && !String(e.id).startsWith('sv|')) return { kind: 'card', id: e.id };
+  if (e.kind === 'country') return { kind: 'country', code: e.code, lang: e.lang || null };
+  if (e.kind === 'photo') return { kind: 'photo', topic: e.topic, code: e.code, srcs: e.srcs, i: e.i };
+  if (e.kind === 'plonkit') return { kind: 'plonkit', slug: e.slug, code: e.code };
+  return null;
+}
+async function popOutWindow(w) {
+  const entry = popOutEntry(w);
+  if (!entry) { toast('この画面は、外に出せません', 'error'); return; }
+  const r = w.el.getBoundingClientRect();
+  const ok = await window.desktop.popOut({ entry, size: { width: r.width, height: r.height } }).catch(() => false);
+  if (ok) closeModal(w); else toast('ウィンドウを外に出せませんでした', 'error');
+}
+function openPopoutContent(e) {
+  if (e.kind === 'card') { const c = cardById(e.id); if (c) openCardModal(c); else window.close(); }
+  else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
+  else if (e.kind === 'photo') openPhotoModal(e.topic, e.code, e.srcs, e.i);
+  else if (e.kind === 'plonkit') openPlonkitWindow(e.code, null, e.slug);
+  else if (e.kind === 'sv') openSvWindow(e.lat, e.lng, { heading: e.heading, pitch: e.pitch, fov: e.fov });
+}
+
 // ---- AI・メモを、ウィンドウとして開く（パネルの中身を、そのままウィンドウの中に入れる）----
 const panelWinOf = (which) => wins.find((w) => w.el.open && w.current?.kind === 'panel' && w.current.which === which);
 function openPanelWindow(which, src = null) {

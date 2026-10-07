@@ -230,3 +230,5 @@ Windows 版アプリは、Discord アプリが起動しているとき、今見�
 - **最前面に固定**: 上のバーのピンのボタン・設定・タスクトレイ。状態はユーザーデータの `prefs.json` に保存
 - **Ctrl+Alt+G**: アプリの表示 / 隠す。タスクトレイのアイコンでも
 - アプリ側の入口は `window.desktop`（`electron/site-preload.js`）: `captureScreen` / `onCapture` / `getAlwaysOnTop` / `setAlwaysOnTop` / `getShortcutStatus`
+- **ウィンドウを外に出す**: カード・国・参考写真・Plonkit・ストリートビューのウィンドウの ↗ で、独立した Windows のウィンドウに（`?popout=…` で同じサイトを開き、その 1 つだけを全面に表示。ログインは同じ保存を共有）
+- **× で閉じてもバックグラウンド**: タスクトレイに残る（終了は、トレイのメニューの「終了」）。トレイが使えないときは、普通に閉じる

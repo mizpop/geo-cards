@@ -13,6 +13,7 @@ const DISCORD_CLIENT_ID = '1557091296546652160'; // Discord のアプリケー�
 const DISCORD_IMAGE = 'https://geo-cards-533.pages.dev/icons/icon-512.png';
 const presence = new DiscordPresence(DISCORD_CLIENT_ID);
 const appStart = Date.now();
+let quitting = false; // 終了するとき（トレイの「終了」・更新・OS の終了）だけ true。それ以外で × を押したときは、閉じずにバックグラウンドへ
 
 const barHtml = `<!doctype html><meta charset="utf-8"><style>
   html,body{margin:0;height:100%;background:#141b21;color:#e6edf3;font:13px 'Segoe UI','Yu Gothic UI',sans-serif;user-select:none}
@@ -167,6 +168,33 @@ function createWindow() {
     ]));
     updateTray();
   } catch { /* トレイが使えなくても動く */ }
+  // × ボタンで閉じても、終了せずにタスクトレイに残る（Discord の表示・ショートカットも動き続ける）。終了は、トレイのメニューの「終了」
+  win.on('close', (e) => {
+    if (quitting || !tray) return; // トレイが使えないときは、普通に閉じる（隠すと、戻せなくなるため）
+    e.preventDefault();
+    win.hide();
+    if (!prefs.bgNoticed) { // 最初の 1 回だけ、バックグラウンドで動いていることを知らせる
+      prefs.bgNoticed = true; savePrefs();
+      new Notification({ title: 'GeoChecker', body: 'バックグラウンドで動いています。タスクトレイのアイコンから、開く・終了ができます（Ctrl+Alt+G でも表示できます）' }).show();
+    }
+  });
+  win.on('session-end', () => { quitting = true; });
+  // ウィンドウを外に出す（アプリ内のカード・国・Plonkit などのウィンドウを、独立した Windows のウィンドウで開く）
+  const openPopout = (entry, size) => {
+    const w = new BrowserWindow({
+      width: Math.max(420, Math.min(1600, Math.round(size?.width) || 900)), height: Math.max(360, Math.min(1200, Math.round(size?.height) || 760)),
+      minWidth: 360, minHeight: 300, title: 'GeoChecker', icon: path.join(__dirname, 'icon.png'), backgroundColor: '#0e1418', autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'site-preload.js') },
+    });
+    w.webContents.setWindowOpenHandler(handleOpen(w));
+    w.webContents.on('page-title-updated', (_e, t) => w.setTitle(t));
+    w.loadURL(`${SITE}${SITE.includes('?') ? '&' : '?'}popout=${encodeURIComponent(JSON.stringify(entry))}`);
+  };
+  ipcMain.handle('popout', (e, data) => {
+    if (!data?.entry || (e.sender !== wc && !BrowserWindow.fromWebContents(e.sender))) return false;
+    openPopout(data.entry, data.size);
+    return true;
+  });
   wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F5' || ((input.control || input.meta) && input.key.toLowerCase() === 'r')) { e.preventDefault(); reload(input.shift); }
@@ -192,5 +220,5 @@ app.whenReady().then(() => {
   setupAutoUpdate();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => presence.close());
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { quitting = true; presence.close(); });
+app.on('window-all-closed', () => { if (process.platform !== 'darwin' && quitting) app.quit(); }); // トレイに残るので、ウィンドウがすべて閉じても、終了しない（終了は、トレイの「終了」）

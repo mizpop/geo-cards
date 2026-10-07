@@ -2621,3 +2621,12 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .sv-panel.is-min .sv-minimap { display: none; }
 
 .sv-minimap-pop .leaflet-popup-content { margin: 8px 12px; font-size: 12px; font-weight: 700; color: #b02a2a; white-space: nowrap; }
+
+/* ---------- Windows 版: 外に出したウィンドウ（?popout=…）。中身のウィンドウを、Windows のウィンドウいっぱいに表示する ---------- */
+.is-popout .topbar, .is-popout #demo-banner, .is-popout #view, .is-popout .banner, .is-popout .chat-btn, .is-popout .ai-btn, .is-popout #dock-root { display: none !important; }
+.is-popout body, .is-popout { overflow: hidden; }
+.is-popout dialog.modal.is-window[open] { position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; max-height: none !important; margin: 0 !important; border-radius: 0; border: 0; resize: none; transform: none !important; }
+.is-popout .win-btn, .is-popout #sv-pop, .is-popout #sv-min, .is-popout #sv-max { display: none !important; }
+.is-popout .modal.is-window .modal-inner > .modal-head:first-child { cursor: default; }
+.is-popout .sv-panel { position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none; max-height: none; border-radius: 0; border: 0; resize: none; }
+.is-popout .sv-head { cursor: default; }

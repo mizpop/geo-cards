@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('desktop', {
   // 画面の取り込み（Ctrl+Alt+S でも。どのアプリを見ていても使える）: 撮れた画像（data URL）が届く
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
   onCapture: (fn) => ipcRenderer.on('capture', (_e, url) => fn(url)),
+  // このウィンドウを、独立した Windows のウィンドウに出す（entry: 開く内容）
+  popOut: (data) => ipcRenderer.invoke('popout', data),
   // 全体のショートカットの登録状況（ほかのアプリと重なって登録できなかったものの一覧）
   getShortcutStatus: () => ipcRenderer.invoke('shortcut-status'),
 });
