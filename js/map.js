@@ -804,7 +804,6 @@ export async function renderMap(view, ctx) {
     svCoverage = L.layerGroup([normal, thin]); // まとめて外せるように
     svCoverage.remove = () => { normal.remove(); thin.remove(); };
   }
-  const coverageAlways = () => !!ctx.svAlways?.(); // 設定: ストリートビューのある道路を、モードに関係なく、常に青く表示する
   function setSv(on, init = false) {
     svOn = on;
     $id('map-sv').classList.toggle('is-on', on);
@@ -816,7 +815,7 @@ export async function renderMap(view, ctx) {
       addCoverage();
       if (!init) { clearFocus(); hideBubble(); }
     } else {
-      if (svCoverage && !coverageAlways()) { svCoverage.remove(); svCoverage = null; }
+      if (svCoverage) { svCoverage.remove(); svCoverage = null; }
       hideGhost();
     }
   }
@@ -869,7 +868,6 @@ export async function renderMap(view, ctx) {
       bannerNote('付近にはありません');
     }
   }, true);
-  if (coverageAlways()) addCoverage();
   if (svOn) setSv(true, true); // 地図を描き直したときも、モードと開いていた地点を引き継ぐ
   // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る）
   if (svSpace) { document.removeEventListener('keydown', svSpace.down); document.removeEventListener('keyup', svSpace.up); window.removeEventListener('blur', svSpace.up); }
