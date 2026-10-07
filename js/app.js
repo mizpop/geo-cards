@@ -174,6 +174,7 @@ function applySettings() {
   if (settings.theme === 'auto') delete root.dataset.theme;
   else root.dataset.theme = settings.theme;
   setMuted(!settings.sound);
+  root.classList.toggle('plate-blur-on', !!settings.blurPlates);
   setTileStyle(settings.mapTiles);
   setMapLite(settings.mapLite);
   const sb = document.getElementById('sound-btn');
@@ -1183,8 +1184,8 @@ function svFrontHtml(card) {
 const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
 // 暗記・クイズで、設定がオンのとき、「ナンバープレート」カテゴリーのカードの画像は、全体をぼかす
-const plateBlur = (card) => settings.blurPlates && (state.view === 'study' || state.view === 'quiz') && !card.sv && !card.photo && catOf(card).name === 'ナンバープレート';
-const faceImgAttrs = (card, src) => `src="${esc(src)}"${plateBlur(card) ? ' class="img-plate-blur"' : ''}`;
+const isPlateCard = (card) => !card.sv && !card.photo && /ナンバー|plate/i.test(catOf(card).name);
+const faceImgAttrs = (card, src) => `src="${esc(src)}"${isPlateCard(card) ? ' data-plate="1"' : ''}`; // ぼかすかどうかは、設定（html の plate-blur-on）で切り替わる。設定を変えると、すぐに反映される
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
   if (card.sv) return svFrontHtml(card);
   const back = withBack && backUrl(card);
