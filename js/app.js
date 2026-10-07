@@ -1193,12 +1193,12 @@ const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img 
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
 // 暗記・クイズで、設定がオンのとき、「ナンバープレート」カテゴリーのカードの画像は、全体をぼかす
 const isPlateCard = (card) => !card.sv && (card.photo ? card.topic === 'plate' : /ナンバー|plate/i.test(catOf(card).name)); // 参考写真は、種類がナンバープレートのもの
-const faceImgAttrs = (card, src) => `src="${esc(src)}"${isPlateCard(card) ? ' data-plate="1"' : ''}`; // ぼかすかどうかは、設定（html の plate-blur-on）で切り替わる。設定を変えると、すぐに反映される
+const faceImgAttrs = (card, src, reveal = false) => `src="${esc(src)}"${isPlateCard(card) && !reveal ? ' data-plate="1"' : ''}`; // reveal: 答え合わせ・裏面では、ぼかさない // ぼかすかどうかは、設定（html の plate-blur-on）で切り替わる。設定を変えると、すぐに反映される
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
   if (card.sv) return svFrontHtml(card);
   const back = withBack && backUrl(card);
   return `
-    <div class="front-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img ${faceImgAttrs(card, imgUrl(card))} alt="カード画像">${back ? `<img class="layer-back" src="${esc(back)}" alt="" aria-hidden="true"><button type="button" class="layer-toggle" title="裏面の印（ヒントの場所）の表示を切り替え">🔁 印</button>` : ''}` : '<div class="img-missing">画像なし</div>'}</div>
+    <div class="front-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img ${faceImgAttrs(card, imgUrl(card), withBack)} alt="カード画像">${back ? `<img class="layer-back" src="${esc(back)}" alt="" aria-hidden="true"><button type="button" class="layer-toggle" title="裏面の印（ヒントの場所）の表示を切り替え">🔁 印</button>` : ''}` : '<div class="img-missing">画像なし</div>'}</div>
     ${card.description && showDesc ? `<p class="front-desc">${nl2br(card.description)}</p>` : ''}`;
 }
 
@@ -1225,7 +1225,7 @@ function backImgHtml(card) {
   const src = imgUrl(card);
   if (!src) return '';
   const back = backUrl(card);
-  return `<div class="back-img"><div class="back-img-box"><img ${faceImgAttrs(card, src)} alt="カード画像">${back ? `<img class="back-layer" src="${esc(back)}" alt="" aria-hidden="true">` : ''}</div></div>`;
+  return `<div class="back-img"><div class="back-img-box"><img ${faceImgAttrs(card, src, true)} alt="カード画像">${back ? `<img class="back-layer" src="${esc(back)}" alt="" aria-hidden="true">` : ''}</div></div>`;
 }
 
 // 関連カード（このカードが選んだカードと、このカードを選んでいるカード）
