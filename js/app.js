@@ -1409,6 +1409,7 @@ function bindModalNav() {
 // src: クリックされたタイル等。そこから飛び出すように開く
 // list: 開いた場所に並んでいたカードの id。あれば ← → / 矢印ボタンで前後のカードへ移れる
 function openCardModal(card, src = null, list = null) {
+  if (popOutFromSearch({ kind: 'card', id: card.id })) return;
   claimNewWin();
   const fresh = !W.el.open;
   navModal({ kind: 'card', id: card.id, list: list && list.length > 1 && list.includes(card.id) ? list : null });
@@ -1502,6 +1503,7 @@ function countryFactsHtml(code) {
 /* ---- 地図の参考写真（GeoHints）: カード詳細と同じ画面で開く ---- */
 // entry: { kind: 'photo', topic, code, srcs: [...], i }
 function openPhotoModal(topic, code, srcs, i, src = null) {
+  if (popOutFromSearch({ kind: 'photo', topic, code, srcs, i })) return;
   claimNewWin();
   const fresh = !W.el.open;
   navModal({ kind: 'photo', topic, code, srcs, i });
@@ -4135,6 +4137,7 @@ const spotOnTop = () => $('#spotlight').open && (spotOverModal || !W.el.open);
 
 function closeSpotlight() {
   const sp = $('#spotlight');
+  if (SEARCH_WIN) { window.desktop.winControl('hide'); return; } // 検索のウィンドウは、閉じずに隠す（次に、すぐ開けるように）
   if (!sp.open || sp.classList.contains('closing')) return;
   if (!settings.animations) { sp.close(); return; }
   sp.classList.add('closing'); // 縮みながら消えるアニメーションの後に閉じる
@@ -4910,11 +4913,12 @@ async function popOutWindow(w) {
 }
 if (POPOUT && window.desktop?.onWinState) window.desktop.onWinState((st) => { if ('max' in st) document.documentElement.classList.toggle('is-popout-max', !!st.max); if ('pin' in st) document.querySelectorAll('#win-pin, #sv-pin').forEach((b) => b.classList.toggle('is-on', !!st.pin)); });
 // Windows 版だけの全体のショートカット: 割り当ての表示・変更（押したキーの組み合わせを、Electron の Accelerator の形にして渡す）
-const DESKTOP_KEY_ACTIONS = [['capture', '画面を取り込んでカードにする'], ['toggle', 'アプリを表示 / 隠す'], ['dock', 'しまってあるウィンドウの一覧を出す（画面の左下）']];
-const prettyAccel = (a) => (a ? a.replace(/CommandOrControl/g, 'Ctrl').replace(/Return/g, 'Enter') : '割り当てなし');
+const DESKTOP_KEY_ACTIONS = [['search', '検索を開く（アプリを開いていなくても。外に出たウィンドウで開く）'], ['capture', '画面を取り込んでカードにする'], ['toggle', 'アプリを表示 / 隠す'], ['dock', 'しまってあるウィンドウの一覧を出す（画面の左下）']];
+const prettyAccel = (a) => (a ? a.replace(/CommandOrControl/g, 'Ctrl').replace(/Super/g, 'Win').replace(/Return/g, 'Enter') : '割り当てなし');
 function accelFromEvent(e) {
   const mods = [];
-  if (e.ctrlKey || e.metaKey) mods.push('CommandOrControl');
+  if (e.ctrlKey) mods.push('CommandOrControl');
+  if (e.metaKey) mods.push('Super'); // Windows キー
   if (e.altKey) mods.push('Alt');
   if (e.shiftKey) mods.push('Shift');
   let key = null;
@@ -4923,7 +4927,7 @@ function accelFromEvent(e) {
   else if (/^F([1-9]|1\d|2[0-4])$/.test(e.key)) key = e.key;
   else key = { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Space: 'Space', Tab: 'Tab', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Insert: 'Insert' }[e.code] || null;
   if (!key) return null;
-  if (!mods.length && !/^F/.test(key)) return null; // 修飾キー（Ctrl・Alt・Shift）なしは、ふだんの入力と重なるので不可（F キーは可）
+  if (!mods.length && !/^F/.test(key)) return null; // 修飾キー（Ctrl・Alt・Shift・Win）なしは、ふだんの入力と重なるので不可（F キーは可）
   return [...mods, key].join('+');
 }
 async function initDesktopKeys(root) {
@@ -4943,7 +4947,7 @@ async function initDesktopKeys(root) {
         if (e.key === 'Escape') { done(); draw(); return; }
         if (e.key === 'Delete' || e.key === 'Backspace') { done(); await window.desktop.setKey(b.dataset.act, ''); draw(); return; }
         const acc = accelFromEvent(e);
-        if (!acc) { toast('Ctrl・Alt・Shift のいずれかと、文字・数字・矢印などのキーを一緒に押してください', 'error'); return; }
+        if (!acc) { toast('Ctrl・Alt・Shift・Win のいずれかと、文字・数字・矢印などのキーを一緒に押してください', 'error'); return; }
         done();
         const r = await window.desktop.setKey(b.dataset.act, acc);
         toast(r.ok ? `${prettyAccel(acc)} に割り当てました` : (r.reason || '登録できませんでした'), r.ok ? undefined : 'error');
@@ -5023,8 +5027,22 @@ function setupPopoutResize() {
   }
   document.body.append(box);
 }
+// 検索のウィンドウ（ショートカットで、アプリを開いていなくても出せる）: 検索結果は、アプリの中ではなく、いつも外に出たウィンドウで開く
+const SEARCH_WIN = !!POPOUT && POPOUT.kind === 'search';
+function popOutFromSearch(entry) {
+  if (!SEARCH_WIN || !window.desktop?.popOut) return false;
+  window.desktop.popOut({ entry, size: { width: 760, height: 780 } });
+  return true;
+}
+function openSearchContent() {
+  document.documentElement.classList.add('is-search');
+  const open = () => { openSpotlight(); const i = $('#search-input'); if (i) { i.focus(); i.select(); } };
+  open();
+  window.desktop.onSearchFocus?.(() => { const sp = $('#spotlight'); if (sp.open) { const i = $('#search-input'); i?.focus(); i?.select(); } else open(); });
+}
 function openPopoutContent(e) {
   setupPopoutResize();
+  if (e.kind === 'search') { openSearchContent(); return; }
   if (e.kind === 'card') { const c = cardById(e.id); if (c) openCardModal(c); else window.close(); }
   else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
   else if (e.kind === 'photo') openPhotoModal(e.topic, e.code, e.srcs, e.i);
@@ -5061,7 +5079,8 @@ const PLONKIT_SKIP = new Set(['guide', 'guides', 'maps', 'map', 'about', 'privac
 const plonkitSlugOf = (url) => { const m = /^https?:\/\/(?:www\.)?plonkit\.net\/([a-z0-9-]+)\/?(?:[?#].*)?$/i.exec(url || ''); return m && !PLONKIT_SKIP.has(m[1].toLowerCase()) ? m[1].toLowerCase() : null; };
 const codeOfPlonkitSlug = (slug) => [...COUNTRY_BY_CODE.keys()].find((c) => plonkitUrl(c)?.endsWith(`/${slug}`)) || null;
 function openPlonkitWindow(code, src = null, slug = null) {
-  slug = slug || plonkitUrl(code)?.split('/').pop();
+  slug = slug || (code && plonkitUrl(code)?.split('/').pop());
+  if (slug && popOutFromSearch({ kind: 'plonkit', slug, code: code || codeOfPlonkitSlug(slug) })) return;
   if (!slug) { toast(`${code ? countryName(code) : ''} の Plonkit ガイドはありません`, 'error'); return; }
   code = code || codeOfPlonkitSlug(slug);
   claimNewWin();
@@ -5129,6 +5148,7 @@ function renderPlonkitModal(entry) {
 }
 
 function openCountryInfo(code, src = null, lang = null) {
+  if (COUNTRY_BY_CODE.get(code) && COUNTRY_INFO[code] && popOutFromSearch({ kind: 'country', code, lang })) return;
   if (!COUNTRY_BY_CODE.get(code) || !COUNTRY_INFO[code]) return;
   claimNewWin();
   const fresh = !W.el.open;

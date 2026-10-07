@@ -169,8 +169,8 @@ function createWindow() {
   ipcMain.handle('capture-screen', async (e) => { if (e.sender !== wc) return null; await captureToApp(); return true; });
   let dockWin = null; // 画面の左下に出す「しまってあるウィンドウ」の一覧
   // 全体のショートカット（どのアプリを見ていても使える）。割り当ては、設定の画面から変えられる（prefs.keys に保存）
-  const DEFAULT_KEYS = { capture: 'CommandOrControl+Alt+S', toggle: 'CommandOrControl+Alt+G', dock: 'CommandOrControl+Alt+D' };
-  const ACTIONS = { capture: () => captureToApp(), toggle: () => toggleWin(), dock: () => toggleDock() };
+  const DEFAULT_KEYS = { capture: 'CommandOrControl+Alt+S', toggle: 'CommandOrControl+Alt+G', dock: 'CommandOrControl+Alt+D', search: 'CommandOrControl+Alt+F' };
+  const ACTIONS = { capture: () => captureToApp(), toggle: () => toggleWin(), dock: () => toggleDock(), search: () => openSearchWin() };
   const keys = { ...DEFAULT_KEYS, ...(prefs.keys || {}) };
   const failedKeys = new Set();
   const regKey = (action) => { try { if (keys[action] && globalShortcut.register(keys[action], ACTIONS[action])) { failedKeys.delete(action); return true; } } catch { /* 登録できない */ } failedKeys.add(action); return false; };
@@ -222,11 +222,13 @@ function createWindow() {
   const popouts = new Set();
   const ownPopout = (e) => { const w = BrowserWindow.fromWebContents(e.sender); return popouts.has(w) ? w : null; };
   // 外に出したウィンドウの操作（枠がないので、見出しのボタンから）: 最小化・最大化・最前面・閉じる・アプリの中に戻す
+  ipcMain.on('open-search', (e) => { if (e.sender === wc) openSearchWin(); });
   ipcMain.on('win-control', (e, action) => {
     const w = ownPopout(e); if (!w) return;
     if (action === 'minimize') w.minimize();
     else if (action === 'maximize') (w.isMaximized() ? w.unmaximize() : w.maximize());
     else if (action === 'pin') { w.setAlwaysOnTop(!w.isAlwaysOnTop(), 'floating'); w.webContents.send('win-state', { pin: w.isAlwaysOnTop() }); }
+    else if (action === 'hide') w.hide();
     else if (action === 'close') w.close();
     else if (action === 'store') { stored.add(w); w.hide(); showDock(); setTimeout(() => { if (dockWin && !dockWin.isFocused()) hideDock(); }, 2200); } // しまう: 隠して、左下の一覧に入れる（少しだけ見せる）
   });
@@ -285,6 +287,7 @@ function createWindow() {
     if (!wc.isDestroyed()) wc.send('return-to-app', entry);
     w.close();
   });
+  let searchWin = null; // 検索のウィンドウ（開いていなくても、ショートカットで出せる。使い終わったら、隠して残す）
   const openPopout = (entry, size) => {
     const w = new BrowserWindow({
       frame: false, transparent: true, hasShadow: false, // 既定の枠はつけず、背景も透明に。アプリ内のウィンドウの形（角の丸み）そのままで外に出る。大きさの変更は、ページ側の縁のつまみから
@@ -299,7 +302,27 @@ function createWindow() {
     w.webContents.setWindowOpenHandler(handleOpen(w));
     w.webContents.on('page-title-updated', (_e, t) => w.setTitle(t));
     w.loadURL(`${SITE}${SITE.includes('?') ? '&' : '?'}popout=${encodeURIComponent(JSON.stringify(entry))}`);
+    return w;
   };
+  // 検索: アプリのウィンドウが閉じていても（バックグラウンドで動いていれば）、ショートカットで、外に出たウィンドウとして開く。検索結果も、外に出たウィンドウで開く
+  function openSearchWin() {
+    const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const wa = d.workArea;
+    const W = 780; const H = 680;
+    const bounds = { x: Math.round(wa.x + (wa.width - W) / 2), y: Math.round(wa.y + Math.max(20, (wa.height - H) / 3)), width: W, height: H };
+    if (searchWin && !searchWin.isDestroyed()) {
+      searchWin.setBounds(bounds);
+      searchWin.show(); searchWin.focus();
+      searchWin.webContents.send('search-focus');
+      return;
+    }
+    searchWin = openPopout({ kind: 'search' }, { width: W, height: H });
+    searchWin.setBounds(bounds);
+    searchWin.setSkipTaskbar(true);
+    searchWin.setTitle('GeoChecker 検索');
+    searchWin.on('close', (e) => { if (!quitting) { e.preventDefault(); searchWin.hide(); } }); // 閉じずに隠す（次に出すときは、すぐ開く）
+    searchWin.on('closed', () => { searchWin = null; });
+  }
   ipcMain.handle('popout', (e, data) => {
     if (!data?.entry || (e.sender !== wc && !BrowserWindow.fromWebContents(e.sender))) return false;
     openPopout(data.entry, data.size);

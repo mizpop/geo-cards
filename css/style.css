@@ -2649,3 +2649,9 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .key-btn.is-listening { outline: 2px solid var(--accent); background: var(--accent-soft); }
 .key-btn.is-bad { border-color: var(--ng); }
 .key-warn { color: var(--ng); flex-basis: 100%; }
+
+/* 検索のウィンドウ（ショートカットで、外に出たウィンドウとして開く）: 検索パネルを、ウィンドウいっぱいに */
+.is-search #spotlight[open] { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; border-radius: 14px; }
+.is-search #spotlight::backdrop { background: transparent; backdrop-filter: none; }
+.is-search .spot-bar { -webkit-app-region: drag; }
+.is-search .spot-bar input, .is-search .spot-bar button, .is-search .spot-field { -webkit-app-region: no-drag; }
