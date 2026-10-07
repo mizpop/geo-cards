@@ -23,13 +23,26 @@ const barHtml = `<!doctype html><meta charset="utf-8"><style>
   #r{-webkit-app-region:no-drag;margin-right:146px;width:30px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
   #p{-webkit-app-region:no-drag;margin-right:4px;width:30px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;opacity:.7}
   #p.on{opacity:1;color:#34f0a0;background:#34f0a022}
-  #r:hover,#p:hover{background:#2a3640}#r:active{background:#34f0a022}
+  #u{-webkit-app-region:no-drag;margin-right:4px;height:26px;display:flex;align-items:center;gap:6px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;font-size:12px;opacity:.85}
+  #u svg{flex:none}#u.busy svg{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
+  #u.ready{opacity:1;color:#06140d;background:#34f0a0;font-weight:700}#u.error{color:#ff8a8a}#u.latest{color:#34f0a0}
+  #u:hover,#r:hover,#p:hover{background:#2a3640}#u.ready:hover{background:#5af6b4}#r:active{background:#34f0a022}
 </style><div id="t">GeoChecker</div>
+<button id="u" title="クライアントの更新を確認する（新しい版があれば、ダウンロードして、ここから更新できます）" aria-label="更新を確認"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg><span id="us">更新を確認</span></button>
 <button id="p" title="最前面に固定（ほかのアプリの上に常に表示。ゲームを見ながら使うとき）" aria-label="最前面に固定"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 6 3 3H7l3-3z"/></svg></button>
 <button id="r" title="再読み込み（Ctrl+R）／ Shift を押しながらで、キャッシュも捨てて読み込み直す" aria-label="再読み込み"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
 <script>
   document.getElementById('r').addEventListener('click', (e) => window.bar.reload(e.shiftKey));
   document.getElementById('p').addEventListener('click', () => window.bar.togglePin());
+  const u = document.getElementById('u'); const us = document.getElementById('us'); let ut = null;
+  u.addEventListener('click', () => window.bar.checkUpdate());
+  window.bar.onUpdate((d) => {
+    clearTimeout(ut);
+    u.className = d.state === 'checking' || d.state === 'downloading' ? 'busy' : d.state === 'downloaded' ? 'ready' : d.state === 'error' ? 'error' : d.state === 'latest' ? 'latest' : '';
+    u.title = d.text || '更新を確認';
+    us.textContent = d.state === 'downloaded' ? '更新して再起動' : d.state === 'downloading' ? (d.text || '').replace('ダウンロード中… ', '') : d.state === 'checking' ? '確認中…' : d.state === 'latest' ? '最新です' : d.state === 'error' ? '確認できません' : d.state === 'dev' ? '開発版' : '更新を確認';
+    if (d.state === 'latest' || d.state === 'error' || d.state === 'dev') ut = setTimeout(() => { u.className = ''; us.textContent = '更新を確認'; u.title = '更新を確認'; }, 6000);
+  });
   window.bar.onPin((on) => document.getElementById('p').classList.toggle('on', on));
   window.bar.onTitle((t) => { document.getElementById('t').textContent = t || 'GeoChecker'; });
 </script>`;
@@ -112,6 +125,9 @@ function createWindow() {
   });
   // 再読み込み: ボタン・Ctrl+R・F5（Shift を足すとキャッシュも捨てる）
   const reload = (hard) => { const u = wc.getURL(); if (!u || u.startsWith('data:')) wc.loadURL(SITE); else if (hard) wc.reloadIgnoringCache(); else wc.reload(); };
+  barContents = bar.webContents;
+  bar.webContents.on('did-finish-load', () => bar.webContents.send('update', updateInfo));
+  ipcMain.on('check-update', (e) => { if (e.sender === bar.webContents) manualUpdateCheck(); });
   ipcMain.on('reload', (e, hard) => { if (e.sender === bar.webContents) reload(hard); });
   // ---- Windows 版だけの機能: 最前面に固定・どのアプリを見ていても使えるショートカット・画面の取り込み・タスクトレイ ----
   const prefsFile = path.join(app.getPath('userData'), 'prefs.json');
@@ -202,16 +218,33 @@ function createWindow() {
 }
 
 // 自動更新: 起動したときに、新しい版（公開の GitHub Releases）があれば裏でダウンロードして、終了時に入れ替える。インストール版だけ（開発中の npm start では動かさない）
+// 更新の状態をバー（上の細い画面）に伝える: { state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'latest' | 'error' | 'dev', text, percent }
+let barContents = null;
+let updateInfo = { state: 'idle', text: '' };
+let autoUpdater = null;
+const pushUpdate = (u) => { updateInfo = u; if (barContents && !barContents.isDestroyed()) barContents.send('update', u); };
+const askRestart = (version) => dialog.showMessageBox({ type: 'info', buttons: ['今すぐ再起動して更新', '後で（終了時に更新）'], defaultId: 0, cancelId: 1, title: 'GeoChecker の更新', message: `新しい版${version ? `（${version}）` : ''}をダウンロードしました。再起動して更新しますか？` })
+  .then((r) => { if (r.response === 0) { quitting = true; autoUpdater.quitAndInstall(); } });
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
-  let autoUpdater;
   try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => pushUpdate({ state: 'checking', text: '更新を確認しています…' }));
+  autoUpdater.on('update-available', (info) => pushUpdate({ state: 'downloading', text: `新しい版 ${info.version} をダウンロード中…`, percent: 0, version: info.version }));
+  autoUpdater.on('update-not-available', () => pushUpdate({ state: 'latest', text: `最新の版です（${app.getVersion()}）` }));
+  autoUpdater.on('download-progress', (p) => pushUpdate({ state: 'downloading', text: `ダウンロード中… ${Math.round(p.percent)}%`, percent: p.percent, version: updateInfo.version }));
   autoUpdater.on('update-downloaded', (info) => {
-    dialog.showMessageBox({ type: 'info', buttons: ['今すぐ再起動して更新', '後で（終了時に更新）'], defaultId: 0, cancelId: 1, title: 'GeoChecker の更新', message: `新しい版 ${info.version} をダウンロードしました。`, detail: '再起動すると更新されます。「後で」を選んでも、アプリを終了したときに更新されます。' })
-      .then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+    pushUpdate({ state: 'downloaded', text: `新しい版 ${info.version} の準備ができました。押すと再起動して更新します`, version: info.version });
+    askRestart(info.version);
   });
-  autoUpdater.on('error', () => { /* オフラインなどは無視（次の起動でまた確認する） */ });
+  autoUpdater.on('error', (err) => pushUpdate({ state: 'error', text: `更新を確認できませんでした（${String(err?.message || err).split('\n')[0].slice(0, 80)}）` }));
+  autoUpdater.checkForUpdates().catch(() => {}); // 起動したときの確認（エラーは、上の error で、バーに出る）
+}
+// バーのボタン: 準備ができていれば再起動して更新 / 確認中・ダウンロード中は何もしない / それ以外は、今すぐ確認
+function manualUpdateCheck() {
+  if (!autoUpdater) { pushUpdate({ state: 'dev', text: 'インストール版でだけ、更新できます（開発中の起動では、確認しません）' }); return; }
+  if (updateInfo.state === 'downloaded') { askRestart(updateInfo.version); return; }
+  if (updateInfo.state === 'checking' || updateInfo.state === 'downloading') return;
   autoUpdater.checkForUpdates().catch(() => {});
 }
 
