@@ -299,7 +299,8 @@ function ensure(inst) {
     if (r) openSvWindow(Number(r.lat), Number(r.lng), { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 });
   });
   L(panel.querySelector('#sv-card')).addEventListener('click', async () => { await syncCurrent(); use(inst); if (point) hooks.createCard?.({ lat: point[0], lng: point[1], ...view }); });
-  // 小さい地図: いる場所に近づいた状態で開き、押した場所のストリートビューに移る
+  const SV_COVERAGE_TILE = 'https://mts1.google.com/vt?hl=ja&lyrs=svv&style=40,18&x={x}&y={y}&z={z}';
+// 小さい地図: いる場所に近づいた状態で開き、押した場所のストリートビューに移る
   const mm = { map: null, marker: null, opening: false };
   inst.mini = {
     sync: () => { // いる場所が変わったら、目印と中心を合わせる
@@ -329,6 +330,9 @@ function ensure(inst) {
       if (!mm.map) {
         mm.map = Lf.map(miniEl.querySelector('.sv-minimap-map'), { zoomControl: true, attributionControl: false, minZoom: 2, maxZoom: 18, worldCopyJump: true });
         addBaseTiles(mm.map, { updateWhenZooming: false });
+        // ストリートビューのある道路を青く（地図タブと同じタイル）
+        mm.map.createPane('svCoverage').style.cssText = 'z-index:450;pointer-events:none';
+        Lf.tileLayer(SV_COVERAGE_TILE, { pane: 'svCoverage', tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: 19, updateWhenZooming: false, keepBuffer: 1, attribution: '' }).addTo(mm.map);
         mm.marker = Lf.circleMarker(pt, { radius: 7, color: '#fff', weight: 2, fillColor: '#e8590c', fillOpacity: 1, interactive: false }).addTo(mm.map);
         mm.map.on('click', (e) => { // 押した場所のストリートビューを、このウィンドウに開く（近くの道路に合わせて表示される）
           const { lat, lng } = e.latlng.wrap();

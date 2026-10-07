@@ -155,6 +155,7 @@ const DEFAULT_SETTINGS = {
   cardSort: 'new', // 編集画面・検索結果の並び順（CARD_SORTS）
   blurStrength: 16, // ナンバープレートのぼかしの強さ（px。大きいほど強い）
   blurPlates: false, // 暗記・クイズで、「ナンバープレート」カテゴリーのカードの画像全体をぼかす
+  svAlways: true, // 地図: ストリートビューのある道路を、モードに関係なく常に青く表示する
   mapLite: 'auto', // 地図の軽量表示: auto（低スペックの端末で自動）/ on / off
   mapTiles: 'en', // 地図の背景: en（国名・地名が英語表記）/ osm（OpenStreetMap・現地の言語）
   studySplit: false,
@@ -245,6 +246,7 @@ function openSettings() {
       ${item('入力中に国へ移動', '地図の検索バーに入力するたびに、候補の国へ移動します。オフにすると Enter を押したときだけ移動します', sw('liveSearch'))}
       ${item('止まると詳しく表示', '国にマウスを乗せて 0.5 秒止まると、吹き出しに詳しい情報を出します。オフでも右クリックで表示できます', sw('hoverExpand'))}
       ${item('背景の地図', '英語表記: 国名・地名を英語で表示（Google マップに近い見た目）／ OpenStreetMap: 地名を現地の言語で表示', seg('mapTiles', [['en', '英語表記'], ['osm', 'OpenStreetMap']]), true)}
+      ${item('ストリートビューのある道路を常に青く', '地図で、ストリートビューのある道路を、ストリートビューのモードでなくても、いつも青い線で表示します（地図の読み込みが増えるので、重いときはオフに）', sw('svAlways'))}
       ${item('軽量表示', `低スペックの端末で地図が重いときに。地図の動きのアニメーション・先読み・細かい国境・マウスを乗せたときの塗りの変化を減らします（見た目は少し粗くなります）。自動は、この端末のスペックから判断します（今は${mapIsLite() ? '軽量' : '通常'}）`, seg('mapLite', [['auto', '自動'], ['on', '軽量'], ['off', '通常']]), true)}
     </section>
     <h3 class="set-group-title">🔄 学習記録の同期</h3>
@@ -377,7 +379,7 @@ function openSettings() {
     $('#set-blur-n').textContent = e.target.value;
     changed();
   });
-  $$('.switch input', W.el).forEach((cb) => cb.addEventListener('change', () => { settings[cb.dataset.key] = cb.checked; changed(); }));
+  $$('.switch input', W.el).forEach((cb) => cb.addEventListener('change', () => { settings[cb.dataset.key] = cb.checked; changed(); if (cb.dataset.key === 'svAlways' && state.view === 'map') render(); }));
   $$('.seg', W.el).forEach((g) => g.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -5276,6 +5278,7 @@ const mapCtx = {
   openPhoto: (topic, code, srcs, i, src) => openPhotoModal(topic, code, srcs, i, src),
   photoNote: (topic, src, code) => photoNote(topic, src, code),
   setMapPhotos: (on) => { settings.mapPhotos = on; saveSettings(); },
+  svAlways: () => settings.svAlways !== false,
   setMapMode: (m) => { settings.mapMode = m; saveSettings(); },
   isEditor: () => !!state.user?.isEditor,
   matchConds: () => state.mapMatch,

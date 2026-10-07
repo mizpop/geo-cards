@@ -793,6 +793,18 @@ export async function renderMap(view, ctx) {
   loadSavedSv().then(drawSaved).catch(() => {}); // 表がまだ無いときなどは、何も出さない
   drawSaved();
   showSvMarker(svWindowIsOpenPoints());
+  // 青い線（ストリートビューのある道路）を地図に重ねる。拡大したら、半分の太さ（1 段細かいタイルを半分の大きさで）にする
+  function addCoverage() {
+    if (svCoverage) return;
+    if (!map.getPane('svCoverage')) { const pane = map.createPane('svCoverage'); pane.style.zIndex = 450; pane.style.pointerEvents = 'none'; }
+    // crossOrigin: 画素を読み取る処理（svTileAlpha）と同じ読み込み方にする（違うと、ブラウザのキャッシュのせいで読み取りに失敗することがある）
+    const common = { pane: 'svCoverage', maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '', crossOrigin: 'anonymous' };
+    const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
+    const thin = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, minZoom: SV_THIN_ZOOM, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 }).addTo(map);
+    svCoverage = L.layerGroup([normal, thin]); // まとめて外せるように
+    svCoverage.remove = () => { normal.remove(); thin.remove(); };
+  }
+  const coverageAlways = () => !!ctx.svAlways?.(); // 設定: ストリートビューのある道路を、モードに関係なく、常に青く表示する
   function setSv(on, init = false) {
     svOn = on;
     $id('map-sv').classList.toggle('is-on', on);
@@ -801,18 +813,10 @@ export async function renderMap(view, ctx) {
     $id('map').classList.toggle('sv-on', on);
     if (on) {
       $id('sv-banner-text').textContent = helpText();
-      if (!svCoverage) { // 青い線（ストリートビューのある道路）を地図に重ねる。拡大したら、半分の太さ（1 段細かいタイルを半分の大きさで）にする
-        if (!map.getPane('svCoverage')) { const pane = map.createPane('svCoverage'); pane.style.zIndex = 450; pane.style.pointerEvents = 'none'; }
-        // crossOrigin: 画素を読み取る処理（svTileAlpha）と同じ読み込み方にする（違うと、ブラウザのキャッシュのせいで読み取りに失敗することがある）
-        const common = { pane: 'svCoverage', maxZoom: 19, opacity: 1, className: 'sv-coverage', keepBuffer: 1, updateWhenZooming: false, attribution: '', crossOrigin: 'anonymous' };
-        const normal = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: SV_THIN_ZOOM - 0.5 }).addTo(map);
-        const thin = L.tileLayer(SV_TILE('{x}', '{y}', '{z}'), { ...common, minZoom: SV_THIN_ZOOM, tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 }).addTo(map);
-        svCoverage = L.layerGroup([normal, thin]); // まとめて外せるように
-        svCoverage.remove = () => { normal.remove(); thin.remove(); };
-      }
+      addCoverage();
       if (!init) { clearFocus(); hideBubble(); }
     } else {
-      if (svCoverage) { svCoverage.remove(); svCoverage = null; }
+      if (svCoverage && !coverageAlways()) { svCoverage.remove(); svCoverage = null; }
       hideGhost();
     }
   }
@@ -865,6 +869,7 @@ export async function renderMap(view, ctx) {
       bannerNote('付近にはありません');
     }
   }, true);
+  if (coverageAlways()) addCoverage();
   if (svOn) setSv(true, true); // 地図を描き直したときも、モードと開いていた地点を引き継ぐ
   // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る）
   if (svSpace) { document.removeEventListener('keydown', svSpace.down); document.removeEventListener('keyup', svSpace.up); window.removeEventListener('blur', svSpace.up); }
