@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v53',
+    date: '2026-10-07',
+    sections: [
+      {
+        title: 'Plonkit の翻訳データ',
+        items: ['翻訳済みの Plonkit のガイド（全 128 か国・8,329 文。data/plonkit-ja.json.gz）を追加。ガイドのウィンドウは、これを使って開く（翻訳 API は使わないので、すぐ開く）'],
+      },
+    ],
+  },
+  {
     version: 'v52',
     date: '2026-10-07',
     sections: [
