@@ -2619,3 +2619,5 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .sv-minimap-close { position: absolute; top: 4px; right: 4px; z-index: 1000; width: 26px; height: 26px; background: rgba(0, 0, 0, .55); color: #fff; border-radius: 50%; }
 .sv-minimap-tip { position: absolute; left: 6px; bottom: 6px; z-index: 1000; padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 11px; pointer-events: none; }
 .sv-panel.is-min .sv-minimap { display: none; }
+
+.sv-minimap-pop .leaflet-popup-content { margin: 8px 12px; font-size: 12px; font-weight: 700; color: #b02a2a; white-space: nowrap; }

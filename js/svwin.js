@@ -274,7 +274,7 @@ function ensure(inst) {
       <button type="button" class="icon-btn sv-btn" id="sv-close" title="閉じる（Esc）" aria-label="閉じる">✕</button>
     </div>
     <iframe id="sv-frame" name="svf-${inst.id}" title="Google ストリートビュー" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-    <div class="sv-minimap" hidden><div class="sv-minimap-map"></div><button type="button" class="icon-btn sv-minimap-close" aria-label="地図を閉じる" title="地図を閉じる">✕</button><span class="sv-minimap-tip">地図を押すと、その場所のストリートビューを開きます</span></div>
+    <div class="sv-minimap" hidden><div class="sv-minimap-map"></div><button type="button" class="icon-btn sv-minimap-close" aria-label="地図を閉じる" title="地図を閉じる">✕</button><span class="sv-minimap-tip">地図を押すと、近くの道路のストリートビューを開きます</span></div>
     <p class="sv-note muted small">ヘッダーをドラッグすると、画面のどこにでも動かせます。</p>`;
   document.body.appendChild(panel);
   frame = panel.querySelector('#sv-frame');
@@ -334,11 +334,25 @@ function ensure(inst) {
         mm.map.createPane('svCoverage').style.cssText = 'z-index:450;pointer-events:none';
         Lf.tileLayer(SV_COVERAGE_TILE, { pane: 'svCoverage', tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: 19, updateWhenZooming: false, keepBuffer: 1, attribution: '' }).addTo(mm.map);
         mm.marker = Lf.circleMarker(pt, { radius: 7, color: '#fff', weight: 2, fillColor: '#e8590c', fillOpacity: 1, interactive: false }).addTo(mm.map);
-        mm.map.on('click', (e) => { // 押した場所のストリートビューを、このウィンドウに開く（近くの道路に合わせて表示される）
-          const { lat, lng } = e.latlng.wrap();
+        window.__svMiniMap = mm.map; // デバッグ・動作確認用
+        let clickSeq = 0;
+        mm.map.on('click', async (e) => { // 押した場所の近くの道路（地図タブと同じ。青い線）に寄せて、このウィンドウに開く。近くに道路がなければ、ポップアップで知らせる
+          const ll = e.latlng.wrap();
+          const seq = ++clickSeq;
+          const { svFind } = await import('./map.js');
+          const hit = await svFind(ll.lat, ll.lng, mm.map.getZoom()).catch(() => null);
+          if (seq !== clickSeq) return; // 続けて押されたら、最後の 1 回だけ
+          if (!hit) {
+            Lf.popup({ closeButton: false, autoClose: true, className: 'sv-minimap-pop', offset: [0, -2] }).setLatLng(e.latlng).setContent('この付近にはストリートビューがありません').openOn(mm.map);
+            clearTimeout(mm.popTimer);
+            mm.popTimer = setTimeout(() => mm.map?.closePopup(), 2600);
+            return;
+          }
+          mm.map.closePopup();
+          use(inst);
           active = inst;
-          openSvWindow(lat, lng, {});
-          mm.marker.setLatLng([lat, lng]);
+          openSvWindow(hit.lat, hit.lng, {});
+          mm.marker.setLatLng([hit.lat, hit.lng]);
         });
       }
       mm.map.invalidateSize();

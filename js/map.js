@@ -57,7 +57,7 @@ let svSpace = null; // スペースキー長押しの一時オンのイベント
 let unsubSaved = null; // 保存したストリートビューの変更を受け取る登録（描き直すとき外す）
 const SV_SAVED_MIN_ZOOM = 4; // このくらい拡大すると、保存したストリートビューの目印を出す
 let unsubSv = null; // ストリートビューのウィンドウの開閉を受け取る登録（描き直すとき外す）
-export { svEmbedUrl, svOpenUrl };
+export { svEmbedUrl, svOpenUrl, svFind };
 // ストリートビューのある道路（青い線）のタイル。キー不要。クリックした地点の近くの線を探すのにも使う
 const SV_TILE = (x, y, z) => `https://mts1.google.com/vt?hl=ja&lyrs=svv&style=40,18&x=${x}&y=${y}&z=${z}`;
 const SV_HOVER_MIN_ZOOM = 11; // これ以上拡大しているとき、マウスを動かすと開く場所の印を出す
