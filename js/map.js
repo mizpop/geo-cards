@@ -55,7 +55,7 @@ let svOn = false;
 let svTemp = false; // スペース長押しで一時的にオンにしている間は true
 let svSpace = null; // スペースキー長押しの一時オンのイベント（描き直すとき外す）
 let unsubSaved = null; // 保存したストリートビューの変更を受け取る登録（描き直すとき外す）
-const SV_SAVED_MIN_ZOOM = 4; // このくらい拡大すると、保存したストリートビューの目印を出す
+const SV_SAVED_MIN_ZOOM = 2; // このくらい（地図の最小の縮尺まで）広くても、保存したストリートビューの目印を出す。ストリートビューのモードのときだけ
 let unsubSv = null; // ストリートビューのウィンドウの開閉を受け取る登録（描き直すとき外す）
 export { svEmbedUrl, svOpenUrl, svFind };
 // ストリートビューのある道路（青い線）のタイル。キー不要。クリックした地点の近くの線を探すのにも使う
@@ -774,7 +774,7 @@ export async function renderMap(view, ctx) {
   const savedLayer = L.layerGroup();
   const drawSaved = () => {
     savedLayer.clearLayers();
-    if (map.getZoom() < SV_SAVED_MIN_ZOOM) return;
+    if (!svOn || map.getZoom() < SV_SAVED_MIN_ZOOM) return; // 保存した場所は、ストリートビューのモードのときだけ
     const view = map.getBounds().pad(0.3);
     for (const r of savedSvList()) {
       const ll = [Number(r.lat), Number(r.lng)];
@@ -806,6 +806,7 @@ export async function renderMap(view, ctx) {
   }
   function setSv(on, init = false) {
     svOn = on;
+    drawSaved();
     $id('map-sv').classList.toggle('is-on', on);
     $id('map-sv').setAttribute('aria-pressed', String(on));
     svBanner.hidden = !on;
