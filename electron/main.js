@@ -8,6 +8,8 @@ const SITE = process.env.GEOCHECKER_SITE || 'https://geo-cards-533.pages.dev/'; 
 const ownHost = new URL(SITE).host;
 const BAR_H = 36;
 const DISCORD_CLIENT_ID = '1557091296546652160'; // Discord のアプリケーション ID（Rich Presence 用。公開してよい ID）
+// 大きな画像: 公開サイトのアプリのアイコン（Discord が URL から取り込む。開発者ポータルに画像を登録しなくてよい）
+const DISCORD_IMAGE = 'https://geo-cards-533.pages.dev/icons/icon-512.png';
 const presence = new DiscordPresence(DISCORD_CLIENT_ID);
 const appStart = Date.now();
 
@@ -77,7 +79,7 @@ function createWindow() {
   ipcMain.on('presence', (e, data) => {
     if (e.sender !== wc) return;
     const str = (t) => (typeof t === 'string' && t.trim().length >= 2 ? t.trim().slice(0, 120) : undefined);
-    presence.set(data && str(data.details) ? { details: str(data.details), state: str(data.state), timestamps: { start: appStart } } : null);
+    presence.set(data && str(data.details) ? { details: str(data.details), state: str(data.state), timestamps: { start: appStart }, assets: { large_image: DISCORD_IMAGE, large_text: 'GeoChecker（GeoGuessr 学習アプリ）' } } : null);
   });
   ipcMain.handle('presence-status', (e) => (e.sender === wc ? presence.status : null)); // 設定の画面に、Discord につながっているかを出す
   ipcMain.handle('app-version', (e) => (e.sender === wc ? app.getVersion() : null)); // 更新の通知用（Windows 版アプリ本体の版）

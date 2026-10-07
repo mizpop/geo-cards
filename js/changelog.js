@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v51',
+    date: '2026-10-07',
+    sections: [
+      {
+        title: 'Discord Rich Presence',
+        items: ['Discord の表示に、アプリのアイコンを大きな画像として表示（アイコンにポインターを乗せると「GeoChecker（GeoGuessr 学習アプリ）」）。サイトのアイコンの URL から取り込むので、Discord の開発者ポータルでの画像の登録は要らない（Windows 版 1.3.2 以降）'],
+      },
+    ],
+  },
+  {
     version: 'v50',
     date: '2026-10-07',
     sections: [
