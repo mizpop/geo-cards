@@ -16,6 +16,14 @@ contextBridge.exposeInMainWorld('desktop', {
   // 画面の取り込み（Ctrl+Alt+S でも。どのアプリを見ていても使える）: 撮れた画像（data URL）が届く
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
   onCapture: (fn) => ipcRenderer.on('capture', (_e, url) => fn(url)),
+  // 外に出したウィンドウの操作（枠がないので、見出しのボタンから）
+  winControl: (action) => ipcRenderer.send('win-control', action), // 'minimize' | 'maximize' | 'pin' | 'close'
+  getWinBounds: () => ipcRenderer.invoke('win-bounds'),
+  setWinBounds: (b) => ipcRenderer.send('win-set-bounds', b),
+  getWinState: () => ipcRenderer.invoke('win-state'),
+  onWinState: (fn) => ipcRenderer.on('win-state', (_e, s) => fn(s)),
+  returnToApp: (entry) => ipcRenderer.send('popout-return', entry), // アプリの中に戻す
+  onReturnToApp: (fn) => ipcRenderer.on('return-to-app', (_e, entry) => fn(entry)), // 本体: 戻ってきた内容を開く
   // このウィンドウを、独立した Windows のウィンドウに出す（entry: 開く内容）
   popOut: (data) => ipcRenderer.invoke('popout', data),
   // 全体のショートカットの登録状況（ほかのアプリと重なって登録できなかったものの一覧）

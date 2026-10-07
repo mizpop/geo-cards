@@ -2625,8 +2625,18 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 /* ---------- Windows 版: 外に出したウィンドウ（?popout=…）。中身のウィンドウを、Windows のウィンドウいっぱいに表示する ---------- */
 .is-popout .topbar, .is-popout #demo-banner, .is-popout #view, .is-popout .banner, .is-popout .chat-btn, .is-popout .ai-btn, .is-popout #dock-root { display: none !important; }
 .is-popout body, .is-popout { overflow: hidden; }
-.is-popout dialog.modal.is-window[open] { position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; max-height: none !important; margin: 0 !important; border-radius: 0; border: 0; resize: none; transform: none !important; }
-.is-popout .win-btn, .is-popout #sv-pop, .is-popout #sv-min, .is-popout #sv-max { display: none !important; }
+.is-popout dialog.modal.is-window[open] { position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; max-height: none !important; margin: 0 !important; resize: none; transform: none !important; box-shadow: none !important; }
+.is-popout #win-min, .is-popout #win-max, .is-popout #win-pop, .is-popout #sv-pop, .is-popout #sv-min, .is-popout #sv-max { display: none !important; }
 .is-popout .modal.is-window .modal-inner > .modal-head:first-child { cursor: default; }
-.is-popout .sv-panel { position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none; max-height: none; border-radius: 0; border: 0; resize: none; }
+.is-popout .sv-panel { position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none; max-height: none; resize: none; box-shadow: none !important; }
 .is-popout .sv-head { cursor: default; }
+
+/* 外に出したウィンドウ: 枠がないので、見出しを、ドラッグで動かせる・ダブルクリックで最大化できるタイトルバーにする */
+.is-popout, .is-popout body { background: transparent !important; } /* ウィンドウの外側は透明（アプリ内のウィンドウの形・角の丸みのまま） */
+.is-popout.is-popout-max dialog.modal.is-window[open], .is-popout.is-popout-max .sv-panel { border-radius: 0; }
+#po-resize { position: fixed; inset: 0; z-index: 99999; pointer-events: none; }
+.po-grip { position: absolute; pointer-events: auto; -webkit-app-region: no-drag; }
+.is-popout-max #po-resize { display: none; }
+.is-popout .modal.is-window .modal-inner > .modal-head:first-child, .is-popout .sv-head { -webkit-app-region: drag; }
+.is-popout .modal-head button, .is-popout .modal-head a, .is-popout .modal-head input, .is-popout .modal-head select, .is-popout .sv-head button, .is-popout .sv-head a, .is-popout .sv-title.is-link { -webkit-app-region: no-drag; }
+.is-popout .win-btn.is-on, .is-popout .sv-btn.is-on { background: var(--accent-soft); color: var(--accent); }

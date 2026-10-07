@@ -196,12 +196,42 @@ function createWindow() {
   });
   win.on('session-end', () => { quitting = true; });
   // ウィンドウを外に出す（アプリ内のカード・国・Plonkit などのウィンドウを、独立した Windows のウィンドウで開く）
+  const popouts = new Set();
+  const ownPopout = (e) => { const w = BrowserWindow.fromWebContents(e.sender); return popouts.has(w) ? w : null; };
+  // 外に出したウィンドウの操作（枠がないので、見出しのボタンから）: 最小化・最大化・最前面・閉じる・アプリの中に戻す
+  ipcMain.on('win-control', (e, action) => {
+    const w = ownPopout(e); if (!w) return;
+    if (action === 'minimize') w.minimize();
+    else if (action === 'maximize') (w.isMaximized() ? w.unmaximize() : w.maximize());
+    else if (action === 'pin') { w.setAlwaysOnTop(!w.isAlwaysOnTop(), 'floating'); w.webContents.send('win-state', { pin: w.isAlwaysOnTop() }); }
+    else if (action === 'close') w.close();
+  });
+  ipcMain.handle('win-bounds', (e) => ownPopout(e)?.getBounds() || null);
+  ipcMain.on('win-set-bounds', (e, b) => { // 透明なウィンドウは、Windows では縁をドラッグしても大きさを変えられないので、ページ側のつまみから
+    const w = ownPopout(e); if (!w || !b) return;
+    const r = { x: Math.round(b.x), y: Math.round(b.y), width: Math.max(360, Math.round(b.width)), height: Math.max(300, Math.round(b.height)) };
+    if (b.anchorRight) r.x = b.anchorRight - r.width;
+    if (b.anchorBottom) r.y = b.anchorBottom - r.height;
+    w.setBounds(r);
+  });
+  ipcMain.handle('win-state', (e) => { const w = ownPopout(e); return w ? { pin: w.isAlwaysOnTop(), max: w.isMaximized() } : null; });
+  ipcMain.on('popout-return', (e, entry) => { // アプリの中に戻す: 本体のウィンドウで同じ内容を開いて、外のウィンドウは閉じる
+    const w = ownPopout(e); if (!w || !entry) return;
+    showWin();
+    if (!wc.isDestroyed()) wc.send('return-to-app', entry);
+    w.close();
+  });
   const openPopout = (entry, size) => {
     const w = new BrowserWindow({
+      frame: false, transparent: true, hasShadow: false, backgroundColor: '#00000000', // 既定の枠はつけず、背景も透明に。アプリ内のウィンドウの形（角の丸み）そのままで外に出る。大きさの変更は、ページ側の縁のつまみから
       width: Math.max(420, Math.min(1600, Math.round(size?.width) || 900)), height: Math.max(360, Math.min(1200, Math.round(size?.height) || 760)),
       minWidth: 360, minHeight: 300, title: 'GeoChecker', icon: path.join(__dirname, 'icon.png'), backgroundColor: '#0e1418', autoHideMenuBar: true,
       webPreferences: { preload: path.join(__dirname, 'site-preload.js') },
     });
+    popouts.add(w);
+    w.on('closed', () => popouts.delete(w));
+    w.on('maximize', () => w.webContents.send('win-state', { max: true }));
+    w.on('unmaximize', () => w.webContents.send('win-state', { max: false }));
     w.webContents.setWindowOpenHandler(handleOpen(w));
     w.webContents.on('page-title-updated', (_e, t) => w.setTitle(t));
     w.loadURL(`${SITE}${SITE.includes('?') ? '&' : '?'}popout=${encodeURIComponent(JSON.stringify(entry))}`);

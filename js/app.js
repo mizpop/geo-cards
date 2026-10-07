@@ -564,6 +564,7 @@ const assistantDeps = {
 const POPOUT = (() => { try { return JSON.parse(new URLSearchParams(location.search).get('popout') || 'null'); } catch { return null; } })();
 if (POPOUT) document.documentElement.classList.add('is-popout');
 let desktopCaptureBound = false;
+let desktopReturnBound = false;
 let sessionReady = false; // 戻し終わるまでは保存しない（途中の空の状態で、前の状態を上書きしないように）
 const sessionUser = () => state.user?.id || state.user?.email || '';
 function snapshotSession() {
@@ -729,6 +730,10 @@ async function enterApp() {
   restoreOverlays(restored); // 開いていたウィンドウなど
   if (POPOUT) openPopoutContent(POPOUT);
   else startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
+  if (window.desktop?.onReturnToApp && !POPOUT && !desktopReturnBound) { // 外に出したウィンドウを、アプリの中に戻したとき
+    desktopReturnBound = true;
+    window.desktop.onReturnToApp((entry) => { if (state.user) openPopoutContent(entry); });
+  }
   if (window.desktop?.onCapture && !desktopCaptureBound && !POPOUT) { // Windows 版: Ctrl+Alt+S で取り込んだ画面を、カードの作成画面へ
     desktopCaptureBound = true;
     window.desktop.onCapture(async (url) => {
@@ -2093,7 +2098,7 @@ function openFactEditor(topic, code) {
    モーダルではないので、後ろの地図や一覧もそのまま操作できる。ヘッダーのドラッグで動かし、角で大きさを変え、
    ダブルクリックで拡大、「—」でヘッダーだけに縮小。位置と大きさは覚える。スマホなど狭い画面では今までどおりのモーダル */
 const winMq = window.matchMedia('(min-width: 900px) and (pointer: fine)');
-const canWindow = () => winMq.matches;
+const canWindow = () => !!POPOUT || winMq.matches; // 外に出したウィンドウは、幅が狭くても、いつもウィンドウの形で表示する
 const modalIsWindow = () => W.el.classList.contains('is-window');
 W0.rect = (() => { try { return JSON.parse(localStorage.getItem('geo-cards-win-rect-v1')); } catch { return null; } })(); // 主ウィンドウの位置と大きさは覚える（追加のウィンドウは、ずらして開く）
 const saveWinRect = (w) => { try { if (w.main && w.rect) localStorage.setItem('geo-cards-win-rect-v1', JSON.stringify(w.rect)); } catch { /* 無視 */ } };
@@ -2160,6 +2165,13 @@ function setupWindow(m) {
   m.__win = { place, setMin, toggleMax, snap: (side) => snapWindow(m, side, () => { m.classList.remove('is-snap'); place(); }, true) };
   mk('win-min', m.classList.contains('is-min') ? 'もとの大きさに戻す' : '一時的に縮小（ヘッダーだけにする）', m.classList.contains('is-min') ? '□' : '—', () => setMin(!m.classList.contains('is-min')));
   mk('win-max', '大きく / 元の大きさ（ヘッダーのダブルクリックでも）', '⤢', toggleMax);
+  if (POPOUT && window.desktop?.winControl) { // 外に出したウィンドウ: 枠がないので、見出しに操作のボタンを置く（アプリの中に戻す・最前面に固定・最小化・最大化）
+    mk('win-return', 'アプリの中に戻す', '⤺', () => { const e = popOutEntry(win); if (e) window.desktop.returnToApp(e); });
+    mk('win-pin', '最前面に固定（ほかのアプリの上に常に表示）', '📌', () => window.desktop.winControl('pin'));
+    mk('win-minimize', '最小化', '—', () => window.desktop.winControl('minimize'));
+    mk('win-maximize', '大きく / 元の大きさ', '⤢', () => window.desktop.winControl('maximize'));
+    window.desktop.getWinState?.().then((st) => { const b = $('#win-pin', m); if (b && st) b.classList.toggle('is-on', !!st.pin); });
+  }
   if (window.desktop?.popOut && !POPOUT) mk('win-pop', 'ウィンドウを外に出す（独立した Windows のウィンドウで開く）', '↗', () => popOutWindow(win));
   // ヘッダーのドラッグで動かす（少し動かしてから動かし始める。ダブルクリックで拡大）
   let drag = null;
@@ -4893,7 +4905,45 @@ async function popOutWindow(w) {
   const ok = await window.desktop.popOut({ entry, size: { width: r.width, height: r.height } }).catch(() => false);
   if (ok) closeModal(w); else toast('ウィンドウを外に出せませんでした', 'error');
 }
+if (POPOUT && window.desktop?.onWinState) window.desktop.onWinState((st) => { if ('max' in st) document.documentElement.classList.toggle('is-popout-max', !!st.max); if ('pin' in st) document.querySelectorAll('#win-pin, #sv-pin').forEach((b) => b.classList.toggle('is-on', !!st.pin)); });
+// 外に出したウィンドウの縁のつまみ（透明なウィンドウは、縁をドラッグしても、大きさを変えられないため）
+function setupPopoutResize() {
+  if (!POPOUT || !window.desktop?.setWinBounds || document.getElementById('po-resize')) return;
+  const box = document.createElement('div');
+  box.id = 'po-resize';
+  const S = 7;
+  const edges = { n: 'top:0;left:' + S + 'px;right:' + S + 'px;height:' + S + 'px;cursor:ns-resize', s: 'bottom:0;left:' + S + 'px;right:' + S + 'px;height:' + S + 'px;cursor:ns-resize', w: 'left:0;top:' + S + 'px;bottom:' + S + 'px;width:' + S + 'px;cursor:ew-resize', e: 'right:0;top:' + S + 'px;bottom:' + S + 'px;width:' + S + 'px;cursor:ew-resize', nw: 'top:0;left:0;width:' + S + 'px;height:' + S + 'px;cursor:nwse-resize', ne: 'top:0;right:0;width:' + S + 'px;height:' + S + 'px;cursor:nesw-resize', sw: 'bottom:0;left:0;width:' + S + 'px;height:' + S + 'px;cursor:nesw-resize', se: 'bottom:0;right:0;width:' + S + 'px;height:' + S + 'px;cursor:nwse-resize' };
+  for (const [k, css] of Object.entries(edges)) {
+    const h = document.createElement('div');
+    h.className = 'po-grip';
+    h.style.cssText = css;
+    let st = null;
+    h.addEventListener('pointerdown', async (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      h.setPointerCapture(e.pointerId);
+      const b = await window.desktop.getWinBounds();
+      if (b) st = { b, x: e.screenX, y: e.screenY };
+    });
+    h.addEventListener('pointermove', (e) => {
+      if (!st) return;
+      const dx = e.screenX - st.x; const dy = e.screenY - st.y; const { b } = st;
+      const n = { x: b.x, y: b.y, width: b.width, height: b.height };
+      if (k.includes('e')) n.width = b.width + dx;
+      if (k.includes('s')) n.height = b.height + dy;
+      if (k.includes('w')) { n.width = b.width - dx; n.anchorRight = b.x + b.width; }
+      if (k.includes('n')) { n.height = b.height - dy; n.anchorBottom = b.y + b.height; }
+      window.desktop.setWinBounds(n);
+    });
+    const end = () => { st = null; };
+    h.addEventListener('pointerup', end);
+    h.addEventListener('pointercancel', end);
+    box.append(h);
+  }
+  document.body.append(box);
+}
 function openPopoutContent(e) {
+  setupPopoutResize();
   if (e.kind === 'card') { const c = cardById(e.id); if (c) openCardModal(c); else window.close(); }
   else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
   else if (e.kind === 'photo') openPhotoModal(e.topic, e.code, e.srcs, e.i);
