@@ -154,10 +154,10 @@ async function imageResponse(path) {
   if (!/^\/(images|static|uploads)\/[^?#\\]+$/.test(path) || path.includes('..')) return new Response('bad request', { status: 400 });
   // Plonkit は、短い間に続けて取りにいくと、断る（403・429）ことがあるので、少し待って、やり直す
   let res = null;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     res = await fetch(ORIGIN + safeEncode(path), { headers: { referer: `${ORIGIN}/`, 'user-agent': UA, accept: 'image/*' }, cf: { cacheTtl: 604800, cacheEverything: true } }).catch(() => null);
     if (res?.ok || (res && res.status === 404)) break;
-    await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+    await new Promise((r) => setTimeout(r, 700));
   }
   if (!res?.ok) return new Response(`upstream ${res?.status || 'error'}`, { status: res?.status === 404 ? 404 : 502, headers: { 'cache-control': 'no-store', 'x-upstream-status': String(res?.status || 0) } });
   const type = res.headers.get('content-type') || '';

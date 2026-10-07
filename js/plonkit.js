@@ -104,12 +104,12 @@ export function tocHtml(toc) {
   return toc.map((t) => `<a href="#${t.id}" class="pk-toc-item lv${t.level}" data-pk-to="${t.id}">${esc(t.title)}</a>`).join('');
 }
 
-/** 画像を、画面に近づいたものから、少しずつ（同時に 4 枚まで）読み込む。Plonkit が続けての取得を断ることがあるので、失敗したら間をあけてやり直す */
+/** 画像を、画面に近づいたものから、少しずつ（同時に 3 枚まで）読み込む。Plonkit が続けての取得を断ることがあるので、失敗したら間をあけてやり直す */
 export function loadImages(root) {
   const queue = [];
   let active = 0;
   const pump = () => {
-    while (active < 4 && queue.length) {
+    while (active < 3 && queue.length) {
       const img = queue.shift();
       if (!img.isConnected) continue;
       active++;
@@ -117,11 +117,11 @@ export function loadImages(root) {
       const tries = Number(img.dataset.tries || 0);
       img.onload = () => { img.closest('.pk-pic')?.classList.remove('is-failed'); img.closest('.pk-pic')?.classList.add('is-loaded'); done(); };
       img.onerror = () => {
-        if (tries < 3) { img.dataset.tries = String(tries + 1); setTimeout(() => { queue.push(img); pump(); }, 1500 * (tries + 1)); } else img.closest('.pk-pic')?.classList.add('is-failed');
+        if (tries < 6) { img.dataset.tries = String(tries + 1); setTimeout(() => { queue.push(img); pump(); }, 2500 * (tries + 1)); } else img.closest('.pk-pic')?.classList.add('is-failed');
         done();
       };
       const src = img.dataset.src;
-      img.src = tries ? `${src}${src.includes('?') ? '&' : '?'}r=${tries}` : src;
+      img.src = src;
     }
   };
   const start = (img) => { if (img.dataset.queued) return; img.dataset.queued = '1'; queue.push(img); pump(); };
