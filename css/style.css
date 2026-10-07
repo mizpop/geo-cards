@@ -2591,10 +2591,15 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .pk-pic:not(.is-loaded) .pk-add { display: none; }
 @media (hover: none) { .pk-add { opacity: .92; } }
 
-/* 検索: 国の候補（カードの上に 1 つ） */
-.tile-country { display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 12px 16px; border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); background: var(--surface); cursor: pointer; outline: none; }
-.tile-country:hover, .tile-country:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow); }
-.tile-country-flag { width: 54px; height: 36px; object-fit: cover; border-radius: 4px; box-shadow: 0 0 0 1px var(--border); flex: none; }
-.tile-country-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tile-country-body b { font-size: 17px; }
-.tile-country-hint { color: var(--accent); margin-top: 2px; }
+/* 検索: 国の候補（カードの上に 1 つ。小さく横長に 1 行） */
+.tile.tile-country { flex-direction: row; display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 5px 12px; min-height: 0; height: auto; border: 1px solid var(--border); border-top-width: 1px; border-left: 3px solid var(--accent); border-radius: 999px; background: var(--surface); cursor: pointer; outline: none; width: fit-content; max-width: 100%; }
+.tile.tile-country:hover, .tile.tile-country:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); transform: none; }
+.tile-country-flag { width: 28px; height: 19px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px var(--border); flex: none; }
+.tile-country-body { display: flex; flex-direction: row; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.tile-country-body b { font-size: 14px; }
+.tile-country-body .muted { overflow: hidden; text-overflow: ellipsis; }
+.tile-country-hint { color: var(--accent); }
+.tile-country-hint::before { content: '→ '; }
+
+.tile.tile-country { border-top: 1px solid var(--border); }
+.tile.tile-country:hover, .tile.tile-country:focus-visible { border-top-color: var(--accent); }

@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v62',
+    date: '2026-10-07',
+    sections: [
+      {
+        title: '検索',
+        items: ['検索の国の候補を、小さく横長の 1 行（国旗・国名・英語名・地域）に'],
+      },
+    ],
+  },
+  {
     version: 'v61',
     date: '2026-10-07',
     sections: [

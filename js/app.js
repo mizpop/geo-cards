@@ -4100,7 +4100,7 @@ function renderSearchResults() {
   const cinfo = cc && COUNTRY_BY_CODE.get(cc);
   const countryTile = cinfo ? `<article class="tile tile-country" data-country="${cc}" tabindex="0" role="button" aria-label="${esc(cinfo.ja)}の詳細を開く">
       <img class="tile-country-flag" src="${flagUrl(cc)}" alt="">
-      <div class="tile-country-body"><b>${esc(cinfo.ja)}</b><span class="muted small">${esc(cinfo.en)} ・ ${esc(REGION_BY_ID.get(cinfo.region).name)}</span><span class="tile-country-hint small">🌐 国の詳細を開く</span></div>
+      <div class="tile-country-body"><b>${esc(cinfo.ja)}</b><span class="muted small">${esc(cinfo.en)} ・ ${esc(REGION_BY_ID.get(cinfo.region).name)}</span><span class="tile-country-hint small">国の詳細</span></div>
     </article>` : '';
   $('#search-results').innerHTML = `
     <div class="result-head"><p class="muted result-count">${label}</p>${sortSelectHtml('search-sort')}</div>
