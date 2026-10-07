@@ -925,8 +925,8 @@ function bindGlobal() {
 function bindWinEvents(w) {
   const modal = w.el;
   modal.addEventListener('click', (e) => { if (e.target === modal && !modal.classList.contains('is-window')) { activate(w); closeModal(); } });
-  // カード詳細・国の詳細では、ホイールクリック（中ボタン）で前のカード / 国に戻る（履歴がなければ閉じる）。右クリックは、新しいウィンドウで開くのに使う
-  const midOk = (e) => w.current && w.current.kind !== 'editor' && !e.target.closest('a, input, textarea, select');
+  // カード詳細・国の詳細では、見出しをホイールクリック（中ボタン）すると、前のカード / 国に戻る（履歴がなければ閉じる）。右クリックは、新しいウィンドウで開くのに使う
+  const midOk = (e) => w.current && w.current.kind !== 'editor' && !!e.target.closest('.modal-head') && !e.target.closest('a, input, textarea, select'); // ウィンドウの上部（見出し）だけ。ほかの場所の中ボタンは、スクロールなどに使える
   modal.addEventListener('mousedown', (e) => { if (e.button === 1 && midOk(e)) e.preventDefault(); }); // 中ボタンの自動スクロールを出さない
   modal.addEventListener('auxclick', (e) => {
     if (e.button !== 1 || !midOk(e)) return;
