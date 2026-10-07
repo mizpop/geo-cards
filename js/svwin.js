@@ -307,7 +307,8 @@ function ensure(inst) {
       const pt = inst.point || (inst === cur ? point : null);
       if (!mm.map || !pt) return;
       mm.marker.setLatLng(pt);
-      if (!mm.map.getBounds().pad(-0.2).contains(pt)) mm.map.panTo(pt, { animate: false });
+      if (mm.self) return; // この地図を押して移ったときは、地図を動かさない（押した場所が、画面の外へずれて見えないように）
+      if (!mm.map.getBounds().contains(pt)) mm.map.panTo(pt, { animate: false }); // 外から場所が変わって、地図の外に出たときだけ、追いかける
     },
   };
   const miniEl = panel.querySelector('.sv-minimap');
@@ -343,7 +344,7 @@ function ensure(inst) {
           const hit = await svFind(ll.lat, ll.lng, mm.map.getZoom()).catch(() => null);
           if (seq !== clickSeq) return; // 続けて押されたら、最後の 1 回だけ
           if (!hit) {
-            Lf.popup({ closeButton: false, autoClose: true, className: 'sv-minimap-pop', offset: [0, -2] }).setLatLng(e.latlng).setContent('この付近にはストリートビューがありません').openOn(mm.map);
+            Lf.popup({ closeButton: false, autoClose: true, autoPan: false, className: 'sv-minimap-pop', offset: [0, -2] }).setLatLng(e.latlng).setContent('この付近にはストリートビューがありません').openOn(mm.map);
             clearTimeout(mm.popTimer);
             mm.popTimer = setTimeout(() => mm.map?.closePopup(), 2600);
             return;
@@ -351,7 +352,8 @@ function ensure(inst) {
           mm.map.closePopup();
           use(inst);
           active = inst;
-          openSvWindow(hit.lat, hit.lng, {});
+          mm.self = true;
+          try { openSvWindow(hit.lat, hit.lng, {}); } finally { mm.self = false; }
           mm.marker.setLatLng([hit.lat, hit.lng]);
         });
       }
