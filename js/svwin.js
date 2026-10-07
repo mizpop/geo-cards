@@ -74,6 +74,23 @@ let rect = null; // { left, top, width, height }（画面全体の中の位置�
 let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, renameSaved: null, placeName: null, toast: () => {}, readPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
 const mobile = () => window.matchMedia('(max-width: 760px)').matches;
+// スマホでは、カードなどの詳細がモーダル（最前面の層）で開くので、そのままだとストリートビューが下に隠れる。
+// ストリートビューも最前面の層（popover）に出して、あとから開いた方が手前に来るようにする（PC は、浮かぶウィンドウどうしの重なりを保つため使わない）
+function raiseTop() {
+  store();
+  for (const i of svs) {
+    const p = i.panel;
+    if (!p?.isConnected) continue;
+    try {
+      if (p.matches(':popover-open')) p.hidePopover();
+      if (mobile() && !p.hidden) { p.setAttribute('popover', 'manual'); p.showPopover(); } else p.removeAttribute('popover');
+    } catch { /* 非対応のブラウザでは、そのまま */ }
+  }
+}
+let raiseTimer = null;
+const raiseSoon = () => { clearTimeout(raiseTimer); raiseTimer = setTimeout(raiseTop, 0); };
+if (typeof MutationObserver !== 'undefined') new MutationObserver((list) => { if (mobile() && list.some((m) => m.target.nodeName === 'DIALOG' && m.target.hasAttribute('open'))) raiseSoon(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['open'], subtree: true });
+window.addEventListener('geo:dialog', raiseSoon);
 const notify = () => { const pts = openInsts().map((i) => [...i.point]); listeners.forEach((fn) => { try { fn(pts); } catch { /* 無視 */ } }); }; // 開いているすべてのウィンドウの地点
 
 // ポップアップ（保存した一覧・カードの選択）の共通部品: ボタンのそばに出して、外を押す・Esc で閉じる
@@ -440,6 +457,7 @@ export function openSvWindow(lat, lng, opts = {}) {
   setMin(false); // 縮小していても、新しい場所を開いたら戻す
   panel.classList.remove('is-closing');
   if (panel.hidden) { panel.hidden = false; place(); bringFront(panel); setPopOrigin(panel); }
+  raiseTop();
   view = { heading: Number(opts.heading) || 0, pitch: Number(opts.pitch) || 0, fov: Number(opts.fov) || 0 };
   frameReady = false; // 新しい映像が読み込まれるまで、読み取った位置では上書きしない
   clearTimeout(readyTimer);

@@ -14,6 +14,8 @@ let panel;
 let pollTimer = null;
 let unsubscribe = null;
 let unread = false;
+let deps = {};
+let embedded = false; // ウィンドウの中に入れているとき（ポップオーバーではなく、ウィンドウの一部として表示する）
 
 // ---- 表示名（この端末のブラウザに保存）。閲覧用アカウントは共有なので、「自分のメモ」はアカウントではなく表示名で判定する
 const NAME_KEY = 'geo-cards-chat-name';
@@ -58,12 +60,13 @@ function isMine(m) {
 }
 
 const canPopover = () => typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
-const show = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); el.showPopover(); } catch { /* 非対応 */ } } };
-const hide = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* 非対応 */ } } };
+const show = (el) => { if (canPopover() && !embedded) { try { if (el.matches(':popover-open')) el.hidePopover(); el.showPopover(); } catch { /* 非対応 */ } } };
+const hide = (el) => { if (canPopover() && !embedded) { try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* 非対応 */ } } };
 const isOpen = () => panel?.classList.contains('open');
 
 export function initChat(opts) {
   ({ api, toast } = opts);
+  deps = opts;
   user = opts.user;
   memos = [];
   loaded = false;
@@ -94,11 +97,13 @@ function onRemoteChange(type, row, old) {
 }
 
 // 再読み込みしても、メモのパネルを開いたままにするため
-export const chatIsOpen = () => !!panel?.classList.contains('open');
+export const chatIsOpen = () => !embedded && !!panel?.classList.contains('open');
+export const chatEmbedded = () => embedded;
 export function reopenChat() { if (btn && !btn.hidden && !isOpen()) openPanel(); }
 
 export function teardownChat() {
   if (!btn) return;
+  releaseChat();
   closePanel();
   unsubscribe?.();
   unsubscribe = null;
@@ -118,8 +123,41 @@ function topHost() {
   }
   return document.body;
 }
+// メモを、ウィンドウの中に入れる（host: ウィンドウの中の入れ物）。ウィンドウが閉じる・ほかの画面に変わるときは、raiseChat が元のポップオーバーに戻す
+export async function embedChat(host) {
+  if (!panel || btn.hidden) return false;
+  if (!getName()) await askName();
+  if (!host.isConnected) return false;
+  if (isOpen() && !embedded) closePanel();
+  hide(panel);
+  embedded = true;
+  panel.removeAttribute('popover');
+  panel.classList.add('open', 'is-embedded');
+  btn.classList.add('active');
+  host.append(panel);
+  updateMe();
+  setUnread(false);
+  renderList(true);
+  await refresh(true);
+  clearInterval(pollTimer);
+  pollTimer = setInterval(() => refresh(false), 10000);
+  return true;
+}
+export function releaseChat() {
+  if (!embedded) return;
+  embedded = false;
+  clearInterval(pollTimer);
+  panel.classList.remove('open', 'is-embedded');
+  panel.setAttribute('popover', 'manual');
+  document.body.append(panel);
+  btn.classList.remove('active');
+}
 export function raiseChat() {
   if (!btn || btn.hidden) return;
+  if (embedded) {
+    if (panel.isConnected && panel.closest('dialog')?.open) return; // ウィンドウの中にいる間は、そのまま
+    releaseChat();
+  }
   const host = topHost();
   if (panel.parentNode !== host) host.append(panel); // 移すとポップオーバーは一旦閉じるので下で開き直す（ボタンは上のバーに置いたまま）
   if (isOpen()) show(panel);
@@ -135,7 +173,7 @@ function build() {
   btn.title = 'メモ';
   btn.setAttribute('aria-label', 'メモを開く');
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20l1.1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4.5"/></svg><span class="chat-badge" hidden></span>';
-  btn.addEventListener('click', () => (isOpen() ? closePanel() : openPanel()));
+  btn.addEventListener('click', () => { if (embedded) { deps.openWindow?.('memo'); return; } isOpen() ? closePanel() : openPanel(); });
   // 設定・ミュートと同じ、上のバーの並びに置く
   const anchor = document.getElementById('sound-btn');
   if (anchor?.parentNode) anchor.parentNode.insertBefore(btn, anchor); else document.body.appendChild(btn);
@@ -148,6 +186,7 @@ function build() {
     <header class="chat-head">
       <b>📝 メモ</b><span class="chat-count muted"></span>
       <button type="button" class="chat-me" title="表示名を変更">👤 <span></span></button>
+      <button type="button" class="icon-btn chat-pop" aria-label="ウィンドウで開く" title="ウィンドウで開く（移動・大きさの変更・分割ができます）"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg></button>
       <button type="button" class="icon-btn chat-close" aria-label="閉じる">✕</button>
     </header>
     <div class="chat-list" tabindex="-1"></div>
@@ -160,6 +199,7 @@ function build() {
   document.body.appendChild(panel);
 
   panel.querySelector('.chat-close').addEventListener('click', closePanel);
+  panel.querySelector('.chat-pop').addEventListener('click', () => deps.openWindow?.('memo'));
   panel.querySelector('.chat-me').addEventListener('click', async () => { await askName(); updateMe(); renderList(false); });
   const input = panel.querySelector('.chat-input');
   const form = panel.querySelector('.chat-form');
@@ -220,6 +260,7 @@ async function openPanel() {
 
 function closePanel() {
   if (!panel) return;
+  if (embedded) { deps.closeWindow?.('memo'); return; }
   panel.classList.remove('open');
   btn.classList.remove('active');
   hide(panel);

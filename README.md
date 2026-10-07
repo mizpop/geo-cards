@@ -177,6 +177,12 @@ js/session.js           再読み込みで引き継ぐ状態の保存
 js/updatenotice.js      更新されて初めて起動したときの、右上の通知
 js/dock.js              ウィンドウをしまう場所（左下の角。トランプのカードのように広がる）
 js/cardpreview.js       関連カードなどにポインターを合わせたときの、カードのプレビュー（PC のみ）
+js/plonkit.js           Plonkit のガイド（日本語）のウィンドウの描画・ストリートビューへのリンク
+js/blur.js              ナンバープレートのぼかし（範囲の指定画面・ぼかした画像の生成）
+functions/api/plonkit.js Plonkit のガイドの取得・翻訳・画像の中継（Cloudflare Pages Functions）
+functions/_auth.js      ログイン確認の共通部分
+scripts/fetch-plonkit.mjs   Plonkit の全ガイドを data/plonkit-en.json に保存
+scripts/plonkit-strings.mjs 翻訳用の文字の書き出し・翻訳の取り込み（data/plonkit-ja.json.gz を作る）
 js/svwin.js             ストリートビューのウィンドウ（どのタブからでも開ける）
 js/savedsv.js           保存したストリートビュー（タブ・保存・カード編集からの追加）
 js/loading.js           読み込み中のアニメーション（進行バー・画像の下地・起動中の表示）
@@ -210,3 +216,8 @@ supabase/country-facts.sql 地図のインフォグラフィックの値を保�
 ### Discord Rich Presence（Windows 版）
 
 Windows 版アプリは、Discord アプリが起動しているとき、今見ているタブ（クイズのときは何問目か）を、Discord のプロフィール（プレイ中）に表示します（アプリケーション ID `1557091296546652160`。`electron/discord.js` が、Discord のローカル IPC に直接つなぎます）。設定の「Discord」で、オン・オフを切り替えられます。表示する内容は `js/presence.js` で決めています。
+
+### Plonkit のガイド（日本語）
+国の情報などの「Plonkit」ボタンは、Plonkit のサイトではなく、日本語に翻訳したガイドをアプリのウィンドウで開きます（画像ごとに右に説明・右上の ☰ で目次・画像を押すとアプリのストリートビュー）。Shift を押しながらクリックすると、Plonkit のサイトを開きます。
+- 翻訳済みのデータ `data/plonkit-ja.json.gz` があれば、それを使います。なければ、`GEMINI_API_KEY`（AI アシスタントと共通）で、開いたときに翻訳して 1 週間サーバーに覚えます。どちらもなければ英語のままです。
+- 自分で翻訳するとき: `node scripts/fetch-plonkit.mjs`（全ガイドを `data/plonkit-en.json` に保存）→ `node scripts/plonkit-strings.mjs export`（翻訳用の `data/plonkit-strings-en.json`。キー → 英語の文）→ 翻訳して `data/plonkit-strings-ja.json`（キーは変えない）→ `node scripts/plonkit-strings.mjs import data/plonkit-strings-ja.json`（`data/plonkit-ja.json.gz` ができる。これをサイトに置く）。

@@ -2507,3 +2507,77 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .dock-ghost { position: fixed !important; left: 0; top: 0; bottom: auto !important; width: 150px; height: 198px; z-index: 99995 !important; pointer-events: none; opacity: 1 !important; transform: rotate(-3deg) scale(1.04) !important; cursor: grabbing; box-shadow: 0 18px 44px rgba(0, 0, 0, .6); }
 #win-dock.is-dragging { cursor: grabbing; }
 #win-dock img, .dock-ghost img { -webkit-user-drag: none; user-select: none; }
+
+/* ---------- 国の情報: 国名の右の「地図で表示」ボタン（アイコンのみ） ---------- */
+.cinfo-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cinfo-title-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cinfo-map-btn { flex: none; width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); }
+.cinfo-map-btn:hover { color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- Plonkit のガイド（日本語に翻訳。画像ごとに、右に説明） ---------- */
+.modal-plonkit .modal-head .pk-title { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.modal-plonkit .modal-head .pk-title .muted { font-weight: 400; }
+.pk-toc-btn.is-on { background: var(--accent-soft); color: var(--accent); }
+.modal-plonkit .modal-head .icon-btn { text-decoration: none; display: inline-grid; place-items: center; }
+.pk-toc { position: absolute; right: 12px; top: calc(100% - 4px); z-index: 6; width: min(300px, calc(100% - 24px)); max-height: min(60vh, 440px); overflow-y: auto; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow); }
+.pk-toc[hidden] { display: none; }
+.pk-toc-item { display: block; padding: 6px 10px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 14px; }
+.pk-toc-item.lv1 { font-weight: 700; margin-top: 4px; }
+.pk-toc-item.lv2 { padding-left: 22px; color: var(--muted); font-size: 13px; }
+.pk-toc-item:hover { background: var(--surface-2); color: var(--accent); }
+.pk-body { container-type: inline-size; }
+.pk-state { padding: 28px 8px; text-align: center; }
+.pk-note { margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--warn-text); font-size: 13px; }
+.pk-hero img { display: block; width: 100%; max-height: 220px; object-fit: cover; border-radius: var(--radius-sm); margin-bottom: 14px; }
+.pk-step { margin-bottom: 26px; scroll-margin-top: 70px; }
+.pk-step-title { font-size: 20px; margin: 4px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); scroll-margin-top: 70px; }
+.pk-div { font-size: 16px; margin: 22px 0 10px; color: var(--accent); scroll-margin-top: 70px; }
+.pk-tip { display: flex; gap: 14px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.pk-tip:last-child { border-bottom: 0; }
+.pk-img { position: relative; flex: 0 0 var(--w, 40%); max-width: var(--w, 40%); margin: 0; }
+.pk-img img, .pk-wide img { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); background: var(--surface-2); }
+.pk-img img.pk-sv, .pk-img img.pk-zoom { cursor: pointer; }
+.pk-img img.pk-sv:hover { outline: 3px solid var(--accent); outline-offset: -3px; }
+.pk-badge { position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, .65); color: #fff; font-size: 11px; pointer-events: none; }
+.pk-wide { margin: 8px 0; }
+.pk-text { flex: 1; min-width: 0; line-height: 1.7; font-size: 14.5px; }
+.pk-text p { margin: 0 0 8px; }
+.pk-text ul { margin: 0 0 8px; padding-left: 20px; }
+.pk-text li { margin-bottom: 4px; }
+.pk-text a { color: var(--accent); }
+.pk-sv-link { white-space: nowrap; }
+.pk-tip.is-text .pk-text { max-width: 70ch; }
+.pk-img.is-zoom { position: fixed; inset: 0; z-index: 9999; max-width: none; flex: none; display: grid; place-items: center; background: rgba(0, 0, 0, .85); padding: 16px; cursor: zoom-out; }
+.pk-img.is-zoom img { width: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
+.pk-img.is-zoom .pk-badge { display: none; }
+.pk-credit { margin-top: 20px; }
+@container (max-width: 520px) {
+  .pk-tip { flex-direction: column; }
+  .pk-img { flex: none; max-width: 100%; width: 100%; }
+}
+
+/* ---------- AI・メモを、ウィンドウの中に入れたとき ---------- */
+.modal-panelwin.is-window .modal-inner { display: flex; flex-direction: column; overflow: hidden; padding: 0 24px 0; }
+.modal-panelwin.is-window .modal-inner > .modal-head:first-child { flex: none; top: 0; margin-bottom: 0; }
+.pw-host { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 -24px; }
+.chat-panel.is-embedded, .ai-panel.is-embedded { position: static; inset: auto; width: auto; height: auto; flex: 1; min-height: 0; z-index: auto; border: 0; border-radius: 0; box-shadow: none; animation: none; display: flex; }
+.chat-panel.is-embedded .chat-head > b, .ai-panel.is-embedded .ai-head > b, .is-embedded .chat-close, .is-embedded .ai-close, .is-embedded .chat-pop, .is-embedded .ai-pop { display: none; }
+.chat-panel.is-embedded .chat-head { justify-content: flex-end; }
+.chat-panel.is-embedded .chat-count { margin-right: auto; }
+@media not all and (min-width: 900px) and (pointer: fine) { .chat-pop, .ai-pop { display: none; } }
+
+/* スマホで、ストリートビューを最前面の層（popover）に出すときの、ブラウザ既定の配置を打ち消す */
+.sv-panel[popover] { margin: 0; padding: 0; color: var(--text); overflow: hidden; }
+
+/* ---------- ナンバープレートのぼかし範囲の指定 ---------- */
+.modal-blur { width: min(860px, calc(100vw - 16px)); }
+.blur-stage { display: grid; place-items: center; background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px; }
+.blur-box { position: relative; display: inline-block; max-width: 100%; touch-action: none; cursor: crosshair; line-height: 0; user-select: none; }
+.blur-box img { display: block; max-width: 100%; max-height: 60vh; }
+.blur-rects { position: absolute; inset: 0; }
+.blur-rect { position: absolute; box-sizing: border-box; border: 2px solid #ffd60a; background: rgba(255, 214, 10, .22); border-radius: 3px; padding: 0; cursor: pointer; }
+.blur-rect:hover { background: rgba(255, 59, 48, .3); border-color: #ff3b30; }
+.blur-rect.is-draft { pointer-events: none; }
+.blur-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.blur-foot .grow { flex: 1; }
+.img-blur-wait { visibility: hidden; }

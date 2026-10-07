@@ -5,6 +5,7 @@ alter table public.cards add column if not exists thumb_path text;              
 alter table public.cards add column if not exists related   uuid[] not null default '{}'; -- 関連カードの id
 alter table public.cards add column if not exists sv_ids uuid[] not null default '{}'; -- 関連付けた保存済みストリートビューの id
 -- PostgREST に新しい列を知らせる
+alter table public.cards add column if not exists blur jsonb not null default '[]'::jsonb;  -- ナンバープレートをぼかす範囲（[[x, y, 幅, 高さ], …]。画像に対する 0〜1 の割合）
 alter table public.cards add column if not exists places jsonb not null default '[]'::jsonb;  -- 地名（都市・町。名前・英語・現地語・国・座標）
 -- 保存したストリートビュー（ストリートビューのウィンドウの保存ボタン → ストリートビュータブ）
 create table if not exists public.saved_streetviews (

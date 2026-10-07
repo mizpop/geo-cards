@@ -35,6 +35,8 @@ function cleanFields(f) {
   if (f.places) out.places = Array.from(f.places);
   // 関連付けた保存済みストリートビューの id（card-extras.sql で追加した列。使っていないときは送らない）
   if (f.sv_ids) out.sv_ids = Array.from(f.sv_ids);
+  // ナンバープレートをぼかす範囲（card-extras.sql で追加した列。使っていないときは送らない）
+  if (f.blur) out.blur = f.blur;
   return out;
 }
 
@@ -51,7 +53,7 @@ function explainSyncError(error) {
 // card-extras.sql をまだ実行していない（列がない）ときのエラーを分かりやすく
 function explainColumnError(error) {
   const msg = error?.message || '';
-  if (/(related|back_path|places|sv_ids)/.test(msg) && /(column|schema cache)/i.test(msg)) {
+  if (/(related|back_path|places|sv_ids|blur)/.test(msg) && /(column|schema cache)/i.test(msg)) {
     return new Error('データベースに新しい列がありません。Supabase の SQL Editor で supabase/card-extras.sql を実行してください');
   }
   return error;
@@ -156,6 +158,7 @@ function createSupabaseApi(sb) {
       const row = { id, image_path: path, ...cleanFields(fields) };
       if (!row.related?.length) delete row.related;
       if (!row.places?.length) delete row.places;
+      if (!row.blur?.length) delete row.blur;
       if (!row.sv_ids?.length) delete row.sv_ids;
       const uploaded = [path];
       // 一覧・地図用の低画質版（失敗しても本体の保存は続ける）
@@ -194,6 +197,7 @@ function createSupabaseApi(sb) {
       const patch = { ...cleanFields(fields), updated_at: new Date().toISOString() };
       if (!patch.related?.length && !card.related?.length) delete patch.related;
       if (!patch.places?.length && !card.places?.length) delete patch.places;
+      if (!patch.blur?.length && !card.blur?.length) delete patch.blur;
       if (!patch.sv_ids?.length && !card.sv_ids?.length) delete patch.sv_ids;
       const added = [];
       const old = [];
@@ -292,7 +296,7 @@ function createSupabaseApi(sb) {
     // カード・カテゴリー・国のメモが誰かに変更されたら通知（Supabase Realtime）。戻り値は購読解除の関数
     subscribeCards(handler) {
       const ch = sb.channel('cards-changes');
-      for (const table of ['cards', 'categories', 'country_notes', 'country_facts']) {
+      for (const table of ['cards', 'categories', 'country_notes', 'country_facts', 'saved_streetviews']) {
         ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => handler(table));
       }
       ch.subscribe();
@@ -571,7 +575,7 @@ function createDemoApi() {
       };
     },
     subscribeCards(handler) {
-      const keys = { [KEY]: 'cards', [CAT_KEY]: 'categories', [NOTES_KEY]: 'country_notes', [FACTS_KEY]: 'country_facts' };
+      const keys = { [KEY]: 'cards', [CAT_KEY]: 'categories', [NOTES_KEY]: 'country_notes', [FACTS_KEY]: 'country_facts', [SAVED_SV_KEY]: 'saved_streetviews' };
       const onStorage = (e) => { if (keys[e.key]) handler(keys[e.key]); };
       window.addEventListener('storage', onStorage);
       return () => window.removeEventListener('storage', onStorage);

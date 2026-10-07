@@ -30,6 +30,7 @@ export function plonkitUrl(code) {
 // Ctrl（Mac は ⌘）+クリックで Plonkit を新しいタブで開く
 function openPlonkit(code, ctx) {
   const url = plonkitUrl(code);
+  if (url && ctx.openPlonkit) { ctx.openPlonkit(code, null); return; } // アプリのウィンドウで（日本語に翻訳したガイド）
   if (url) {
     // Ctrl が押されたままの click 中に開くとブラウザが「背景タブ」で開くため、イベントの外で開いてフォーカスする
     setTimeout(() => {
@@ -302,7 +303,13 @@ let tileStyle = 'en';
 export function setTileStyle(v) { tileStyle = v === 'osm' ? 'osm' : 'en'; }
 // タイルの読み込みを控えめに: 画面の外に先読みする量（keepBuffer）を減らし、スマホ（指で操作する端末）・
 // データ節約の設定では、動かしている最中は読み込まず止まってから読み込む（端が少しだけ遅れて出る）
-const leanTiles = () => !!(window.matchMedia?.('(pointer: coarse)').matches || navigator.connection?.saveData);
+// 軽量表示（低スペックの端末向け）。'auto': 論理コアが 4 以下・メモリ 4GB 以下・データ節約の端末で自動的にオン / 'on' / 'off'
+// 動きのアニメーション・先読み・描き込みの範囲・細かい形・マウスを乗せたときの塗りの変化を減らす（見た目は少し粗くなる）
+let liteMode = 'auto';
+export function setMapLite(v) { liteMode = v === 'on' || v === 'off' ? v : 'auto'; }
+export const lowSpecDevice = () => (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4 || !!navigator.connection?.saveData;
+export const mapIsLite = () => liteMode === 'on' || (liteMode === 'auto' && lowSpecDevice());
+const leanTiles = () => !!(window.matchMedia?.('(pointer: coarse)').matches || navigator.connection?.saveData) || mapIsLite();
 export function addBaseTiles(map, opts = {}) {
   const L = window.L;
   const lean = leanTiles();
@@ -479,12 +486,13 @@ export async function renderMap(view, ctx) {
   $id('map-loading').remove();
 
   const L = window.L;
-  const anim = ctx.animations();
+  const lite = mapIsLite();
+  const anim = ctx.animations() && !lite;
   map = L.map('map', {
     worldCopyJump: true, minZoom: 2, maxZoom: 18, zoomSnap: 0.5, preferCanvas: true,
     // 塗りは画面の外側も多めに描いておく（既定の 0.1 だと、ドラッグ中に端が切れて見える）
     // シェブロン・ガードレールは模様で塗るので SVG で描く（それ以外は軽い canvas）
-    renderer: patternMode ? L.svg({ padding: 0.6 }) : L.canvas({ padding: 0.8 }),
+    renderer: patternMode ? L.svg({ padding: lite ? 0.25 : 0.6 }) : L.canvas({ padding: lite ? 0.3 : 0.8 }),
     zoomAnimation: anim, fadeAnimation: anim, markerZoomAnimation: anim,
   });
   window.__geoMap = map; // デバッグ・動作確認用
@@ -570,8 +578,8 @@ export async function renderMap(view, ctx) {
   // ---- 国の塗り・国境線の描画（縮尺で詳しさを切り替えて軽くする）
   // 縮尺 HI_ZOOM 未満: 粗い 50m データで全世界 / 以上: 精細な 10m データを画面周辺の国だけ
   // 日付変更線をまたいで見ているときは、隣の 1 周分の国（複製）も載せる
-  const HI_ZOOM = 5;
-  const POLY_OPTS = { smoothFactor: 1.5 }; // 細かすぎる点は省いて描く（見た目はほぼ同じで軽くなる）
+  const HI_ZOOM = lite ? 7 : 5;
+  const POLY_OPTS = { smoothFactor: lite ? 4 : 1.5 }; // 細かすぎる点は省いて描く（見た目はほぼ同じで軽くなる）
   const BORDER_STYLE = { color: dark ? '#7d8b96' : '#8f9aa3', weight: 0.8, opacity: 0.7, fill: false };
   const worlds = { lo: null, hi: null };
   let drawnKey = '';
@@ -582,10 +590,10 @@ export async function renderMap(view, ctx) {
     if (!layersByCode.has(code)) layersByCode.set(code, []);
     layersByCode.get(code).push(lyr);
     lyr.on('mouseover', () => {
-      lyr.setStyle({ stroke: true, fillOpacity: Math.max(0.12, styleFor(f).fillOpacity) });
+      if (!lite) lyr.setStyle({ stroke: true, fillOpacity: Math.max(0.12, styleFor(f).fillOpacity) });
       setHover(code);
     });
-    lyr.on('mouseout', () => { layer.resetStyle(lyr); setHover(null); });
+    lyr.on('mouseout', () => { if (!lite) layer.resetStyle(lyr); setHover(null); });
     lyr.on('contextmenu', (e) => previewNow(code, e));
     lyr.on('click', (e) => {
       clickedCountry = true; // 直後の地図クリック（海などで選択解除）と区別

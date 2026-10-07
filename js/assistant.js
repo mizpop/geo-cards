@@ -17,11 +17,12 @@ let messages = []; // { role, content, text?, refs?, sources?, error?, image? }
 let busy = false;
 let controller = null;
 let attached = null; // { blob, url }（これから送る画像）
+let embedded = false; // ウィンドウの中に入れているとき（ポップオーバーではなく、ウィンドウの一部として表示する）
 let pinned = null; // { type: 'card', id } / { type: 'photo', topic, code, rel }: いま開いているカード・写真について聞く
 
 const canPopover = () => typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
-const show = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); el.showPopover(); } catch { /* 非対応 */ } } };
-const hide = (el) => { if (canPopover()) { try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* 非対応 */ } } };
+const show = (el) => { if (canPopover() && !embedded) { try { if (el.matches(':popover-open')) el.hidePopover(); el.showPopover(); } catch { /* 非対応 */ } } };
+const hide = (el) => { if (canPopover() && !embedded) { try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* 非対応 */ } } };
 const isOpen = () => panel?.classList.contains('open');
 
 // 手動で選べるモデル（functions/api/ask.js の FREE_MODELS と合わせる）。'auto' は、混み合っている・上限のときに、Gemini の別のモデル → Cloudflare AI の順に切り替える
@@ -52,6 +53,7 @@ export function initAssistant(opts) {
 
 export function teardownAssistant() {
   if (!btn) return;
+  releaseAssistant();
   controller?.abort();
   closePanel();
   btn.hidden = true;
@@ -83,7 +85,7 @@ export async function openAssistant(opts = {}) {
 export function getAssistantSession() {
   if (!panel) return null;
   const msgs = messages.filter((m) => !(m.role === 'assistant' && !m.content && !m.error)).map((m) => ({ ...m, image: undefined })); // 答え待ちの途中のものは除く
-  return { open: isOpen(), messages: msgs.slice(-40), pinned };
+  return { open: isOpen() && !embedded, messages: msgs.slice(-40), pinned };
 }
 export function setAssistantSession(s) {
   if (!panel || !s) return;
@@ -100,8 +102,34 @@ function topHost() {
   }
   return document.body;
 }
+// AI を、ウィンドウの中に入れる（host: ウィンドウの中の入れ物）。ウィンドウが閉じる・ほかの画面に変わるときは、raiseAssistant が元のポップオーバーに戻す
+export const assistantEmbedded = () => embedded;
+export function embedAssistant(host) {
+  if (!panel || btn.hidden || !host.isConnected) return false;
+  if (isOpen() && !embedded) closePanel();
+  hide(panel);
+  embedded = true;
+  panel.removeAttribute('popover');
+  panel.classList.add('open', 'is-embedded');
+  btn.classList.add('active');
+  host.append(panel);
+  renderAll();
+  return true;
+}
+export function releaseAssistant() {
+  if (!embedded) return;
+  embedded = false;
+  panel.classList.remove('open', 'is-embedded');
+  panel.setAttribute('popover', 'manual');
+  document.body.append(panel);
+  btn.classList.remove('active');
+}
 export function raiseAssistant() {
   if (!btn || btn.hidden || !panel) return;
+  if (embedded) {
+    if (panel.isConnected && panel.closest('dialog')?.open) return; // ウィンドウの中にいる間は、そのまま
+    releaseAssistant();
+  }
   const host = topHost();
   if (panel.parentNode !== host) host.append(panel);
   if (isOpen()) show(panel);
@@ -116,7 +144,7 @@ function build() {
   btn.title = 'AI に質問（カードや参考写真を読み取って答えます）';
   btn.setAttribute('aria-label', 'AI に質問');
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
-  btn.addEventListener('click', () => (isOpen() ? closePanel() : openPanel()));
+  btn.addEventListener('click', () => { if (embedded) { deps.openWindow?.('ai'); return; } isOpen() ? closePanel() : openPanel(); });
   const anchor = document.getElementById('sound-btn');
   if (anchor?.parentNode) anchor.parentNode.insertBefore(btn, anchor); else document.body.appendChild(btn);
 
@@ -129,6 +157,7 @@ function build() {
       <b>✨ AI</b>
       <select class="select select-sm ai-model" aria-label="使うモデル" title="使うモデル（「自動」は、混み合っているときに別のモデルへ切り替えます。選んだモデルは、そのモデルだけを使います）">${MODELS.map(([id, label]) => `<option value="${id}" ${id === model ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <button type="button" class="btn btn-ghost btn-sm ai-new" title="会話を新しく始める">新しい会話</button>
+      <button type="button" class="icon-btn ai-pop" aria-label="ウィンドウで開く" title="ウィンドウで開く（移動・大きさの変更・分割ができます）"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg></button>
       <button type="button" class="icon-btn ai-close" aria-label="閉じる">✕</button>
     </header>
     <div class="ai-list" tabindex="-1" aria-live="polite"></div>
@@ -168,6 +197,7 @@ function build() {
     send(text || 'この画像について教えてください');
   });
   panel.querySelector('.ai-close').addEventListener('click', closePanel);
+  panel.querySelector('.ai-pop').addEventListener('click', () => deps.openWindow?.('ai'));
   panel.querySelector('.ai-model').addEventListener('change', (e) => {
     model = e.target.value;
     try { localStorage.setItem(MODEL_KEY, model); } catch { /* 保存できなくても使える */ }
@@ -199,6 +229,7 @@ function build() {
 }
 
 function openPanel() {
+  if (embedded) { deps.openWindow?.('ai'); panel.querySelector('.ai-input').focus(); return; } // ウィンドウに入れているときは、そのウィンドウを前に出す
   panel.classList.add('open');
   btn.classList.add('active');
   raiseAssistant();
@@ -208,6 +239,7 @@ function openPanel() {
 }
 function closePanel() {
   if (!panel) return;
+  if (embedded) { deps.closeWindow?.('ai'); return; }
   panel.classList.remove('open');
   btn.classList.remove('active');
   hide(panel);

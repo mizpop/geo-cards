@@ -1,10 +1,10 @@
--- カードの変更をリアルタイムで反映するための設定（setup.sql を以前に実行済みの場合は、これだけ実行すれば OK）
+-- カード・保存したストリートビューの変更をリアルタイムで反映するための設定（setup.sql を以前に実行済みの場合は、これだけ実行すれば OK）
 -- Supabase の SQL Editor に貼り付けて Run してください。何度実行しても問題ありません。
 -- ========== リアルタイム配信（ほかの端末での変更を即座に表示: メモ・カード・カテゴリー・国のメモ） ==========
 do $$
 declare t text;
 begin
-  foreach t in array array['memos', 'cards', 'categories', 'country_notes'] loop
+  foreach t in array array['memos', 'cards', 'categories', 'country_notes', 'country_facts', 'saved_streetviews'] loop
     if not exists (
       select 1 from pg_publication_tables
       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

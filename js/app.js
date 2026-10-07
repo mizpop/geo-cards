@@ -9,10 +9,12 @@ import { initSavedSv, loadSavedSv, savedSvList, saveSv, deleteSv, renameSv, isSa
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
-import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat } from './chat.js';
+import { editBlur, blurredUrl, cleanRegions } from './blur.js';
+import { loadGuide, guideHtml, tocHtml, bindGuide } from './plonkit.js';
+import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
-import { initAssistant, teardownAssistant, raiseAssistant, openAssistant, getAssistantSession, setAssistantSession } from './assistant.js';
-import { renderMap, refreshMap, plonkitUrl, isPlayable, focusOnNextRender, showCityOnNextRender, getMapSession, setMapSession, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
+import { initAssistant, teardownAssistant, raiseAssistant, openAssistant, getAssistantSession, setAssistantSession, embedAssistant } from './assistant.js';
+import { renderMap, refreshMap, setMapLite, mapIsLite, lowSpecDevice, plonkitUrl, isPlayable, focusOnNextRender, showCityOnNextRender, getMapSession, setMapSession, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
 import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from './cities.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
@@ -152,6 +154,8 @@ const DEFAULT_SETTINGS = {
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
   cardSort: 'new', // 編集画面・検索結果の並び順（CARD_SORTS）
+  blurPlates: false, // 暗記・クイズで、カードに指定したナンバープレートの範囲をぼかす
+  mapLite: 'auto', // 地図の軽量表示: auto（低スペックの端末で自動）/ on / off
   mapTiles: 'en', // 地図の背景: en（国名・地名が英語表記）/ osm（OpenStreetMap・現地の言語）
   studySplit: false,
   studyPhotos: false, // 暗記に参考写真（GeoHints）も混ぜる
@@ -172,6 +176,7 @@ function applySettings() {
   else root.dataset.theme = settings.theme;
   setMuted(!settings.sound);
   setTileStyle(settings.mapTiles);
+  setMapLite(settings.mapLite);
   const sb = document.getElementById('sound-btn');
   if (sb) {
     sb.classList.toggle('is-muted', !settings.sound);
@@ -229,6 +234,7 @@ function openSettings() {
     <section class="set-group">
       ${item('最初に見る面', '「裏」から始めると、国名から特徴を思い出す練習に', seg('studyStart', [['front', '表（画像）'], ['back', '裏（国名）']]), true)}
       ${item('表面に説明文を表示', 'オフにすると画像だけで答える練習に', sw('showDesc'))}
+      ${item('ナンバープレートをぼかす', 'カードの編集で指定した「ぼかし範囲」を、暗記・クイズの画像でぼかします（範囲は、カードの編集画面の「ぼかし範囲」ボタンで指定。AI で自動検出もできます）', sw('blurPlates'))}
       ${item('正解したら自動で次へ', 'クイズで ○ のとき 1.2 秒後に次の問題へ', sw('autoNext'))}
     </section>
     <h3 class="set-group-title">🗺 地図</h3>
@@ -236,6 +242,7 @@ function openSettings() {
       ${item('入力中に国へ移動', '地図の検索バーに入力するたびに、候補の国へ移動します。オフにすると Enter を押したときだけ移動します', sw('liveSearch'))}
       ${item('止まると詳しく表示', '国にマウスを乗せて 0.5 秒止まると、吹き出しに詳しい情報を出します。オフでも右クリックで表示できます', sw('hoverExpand'))}
       ${item('背景の地図', '英語表記: 国名・地名を英語で表示（Google マップに近い見た目）／ OpenStreetMap: 地名を現地の言語で表示', seg('mapTiles', [['en', '英語表記'], ['osm', 'OpenStreetMap']]), true)}
+      ${item('軽量表示', `低スペックの端末で地図が重いときに。地図の動きのアニメーション・先読み・細かい国境・マウスを乗せたときの塗りの変化を減らします（見た目は少し粗くなります）。自動は、この端末のスペックから判断します（今は${mapIsLite() ? '軽量' : '通常'}）`, seg('mapLite', [['auto', '自動'], ['on', '軽量'], ['off', '通常']]), true)}
     </section>
     <h3 class="set-group-title">🔄 学習記録の同期</h3>
     <section class="set-group" id="sync-box"></section>
@@ -369,7 +376,7 @@ function openSettings() {
     settings[g.dataset.key] = b.dataset.v;
     $$('button', g).forEach((x) => x.classList.toggle('on', x === b));
     changed();
-    if (g.dataset.key === 'mapTiles' && state.view === 'map') render(); // 背景の地図を作り直す
+    if ((g.dataset.key === 'mapTiles' || g.dataset.key === 'mapLite') && state.view === 'map') render(); // 背景の地図を作り直す
   }));
   // キーの割り当て変更: 次に押されたキーを記録。重複は赤枠で知らせる
   const drawKeycaps = () => {
@@ -508,12 +515,17 @@ function bindLogin() {
 }
 
 // AI アシスタントに渡す、アプリ側のデータと操作（js/assistant.js・js/askctx.js から使う）
+// AI・メモをウィンドウで開いているときは、カードなどは、そのウィンドウを置き換えずに、新しいウィンドウで開く
+function fromPanelWin(fn) {
+  if (W.current?.kind === 'panel') forceNewWin = true;
+  try { return fn(); } finally { forceNewWin = false; }
+}
 const assistantDeps = {
   getDeps: () => ({ cards: state.cards, catOf, cardTopic, countryName, photoNote, langCountries }),
   countryName,
-  openCard: (id) => { const c = cardById(id); if (c) openCardModal(c); },
-  openPhoto: (r) => openPhotoModal(r.topic, r.code, (REF_IMAGES[r.topic]?.[r.code] || []).map((rel) => REF_BASE + rel), r.i),
-  openCountry: (code) => openCountryInfo(code),
+  openCard: (id) => { const c = cardById(id); if (c) fromPanelWin(() => openCardModal(c)); },
+  openPhoto: (r) => fromPanelWin(() => openPhotoModal(r.topic, r.code, (REF_IMAGES[r.topic]?.[r.code] || []).map((rel) => REF_BASE + rel), r.i)),
+  openCountry: (code) => fromPanelWin(() => openCountryInfo(code)),
   pinnedLabel: (p) => (p.type === 'card'
     ? (() => { const c = cardById(p.id); return c ? `${catOf(c).name}・${c.countries.map(countryName).join('・')}` : 'カード'; })()
     : `${modeDef(p.topic).name}の写真・${countryName(p.code)}`),
@@ -540,6 +552,8 @@ function snapshotSession() {
     if (cur.kind === 'card') modal = { kind: 'card', id: cur.id, list: cur.list || null };
     else if (cur.kind === 'country') modal = { kind: 'country', code: cur.code, lang: cur.lang || null };
     else if (cur.kind === 'photo') modal = { kind: 'photo', topic: cur.topic, code: cur.code, srcs: cur.srcs, i: cur.i };
+    else if (cur.kind === 'plonkit') modal = { kind: 'plonkit', slug: cur.slug, code: cur.code };
+    else if (cur.kind === 'panel') modal = { kind: 'panel', which: cur.which };
   }
   const dialog = m?.open && !cur ? (m.querySelector('#set-changelog') ? 'settings' : m.querySelector('.cl-version') ? 'changelog' : null) : null;
   const svUsed = [...new Set((q.questions || []).map((x) => x.cardId).filter((id) => String(id).startsWith('sv|')))].map((id) => svCards.get(id)).filter(Boolean);
@@ -622,6 +636,8 @@ function restoreOverlays(sn) {
     if (e?.kind === 'card' && cardById(e.id)) openCardModal(cardById(e.id), null, e.list);
     else if (e?.kind === 'country' && COUNTRY_INFO[e.code]) openCountryInfo(e.code, null, e.lang);
     else if (e?.kind === 'photo' && e.srcs?.length) openPhotoModal(e.topic, e.code, e.srcs, e.i);
+    else if (e?.kind === 'plonkit' && e.slug) openPlonkitWindow(e.code, null, e.slug);
+    else if (e?.kind === 'panel') openPanelWindow(e.which);
     else if (ui.dialog === 'settings') openSettings();
     else if (ui.dialog === 'changelog') openChangelog();
     // ウィンドウの縮小・拡大・左右への分割
@@ -680,8 +696,8 @@ async function enterApp() {
     createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: savedSvAt({ lat: p.lat, lng: p.lng, heading: p.heading })?.id, codePromise: countryAt(p.lat, p.lng) }), // 保存済みの場所なら、そのストリートビューと関連付ける
   });
   loadSavedSv().then(refreshSvWindow).catch(() => {}); // 保存済みの表示のため（表がまだ無いときは何もしない）
-  initChat({ api, user: state.user, toast });
-  initAssistant({ api, toast, ...assistantDeps });
+  initChat({ api, user: state.user, toast, openWindow: (w) => openPanelWindow(w), closeWindow: (w) => closePanelWindow(w) });
+  initAssistant({ api, toast, ...assistantDeps, openWindow: (w) => openPanelWindow(w), closeWindow: (w) => closePanelWindow(w) });
   await reloadCards();
   const restored = restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
   await route();
@@ -714,11 +730,22 @@ async function enterApp() {
 const live = { unsub: null, timer: null, dirty: false, busy: false, pressed: false };
 function startLive() {
   live.unsub?.();
-  live.unsub = api.subscribeCards ? api.subscribeCards(() => {
+  live.unsub = api.subscribeCards ? api.subscribeCards((table) => {
+    if (table === 'saved_streetviews') { clearTimeout(live.svTimer); live.svTimer = setTimeout(flushLiveSv, 700); return; } // 保存したストリートビュー（ストリートビュータブ・地図の目印・ウィンドウの保存ボタン）
     // 続けて届く通知（まとめて読み込んだときなど）は 1 回にまとめる
     clearTimeout(live.timer);
     live.timer = setTimeout(() => { live.dirty = true; flushLive(); }, 700);
   }) : null;
+}
+async function flushLiveSv() {
+  if (!state.user) return;
+  if (liveBlocked()) { clearTimeout(live.svTimer); live.svTimer = setTimeout(flushLiveSv, 1500); return; }
+  try {
+    await loadSavedSv(true);
+    refreshSvWindow();
+    if (state.view === 'sv') render();
+    window.dispatchEvent(new Event('geo:notes'));
+  } catch { /* 次の通知でやり直す */ }
 }
 function stopLive() {
   live.unsub?.();
@@ -833,6 +860,22 @@ function bindGlobal() {
     const [lat, lng, heading, pitch, fov] = b.dataset.svOpen.split(',').map(Number);
     if (Number.isFinite(lat) && Number.isFinite(lng)) { e.preventDefault(); e.stopPropagation(); openSvWindow(lat, lng, { heading: heading || 0, pitch: pitch || 0, fov: fov || 0 }); }
   });
+  // Plonkit の国のガイドへのリンクは、外のサイトではなく、日本語に翻訳したウィンドウで開く（右クリックは新しいウィンドウ。Shift を押しながらなら、今までどおり Plonkit のサイトで開く）
+  const plonkitLink = (e) => { const a = e.target.closest?.('a[href*="plonkit.net/"]'); return a && !e.shiftKey && state.user && plonkitSlugOf(a.href) ? a : null; };
+  document.addEventListener('click', (e) => {
+    const a = plonkitLink(e);
+    if (!a || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    openPlonkitWindow(null, a, plonkitSlugOf(a.href));
+  }, true);
+  document.addEventListener('contextmenu', (e) => {
+    const a = plonkitLink(e);
+    if (!a || !canWindow()) return;
+    e.preventDefault(); e.stopPropagation();
+    forceNewWin = true;
+    openPlonkitWindow(null, a, plonkitSlugOf(a.href));
+    forceNewWin = false;
+  }, true);
   document.addEventListener('keydown', onKeydown);
   // 再読み込みで引き継ぐ状態の保存: 閉じる・隠れる直前と、一定の間隔で
   window.addEventListener('pagehide', snapshotSession);
@@ -1140,11 +1183,25 @@ function svFrontHtml(card) {
 }
 const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
+// 暗記・クイズで、ぼかす指定のあるカードの画像: 先に元の画像を隠しておき、ぼかした画像ができたら差し替える（ぼかしていない画像が一瞬見えないように）
+const plateBlur = (card) => settings.blurPlates && (state.view === 'study' || state.view === 'quiz') && card.blur?.length;
+const faceImgAttrs = (card, src) => (plateBlur(card) ? `src="${esc(src)}" class="img-blur-wait" data-blur-card="${esc(card.id)}"` : `src="${esc(src)}"`);
+let blurTimer = null;
+function applyPlateBlur() {
+  for (const img of document.querySelectorAll('img[data-blur-card]')) {
+    const card = cardById(img.dataset.blurCard);
+    const orig = img.getAttribute('src');
+    delete img.dataset.blurCard;
+    if (!card) { img.classList.remove('img-blur-wait'); continue; }
+    blurredUrl(orig, card.blur).then((u) => { if (img.getAttribute('src') === orig) img.src = u; }).catch(() => {}).finally(() => img.classList.remove('img-blur-wait'));
+  }
+}
+new MutationObserver(() => { clearTimeout(blurTimer); blurTimer = setTimeout(applyPlateBlur, 0); }).observe(document.documentElement, { childList: true, subtree: true });
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
   if (card.sv) return svFrontHtml(card);
   const back = withBack && backUrl(card);
   return `
-    <div class="front-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img src="${esc(imgUrl(card))}" alt="カード画像">${back ? `<img class="layer-back" src="${esc(back)}" alt="" aria-hidden="true"><button type="button" class="layer-toggle" title="裏面の印（ヒントの場所）の表示を切り替え">🔁 印</button>` : ''}` : '<div class="img-missing">画像なし</div>'}</div>
+    <div class="front-img">${catBadge(card, 'cat-on-img')}${imgUrl(card) ? `<img ${faceImgAttrs(card, imgUrl(card))} alt="カード画像">${back ? `<img class="layer-back" src="${esc(back)}" alt="" aria-hidden="true"><button type="button" class="layer-toggle" title="裏面の印（ヒントの場所）の表示を切り替え">🔁 印</button>` : ''}` : '<div class="img-missing">画像なし</div>'}</div>
     ${card.description && showDesc ? `<p class="front-desc">${nl2br(card.description)}</p>` : ''}`;
 }
 
@@ -1171,7 +1228,7 @@ function backImgHtml(card) {
   const src = imgUrl(card);
   if (!src) return '';
   const back = backUrl(card);
-  return `<div class="back-img"><div class="back-img-box"><img src="${esc(src)}" alt="カード画像">${back ? `<img class="back-layer" src="${esc(back)}" alt="" aria-hidden="true">` : ''}</div></div>`;
+  return `<div class="back-img"><div class="back-img-box"><img ${faceImgAttrs(card, src)} alt="カード画像">${back ? `<img class="back-layer" src="${esc(back)}" alt="" aria-hidden="true">` : ''}</div></div>`;
 }
 
 // 関連カード（このカードが選んだカードと、このカードを選んでいるカード）
@@ -1288,6 +1345,10 @@ function showNav(entry) {
     renderCardModal(card, entry);
   } else if (entry.kind === 'photo') {
     renderPhotoModal(entry);
+  } else if (entry.kind === 'plonkit') {
+    renderPlonkitModal(entry);
+  } else if (entry.kind === 'panel') {
+    renderPanelWindow(entry);
   } else {
     renderCountryModal(entry);
   }
@@ -1305,7 +1366,7 @@ function modalBack() {
 function backBtnHtml() {
   const prev = W.stack[W.stack.length - 1];
   if (!prev) return '';
-  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
+  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'plonkit' ? 'Plonkit' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
   return `<button class="btn btn-ghost btn-sm modal-back" id="modal-back" type="button">← ${esc(label)}</button>`;
 }
 function bindModalNav() {
@@ -2182,6 +2243,8 @@ function dockLabel(w) {
   if (e?.kind === 'card') { const c = cardById(e.id); return c ? `${c.countries[0] ? countryName(c.countries[0]) : ''} ${c.description || catOf(c).name}`.trim() : 'カード'; }
   if (e?.kind === 'country') return `国の情報: ${countryName(e.code)}`;
   if (e?.kind === 'photo') return `写真: ${countryName(e.code)}`;
+  if (e?.kind === 'panel') return e.which === 'ai' ? 'AI' : 'メモ';
+  if (e?.kind === 'plonkit') return `Plonkit: ${e.code ? countryName(e.code) : e.slug}`;
   return 'ウィンドウ';
 }
 function dockThumb(w) {
@@ -2189,6 +2252,8 @@ function dockThumb(w) {
   if (e?.kind === 'card') { const c = cardById(e.id); if (c) return { src: thumbUrl(c) || imgUrl(c), style: catStyle(c) }; }
   if (e?.kind === 'country') return { src: flagUrl(e.code) };
   if (e?.kind === 'photo') return { src: e.srcs?.[e.i] };
+  if (e?.kind === 'panel') return { emoji: e.which === 'ai' ? '✨' : '📝' };
+  if (e?.kind === 'plonkit') return e.code ? { src: flagUrl(e.code) } : { emoji: '📖' };
   return { emoji: '🗂' };
 }
 
@@ -3820,9 +3885,8 @@ function openSpotlight() {
       const code = resolveCountryCode(input.value);
       if (!code) { toast('国が見つかりません', 'error'); return; }
       if (e.altKey) { openCountryInfo(code, input); return; }
-      const url = plonkitUrl(code);
-      if (!url) { toast(`${countryName(code)} の Plonkit ガイドはありません`, 'error'); return; }
-      setTimeout(() => { const w = window.open(url, '_blank'); if (w) { w.opener = null; w.focus(); } }, 0);
+      closeSpotlight();
+      openPlonkitWindow(code, input);
       return;
     }
     if (e.key === 'ArrowDown' || (e.key === 'Enter' && !e.isComposing)) {
@@ -4260,6 +4324,7 @@ function openEditor(card, preset = {}) {
     related: new Set((card?.related || []).filter((id) => state.cards.some((c) => c.id === id))),
     places: Array.isArray(card?.places) ? card.places.map((p) => ({ ...p })) : [],
     svIds: new Set(card ? card.sv_ids || [] : preset.svIds || []), // 関連付けた保存済みストリートビュー
+    blur: cleanRegions(card?.blur), // ナンバープレートをぼかす範囲
   };
 
   openModal(`
@@ -4283,6 +4348,7 @@ function openEditor(card, preset = {}) {
         <div class="row">
           <button class="btn" id="ed-paste" type="button">📋 クリップボードから貼り付け</button>
           <button class="btn btn-ghost" id="ed-annot" type="button" title="トリミング・丸や矢印の書き込み（裏面だけに表示する印も）" ${ed.preview ? '' : 'disabled'}>🎨 画像編集</button>
+          <button class="btn btn-ghost" id="ed-blur" type="button" title="暗記・クイズでぼかすナンバープレートの範囲を指定します" ${ed.preview ? '' : 'disabled'}>🔲 ぼかし範囲<span class="muted small" id="ed-blur-n"></span></button>
           <label class="btn btn-ghost">ファイルを選択<input type="file" id="ed-file" accept="image/*" hidden></label>
         </div>
         <div class="field">
@@ -4374,6 +4440,13 @@ function openEditor(card, preset = {}) {
     $('#ed-back-tag').hidden = !ed.backPreview;
   };
   // fromEditor: 画像編集の結果（裏面の印もそれに合わせてある）。それ以外の新しい画像では裏面の印を外す
+  const showBlurN = () => { const n = $('#ed-blur-n'); if (n) n.textContent = ed.blur.length ? ` ${ed.blur.length}` : ''; };
+  showBlurN();
+  $('#ed-blur').addEventListener('click', async () => {
+    if (!ed.preview) return;
+    const r = await editBlur(ed.preview, ed.blur, { api, toast, host: W.el });
+    if (r) { ed.blur = r; showBlurN(); }
+  });
   const setImage = async (blob, fromEditor = false) => {
     if (!blob || !blob.type.startsWith('image/')) { toast('画像ファイルではありません', 'error'); return; }
     ed.blob = blob;
@@ -4382,6 +4455,8 @@ function openEditor(card, preset = {}) {
     $('#ed-img-wrap').hidden = false;
     $('#ed-hint').hidden = true;
     $('#ed-annot').disabled = false;
+    $('#ed-blur').disabled = false;
+    if (ed.blur.length) { ed.blur = []; showBlurN(); toast('画像を変えたので、ぼかし範囲は消しました'); }
     if (!fromEditor && ed.backPreview) {
       ed.back = card?.back_path ? 'clear' : null;
       ed.backPreview = '';
@@ -4650,6 +4725,7 @@ function openEditor(card, preset = {}) {
       related: [...ed.related],
       sv_ids: [...ed.svIds].filter((id) => savedSvById(id)), // 削除済みの保存は除く
       places: ed.places,
+      blur: ed.blur,
     };
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -4749,6 +4825,94 @@ function langCountries(l) {
     .filter((k) => COUNTRY_BY_CODE.get(k) && COUNTRY_INFO[k].lang.includes(l))
     .sort((a, b) => (COUNTRY_INFO[b].un - COUNTRY_INFO[a].un) || countryName(a).localeCompare(countryName(b), 'ja'));
 }
+// ---- AI・メモを、ウィンドウとして開く（パネルの中身を、そのままウィンドウの中に入れる）----
+const panelWinOf = (which) => wins.find((w) => w.el.open && w.current?.kind === 'panel' && w.current.which === which);
+function openPanelWindow(which, src = null) {
+  if (!canWindow()) { toast('ウィンドウで開けるのは、PC の広い画面のみです'); return; }
+  const have = panelWinOf(which);
+  if (have) { if (have.docked) undockWin(have); bringFront(have.el); activate(have); return; } // すでに開いているときは、前に出す
+  if (W.el.open) activate(createWin()); // 開いているウィンドウは置き換えず、新しいウィンドウに
+  const fresh = !W.el.open;
+  navModal({ kind: 'panel', which });
+  if (src && fresh) popFrom(W.el, src);
+}
+function closePanelWindow(which) { const w = panelWinOf(which); if (w) closeModal(w); }
+function renderPanelWindow(entry) {
+  const ai = entry.which === 'ai';
+  openModal(`
+    <div class="modal-head">
+      <h2>${ai ? '✨ AI' : '📝 メモ'}</h2>
+      <button class="icon-btn" data-close aria-label="閉じる">✕</button>
+    </div>
+    <div class="pw-host"></div>`, 'modal-panelwin', true);
+  const host = W.el.querySelector('.pw-host');
+  if (ai) embedAssistant(host); else embedChat(host);
+}
+
+// ---- Plonkit のガイド（日本語に翻訳して、画像ごとに説明を並べたウィンドウ）----
+const PLONKIT_SKIP = new Set(['guide', 'guides', 'maps', 'map', 'about', 'privacy', 'login', 'sitemap', 'search', 'beginners-guide', 'guide-editor']);
+const plonkitSlugOf = (url) => { const m = /^https?:\/\/(?:www\.)?plonkit\.net\/([a-z0-9-]+)\/?(?:[?#].*)?$/i.exec(url || ''); return m && !PLONKIT_SKIP.has(m[1].toLowerCase()) ? m[1].toLowerCase() : null; };
+const codeOfPlonkitSlug = (slug) => [...COUNTRY_BY_CODE.keys()].find((c) => plonkitUrl(c)?.endsWith(`/${slug}`)) || null;
+function openPlonkitWindow(code, src = null, slug = null) {
+  slug = slug || plonkitUrl(code)?.split('/').pop();
+  if (!slug) { toast(`${code ? countryName(code) : ''} の Plonkit ガイドはありません`, 'error'); return; }
+  code = code || codeOfPlonkitSlug(slug);
+  claimNewWin();
+  const fresh = !W.el.open;
+  navModal({ kind: 'plonkit', slug, code });
+  if (src && fresh) popFrom(W.el, src);
+}
+function renderPlonkitModal(entry) {
+  const { slug, code } = entry;
+  const name = code ? countryName(code) : slug;
+  const orig = `https://www.plonkit.net/${slug}`;
+  openModal(`
+    <div class="modal-head">
+      ${backBtnHtml()}
+      <h2 class="pk-title">${code ? flagImg(code) : '📖'}${esc(name)} <span class="muted small">Plonkit ガイド</span></h2>
+      <button class="icon-btn pk-toc-btn" type="button" aria-label="目次" aria-expanded="false" title="目次を開く・閉じる">☰</button>
+      <a class="icon-btn" href="${orig}" target="_blank" rel="noopener" title="原文（Plonkit）を開く" aria-label="原文を開く">${EXT_ICON_SVG}</a>
+      <button class="icon-btn" data-close aria-label="閉じる">✕</button>
+      <nav class="pk-toc" hidden aria-label="目次"></nav>
+    </div>
+    <div class="pk-body"><div class="pk-state muted">読み込み中…（初めて開く国は、翻訳のため数十秒かかることがあります）</div></div>
+  `, 'modal-plonkit', true);
+  bindModalNav();
+  const w = W;
+  const el = w.el;
+  const tocBtn = el.querySelector('.pk-toc-btn');
+  const tocEl = el.querySelector('.pk-toc');
+  const setToc = (on) => { tocEl.hidden = !on; tocBtn.setAttribute('aria-expanded', String(on)); tocBtn.classList.toggle('is-on', on); };
+  tocBtn.addEventListener('click', () => setToc(tocEl.hidden));
+  tocEl.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-pk-to]');
+    if (!a) return;
+    e.preventDefault();
+    el.querySelector(`#${a.dataset.pkTo}`)?.scrollIntoView({ behavior: settings.animations ? 'smooth' : 'auto', block: 'start' });
+    setToc(false);
+  });
+  const body = el.querySelector('.pk-body');
+  loadGuide(slug, api).then((g) => {
+    if (!el.contains(body) || w.current !== entry) return;
+    const { body: html, toc } = guideHtml(g);
+    body.innerHTML = `
+      ${g.hero ? `<div class="pk-hero"><img src="/api/plonkit?img=${encodeURIComponent(g.hero)}" alt="" loading="lazy"></div>` : ''}
+      ${g.translated ? '' : `<div class="pk-note">${g.lang === 'ja' ? '一部は翻訳できなかったため、英語のままです。' : '翻訳の設定（GEMINI_API_KEY）がないため、英語のままです。'}</div>`}
+      ${html}
+      <p class="pk-credit muted small">出典: <a href="${orig}" target="_blank" rel="noopener">Plonk It（${esc(g.title || slug)}）</a>の内容を日本語に翻訳したものです（機械翻訳）。</p>`;
+    tocEl.innerHTML = tocHtml(toc);
+    bindGuide(body, {
+      api: api,
+      toast,
+      openSv: (lat, lng, v, newWindow) => openSvWindow(lat, lng, { heading: v.heading || 0, pitch: v.pitch || 0, fov: v.fov || 0, newWindow: !!newWindow }),
+    });
+  }).catch((e) => {
+    if (!el.contains(body) || w.current !== entry) return;
+    body.innerHTML = `<div class="pk-state"><p>${esc(e.message || '読み込めませんでした')}</p><p><button class="btn btn-sm" type="button" data-pk-retry>もう一度試す</button> <a class="btn btn-sm btn-ghost" href="${orig}" target="_blank" rel="noopener">原文を開く ↗</a></p></div>`;
+    body.querySelector('[data-pk-retry]')?.addEventListener('click', () => { const prev = W; activate(w); showNav(entry); if (!prev.docked && wins.includes(prev)) activate(prev); });
+  });
+}
+
 function openCountryInfo(code, src = null, lang = null) {
   if (!COUNTRY_BY_CODE.get(code) || !COUNTRY_INFO[code]) return;
   claimNewWin();
@@ -4773,7 +4937,7 @@ function renderCountryModal(entry) {
   openModal(`
     <div class="modal-head">
       ${backBtnHtml()}
-      <h2 class="cinfo-title">${flagImg(code)}${esc(c.ja)}</h2>
+      <h2 class="cinfo-title">${flagImg(code)}<span class="cinfo-title-name">${esc(c.ja)}</span><button type="button" class="icon-btn cinfo-map-btn" id="cinfo-map" title="地図でこの国を表示" aria-label="地図でこの国を表示"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7z"/><path d="M9 4v13M15 7v13"/></svg></button></h2>
       <button class="icon-btn" data-close aria-label="閉じる">✕</button>
     </div>
     <div class="cinfo-hero">
@@ -4827,6 +4991,11 @@ function renderCountryModal(entry) {
     </section>`, 'modal-md', true);
 
   $('#cinfo-compare').addEventListener('click', () => openCompare(code));
+  $('#cinfo-map').addEventListener('click', () => { // 地図でこの国へ移動する（浮かぶウィンドウは、開いたまま。モーダルは閉じる）
+    focusOnNextRender(code);
+    if (!modalIsWindow()) closeModal();
+    if (state.view === 'map') render(); else location.hash = '#map';
+  });
   // 地図のデータ: 写真を押すとカードと同じ画面で開く・開閉を覚える
   $$('.cfacts-photo', W.el).forEach((b) => b.addEventListener('click', () => {
     const t = b.dataset.topic;
@@ -5057,6 +5226,7 @@ const mapCtx = {
   countrySummaryHtml: (code) => countrySummaryHtml(code),
   foldChips: (root) => foldChipRows(root),
   openCountry: (code, src, lang, opts) => { if (opts?.newWindow) forceNewWin = true; try { openCountryInfo(code, src, lang); } finally { forceNewWin = false; } }, // opts.newWindow: 新しいウィンドウで開く（右クリック）
+  openPlonkit: (code, src) => openPlonkitWindow(code, src),
   attachComplete: (input, opts) => attachInlineComplete(input, opts),
   findCountry: (text) => findCountry(text),
   resolveCountry: (text) => resolveCountryCode(text),
