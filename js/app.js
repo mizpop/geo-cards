@@ -3886,20 +3886,7 @@ function openSpotlight() {
 
   // PC は入力欄の中に候補を薄く表示して Tab で補完（スマホは候補リスト）
   const drawGhost = attachInlineComplete(input);
-  // 国名がちょうど入力されたら、その国の詳細のウィンドウも開く（入力が止まってから。同じ国は 1 回だけ）
-  let countryTimer = null;
-  let lastCountry = null;
-  input.addEventListener('input', () => {
-    s.q = input.value; renderSearchResults(); syncChips();
-    clearTimeout(countryTimer);
-    const v = input.value;
-    const hit = !input.matches('[data-composing]') && v.trim() ? findCountry(v) : null;
-    if (!hit) { lastCountry = null; return; }
-    if (hit.code === lastCountry) return;
-    countryTimer = setTimeout(() => { if (input.value === v && sp.open) { lastCountry = hit.code; openCountryInfo(hit.code, input); } }, 450);
-  });
-  input.addEventListener('compositionstart', () => { input.dataset.composing = '1'; });
-  input.addEventListener('compositionend', () => { delete input.dataset.composing; });
+  input.addEventListener('input', () => { s.q = input.value; renderSearchResults(); syncChips(); });
   input.addEventListener('keydown', (e) => {
     // 地図と同じ: Ctrl+Enter で Plonkit、Alt+Enter で国の詳細（入力した国名から）
     if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey || e.altKey)) {
@@ -3934,15 +3921,17 @@ function openSpotlight() {
   // 結果のタイルを矢印キーで移動（グリッドの列数は表示位置から判定）
   $('.spot-results', sp).addEventListener('keydown', (e) => {
     const tiles = $$('.spot-results .tile', sp);
-    const i = tiles.indexOf(document.activeElement);
-    if (i < 0) return;
-    const cols = tiles.filter((t) => t.offsetTop === tiles[0].offsetTop).length || 1;
+    if (!tiles.includes(document.activeElement)) return;
+    const country = tiles[0]?.classList.contains('tile-country') ? tiles[0] : null; // 国の候補（カードの上に 1 つ）
+    const cards = country ? tiles.slice(1) : tiles;
+    const cols = cards.filter((t) => t.offsetTop === cards[0].offsetTop).length || 1;
     const move = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: cols, ArrowUp: -cols }[e.key];
     if (move === undefined) return;
     e.preventDefault();
-    const j = i + move;
-    if (j < 0) input.focus();
-    else if (tiles[j]) tiles[j].focus();
+    if (document.activeElement === country) { if (move > 0 && cards[0]) cards[0].focus(); else input.focus(); return; }
+    const j = cards.indexOf(document.activeElement) + move;
+    if (j < 0) (country || input).focus();
+    else if (cards[j]) cards[j].focus();
   });
   renderSearchResults();
   drawGhost();
@@ -4107,10 +4096,23 @@ function renderSearchResults() {
   const cond = [q.trim() && `「${esc(q.trim())}」`, catName && `カテゴリー: ${esc(catName)}`].filter(Boolean).join(' / ');
   const label = cond ? `${cond} の検索結果: ${list.length} 枚` : `すべてのカード: ${list.length} 枚`;
   if (!$('#search-results')) return;
+  const cc = q.trim() ? resolveCountryCode(q) : null; // 入力に合う国の候補を 1 つだけ、カードの上に（カードと同じように、Tab や矢印で選んで開ける）
+  const cinfo = cc && COUNTRY_BY_CODE.get(cc);
+  const countryTile = cinfo ? `<article class="tile tile-country" data-country="${cc}" tabindex="0" role="button" aria-label="${esc(cinfo.ja)}の詳細を開く">
+      <img class="tile-country-flag" src="${flagUrl(cc)}" alt="">
+      <div class="tile-country-body"><b>${esc(cinfo.ja)}</b><span class="muted small">${esc(cinfo.en)} ・ ${esc(REGION_BY_ID.get(cinfo.region).name)}</span><span class="tile-country-hint small">🌐 国の詳細を開く</span></div>
+    </article>` : '';
   $('#search-results').innerHTML = `
     <div class="result-head"><p class="muted result-count">${label}</p>${sortSelectHtml('search-sort')}</div>
+    ${countryTile}
     ${list.length ? `<div class="tiles">${list.map((c) => tileHtml(c, textSnippet(c, q))).join('')}</div>` : '<p class="empty">該当するカードがありません</p>'}`;
   $('#search-sort').addEventListener('change', (e) => { settings.cardSort = e.target.value; saveSettings(); renderSearchResults(); });
+  const ct = $('#search-results .tile-country');
+  if (ct) {
+    const open = () => openCountryInfo(ct.dataset.country, ct);
+    ct.addEventListener('click', open);
+    ct.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  }
   bindTiles();
 }
 
