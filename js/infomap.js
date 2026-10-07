@@ -9,6 +9,7 @@ export { GUARD_TYPES, POLE_TYPES, LINE_TYPES, PLATE_TYPES, BOLLARD_TYPES };
 
 export const MAP_MODES = [
   { id: 'cards', icon: '🃏', name: 'カード', desc: '国ごとのカードの枚数とサムネイル' },
+  { id: 'none', icon: '🗺', name: 'なし', desc: '何も表示しないただの地図（国の色分け・カード・凡例なし）' },
   { id: 'chevron', icon: '⟫', name: 'シェブロン', desc: 'カーブの矢印標識の色（背景と矢印）', editable: true, pattern: true },
   { id: 'guardrail', icon: '🛡', name: 'ガードレール', desc: 'ガードレールの種類（A / B / 細い B など）と反射板の色', editable: true, pattern: true },
   { id: 'pole', icon: '⚡', name: '電柱', desc: 'よく見る電柱の種類', editable: true, pattern: true },

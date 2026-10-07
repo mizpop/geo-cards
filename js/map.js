@@ -427,7 +427,8 @@ export async function renderMap(view, ctx) {
   // 条件で絞り込み: 当てはまる国
   const conds = ctx.matchConds();
   const matched = mode === 'match' ? new Set(matchAll(conds, [...GEO.keys()])) : null;
-  const factMode = mode !== 'cards' && mode !== 'match'; // 国ごとの値を出すモード
+  const plain = mode === 'none'; // 「なし」: 何も表示しないただの地図
+  const factMode = mode !== 'cards' && mode !== 'match' && !plain; // 国ごとの値を出すモード
   // 参考写真（GeoHints）: ボラード・電柱・シェブロン・ナンバープレートで、スイッチがオンなら地図に並べる
   const hasPhotos = !!REF_IMAGES[mode];
   const photoOn = hasPhotos && ctx.mapPhotos();
@@ -463,7 +464,7 @@ export async function renderMap(view, ctx) {
         <div class="map-loading" id="map-loading">地図を読み込み中…</div>
         <div class="sv-banner" id="sv-banner" hidden>${SV_ICON}<span id="sv-banner-text">青い線がストリートビューのある道路です。その近くをクリックしてください</span><button type="button" class="link-btn" id="sv-exit">終了（Esc）</button></div>
 
-        ${mode === 'cards' ? '' : `<div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend"><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeDef(mode).icon} ${modeDef(mode).name}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${modeDef(mode).desc}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
+        ${mode === 'cards' || plain ? '' : `<div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend"><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeDef(mode).icon} ${modeDef(mode).name}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${modeDef(mode).desc}</div><div class="lg-items"></div>${modeDef(mode).editable && ctx.isEditor() ? '<div class="lg-hint">国を選んで「編集」で色・種類を登録</div>' : ''}</div>`}
       </div>
       <div class="vsplit" id="vsplit" role="separator" aria-orientation="vertical" aria-label="地図と右のパネルの幅を調整" tabindex="0" title="ドラッグで幅を調整（ダブルクリックで元に戻す・← → キーでも）"></div>
       <aside class="map-panel" id="map-panel" style="--pinfo-h:${(ctx.panelSplit() * 100).toFixed(1)}%">
@@ -548,6 +549,7 @@ export async function renderMap(view, ctx) {
   const NO_PLAY = dark ? '#5d646c' : '#9aa0a6'; // 出題されない国の灰色
   const baseStyle = (f) => {
     if (mode === 'match') return { stroke: false, color: accent, weight: 2, fillColor: '#2f9e44', fillOpacity: matched.has(f.properties.code) ? 0.6 : 0 };
+    if (plain) return { stroke: false, color: accent, weight: 2, fillColor: '#888', fillOpacity: 0 };
     if (mode !== 'cards') return { stroke: false, color: accent, weight: 2, ...infoStyle(mode, f.properties.code) };
     const n = byCountry.get(f.properties.code)?.length || 0;
     if (f.properties.code && !isPlayable(f.properties.code)) {
@@ -1238,6 +1240,7 @@ export async function renderMap(view, ctx) {
   function renderList() {
     const el = $id('plist');
     if (!el) return;
+    if (plain) { el.innerHTML = '<p class="muted small">「なし」: 何も表示しない地図です。国をクリックすると、右の欄に国の情報が出ます</p>'; return; }
     if (mode === 'match' && !focused) {
       const codes = [...matched].sort((a, b) => ctx.countryName(a).localeCompare(ctx.countryName(b), 'ja'));
       const n = Object.values(conds).filter(Boolean).length;
