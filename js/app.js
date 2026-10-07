@@ -243,6 +243,7 @@ function openSettings() {
     <section class="set-group" id="offline-box"></section>` : ''}
     ${window.desktop?.setPresence ? `<h3 class="set-group-title">🎮 Discord</h3>
     <section class="set-group">
+      <p class="set-desc" id="discord-status">状態を確認しています…</p>
       ${item('Discord に表示する', '今見ているタブと、クイズのときは何問目かを、Discord のプロフィール（プレイ中）に表示します（Discord アプリが起動しているとき）', sw('discord'))}
     </section>` : ''}
     ${canDownloadApp() ? `<h3 class="set-group-title">💻 デスクトップ版（Windows）</h3>
@@ -430,6 +431,14 @@ function openSettings() {
     window.addEventListener('keydown', onKey, true);
   }));
   $('#set-reset').addEventListener('click', () => { settings = { ...DEFAULT_SETTINGS }; saveSettings(); openSettings(); });
+  // Discord につながっているかを出す（Windows 版）
+  if (window.desktop?.getPresenceStatus) {
+    const el = $('#discord-status');
+    const msg = { ready: '✅ Discord につながっています', connecting: '⏳ Discord につないでいます…', 'no-discord': '⚠ Discord アプリが見つかりません。Discord を起動してから、しばらく（15 秒ほど）待ってください', idle: '表示する内容がまだありません（ログイン後に始まります）' };
+    const refresh = () => window.desktop.getPresenceStatus().then((st) => { if (el?.isConnected) el.textContent = `${msg[st] || '状態が分かりません'}${st === 'ready' && !settings.discord ? '（表示はオフです）' : ''}`; }).catch(() => {});
+    refresh();
+    const t = setInterval(() => { if (!el?.isConnected) clearInterval(t); else refresh(); }, 2000);
+  }
   // 閉じたら現在の画面に反映
   W.el.addEventListener('close', () => {
     if (state.user) {

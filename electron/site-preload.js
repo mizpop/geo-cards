@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld('desktop', {
   getAppVersion: () => ipcRenderer.invoke('app-version'),
   // Discord Rich Presence に出す内容（{ details, state }。null で消す）
   setPresence: (data) => ipcRenderer.send('presence', data || null),
+  // Discord につながっているか（'ready' など）
+  getPresenceStatus: () => ipcRenderer.invoke('presence-status'),
 });

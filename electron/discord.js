@@ -4,6 +4,8 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 
+const DEBUG = !!process.env.GEOCHECKER_DEBUG_DISCORD; // 動作確認用: Discord とのやり取りを表示する
+const log = (...a) => { if (DEBUG) console.log('[discord]', ...a); };
 const OP = { HANDSHAKE: 0, FRAME: 1, CLOSE: 2, PING: 3, PONG: 4 };
 const MIN_INTERVAL = 4000; // 更新の間隔（Discord は短い間に何度も更新すると制限する）
 const RETRY_MS = 15000; // Discord が起動していない・切れたときの、つなぎ直しの間隔
@@ -35,6 +37,7 @@ class DiscordPresence {
     this.retry = null;
     this.closed = false;
     this.nonce = 0;
+    this.status = 'idle'; // idle（まだ何も出していない）/ connecting / ready（つながった）/ no-discord（Discord が見つからない）
   }
 
   /** 内容を設定する。activity: { details, state } か、null（消す）。つながっていなければ、つながったときに出す */
@@ -46,20 +49,22 @@ class DiscordPresence {
 
   connect(i = this.pipeStart) {
     if (this.closed || this.sock) return;
-    if (i > this.pipeStart + 9) { this.scheduleRetry(); return; }
+    if (i > this.pipeStart + 9) { this.status = 'no-discord'; this.scheduleRetry(); return; }
+    if (i === this.pipeStart) this.status = 'connecting';
     const sock = net.createConnection(pipePath(i));
     let opened = false;
     sock.once('connect', () => {
+      log('connected', pipePath(i));
       opened = true;
       this.sock = sock;
       this.buf = Buffer.alloc(0);
       sock.write(encode(OP.HANDSHAKE, { v: 1, client_id: this.clientId }));
     });
     sock.on('data', (d) => this.onData(d));
-    sock.on('error', () => { if (!opened) this.connect(i + 1); }); // 次のパイプ番号を試す
+    sock.on('error', (e) => { log('error', i, e.code); if (!opened) this.connect(i + 1); }); // 次のパイプ番号を試す
     sock.on('close', () => {
       if (!opened) return;
-      this.sock = null; this.ready = false; this.sent = undefined;
+      this.sock = null; this.ready = false; this.sent = undefined; this.status = 'no-discord';
       this.scheduleRetry();
     });
   }
@@ -78,9 +83,10 @@ class DiscordPresence {
       let payload = null;
       try { payload = JSON.parse(this.buf.slice(8, 8 + len).toString()); } catch { /* 無視 */ }
       this.buf = this.buf.slice(8 + len);
+      log('recv', op, JSON.stringify(payload)?.slice(0, 200));
       if (op === OP.PING) this.sock?.write(encode(OP.PONG, payload || {}));
       else if (op === OP.CLOSE) { this.sock?.destroy(); }
-      else if (op === OP.FRAME && payload?.evt === 'READY') { this.ready = true; this.flush(); }
+      else if (op === OP.FRAME && payload?.evt === 'READY') { this.ready = true; this.status = 'ready'; this.flush(); }
     }
   }
 
@@ -92,6 +98,7 @@ class DiscordPresence {
     if (wait > 0) { if (!this.timer) this.timer = setTimeout(() => { this.timer = null; this.flush(); }, wait); return; }
     this.lastSend = Date.now();
     this.sent = json;
+    log('send', json);
     this.sock.write(encode(OP.FRAME, {
       cmd: 'SET_ACTIVITY',
       args: { pid: process.pid, activity: this.desired ? { ...this.desired, instance: false } : undefined },
