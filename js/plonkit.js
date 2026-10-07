@@ -22,7 +22,18 @@ export function loadGuide(slug, api) {
   return p;
 }
 
-const imgSrc = (u) => (!u ? '' : u.startsWith('/') ? `/api/plonkit?img=${encodeURIComponent(u)}` : u);
+// 画像は、GitHub の Currywarrior/geoguessr-guide に集められた Plonkit の画像（WebP）を、jsDelivr（CDN）から直接読み込む。
+// そこにない画像・読み込めない画像は、このサイトの中継（/api/plonkit?img=）から取得する
+const CDN = 'https://cdn.jsdelivr.net/gh/Currywarrior/geoguessr-guide@fe8d0288858de706f56b273ca801bf2c3267fdd1/assets/img/plonkit/';
+const proxySrc = (u) => (!u ? '' : u.startsWith('/') ? `/api/plonkit?img=${encodeURIComponent(u)}` : u);
+export function imgSrc(u) {
+  if (!u || !u.startsWith('/images/')) return proxySrc(u);
+  let key = u.slice('/images/'.length);
+  try { key = decodeURI(key); } catch { /* そのまま */ }
+  return CDN + encodeURI(key.replace(/\.[A-Za-z0-9]+$/, '') + '.webp');
+}
+// <img> の属性: 読み込む先（data-src）と、だめだったときの先（data-fb）
+const imgAttrs = (u) => `data-src="${esc(imgSrc(u))}" data-fb="${esc(proxySrc(u))}"`;
 
 // ---- Google マップのリンクから、ストリートビューの位置・向きを読み取る ----
 const SHORT = /^https?:\/\/(goo\.gl\/maps\/|maps\.app\.goo\.gl\/)/;
@@ -88,11 +99,11 @@ export function guideHtml(g) {
     toc.push({ id: sid, title: s.title, level: 1 });
     const items = s.items.map((it) => {
       if (it.k === 'div') { const id = `pk-${n++}`; toc.push({ id, title: it.title, level: 2 }); return `<h4 class="pk-div" id="${id}">${esc(it.title)}</h4>`; }
-      if (it.k === 'img') return `<figure class="pk-wide pk-pic"><img data-src="${esc(imgSrc(it.img))}" alt=""></figure>`;
+      if (it.k === 'img') return `<figure class="pk-wide pk-pic"><img ${imgAttrs(it.img)} alt=""></figure>`;
       const link = it.link || '';
       const sv = link && !/\.(png|jpe?g|webp|gif)(\?|$)/i.test(link) ? svAttr(link) : '';
       const w = it.w > 0 ? Math.max(28, Math.min(60, Math.round(it.w * 100))) : 40;
-      const img = it.img ? `<figure class="pk-img pk-pic" style="--w:${w}%"><img data-src="${esc(imgSrc(it.img))}" alt="${esc(it.alt)}" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}</figure>` : '';
+      const img = it.img ? `<figure class="pk-img pk-pic" style="--w:${w}%"><img ${imgAttrs(it.img)} alt="${esc(it.alt)}" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}</figure>` : '';
       return `<div class="pk-tip ${img ? '' : 'is-text'}">${img}<div class="pk-text">${textHtml(it.text)}</div></div>`;
     }).join('');
     return `<section class="pk-step" id="${sid}"><h3 class="pk-step-title">${esc(s.title)}</h3>${items}</section>`;
@@ -104,12 +115,12 @@ export function tocHtml(toc) {
   return toc.map((t) => `<a href="#${t.id}" class="pk-toc-item lv${t.level}" data-pk-to="${t.id}">${esc(t.title)}</a>`).join('');
 }
 
-/** 画像を、画面に近づいたものから、少しずつ（同時に 3 枚まで）読み込む。Plonkit が続けての取得を断ることがあるので、失敗したら間をあけてやり直す */
+/** 画像を、画面に近づいたものから、少しずつ（同時に 6 枚まで）読み込む。Plonkit が続けての取得を断ることがあるので、失敗したら間をあけてやり直す */
 export function loadImages(root) {
   const queue = [];
   let active = 0;
   const pump = () => {
-    while (active < 3 && queue.length) {
+    while (active < 6 && queue.length) {
       const img = queue.shift();
       if (!img.isConnected) continue;
       active++;
@@ -117,6 +128,7 @@ export function loadImages(root) {
       const tries = Number(img.dataset.tries || 0);
       img.onload = () => { img.closest('.pk-pic')?.classList.remove('is-failed'); img.closest('.pk-pic')?.classList.add('is-loaded'); done(); };
       img.onerror = () => {
+        if (img.dataset.fb && img.dataset.src !== img.dataset.fb) { img.dataset.src = img.dataset.fb; queue.unshift(img); done(); return; } // まず、画像の置き場（CDN）にない・読めないときは、このサイトの中継から
         if (tries < 6) { img.dataset.tries = String(tries + 1); setTimeout(() => { queue.push(img); pump(); }, 2500 * (tries + 1)); } else img.closest('.pk-pic')?.classList.add('is-failed');
         done();
       };

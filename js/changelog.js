@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v58',
+    date: '2026-10-07',
+    sections: [
+      {
+        title: 'Plonkit の画像',
+        items: ['画像を、GitHub（Currywarrior/geoguessr-guide）に集められた Plonkit の画像から、CDN（jsDelivr）経由で直接読み込むように。Plonkit の取得制限（429）に左右されず、速く表示される（5,363 枚のうち 5,356 枚が対応。ない画像・読めない画像は、今までの中継から取得）'],
+      },
+    ],
+  },
+  {
     version: 'v57',
     date: '2026-10-07',
     sections: [
