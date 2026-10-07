@@ -134,7 +134,7 @@ function createWindow() {
   ipcMain.on('reload', (e, hard) => { if (e.sender === bar.webContents) reload(hard); });
   // ---- Windows 版だけの機能: 最前面に固定・どのアプリを見ていても使えるショートカット・画面の取り込み・タスクトレイ ----
   const prefsFile = path.join(app.getPath('userData'), 'prefs.json');
-  const prefs = (() => { try { return JSON.parse(fs.readFileSync(prefsFile, 'utf8')); } catch { return {}; } })();
+  const prefs = (() => { try { return JSON.parse(fs.readFileSync(prefsFile, 'utf8').replace(/^\uFEFF/, '')); } catch { return {}; } })();
   const savePrefs = () => { try { fs.writeFileSync(prefsFile, JSON.stringify(prefs)); } catch { /* 保存できなくても動く */ } };
   const sendPin = () => { if (!bar.webContents.isDestroyed()) bar.webContents.send('pin', win.isAlwaysOnTop()); if (!wc.isDestroyed()) wc.send('pin', win.isAlwaysOnTop()); };
   const setPin = (on) => { win.setAlwaysOnTop(!!on, 'floating'); prefs.pin = !!on; savePrefs(); sendPin(); updateTray?.(); };
@@ -175,10 +175,27 @@ function createWindow() {
   const failedKeys = new Set();
   const regKey = (action) => { try { if (keys[action] && globalShortcut.register(keys[action], ACTIONS[action])) { failedKeys.delete(action); return true; } } catch { /* 登録できない */ } failedKeys.add(action); return false; };
   Object.keys(ACTIONS).forEach(regKey);
+  // アプリのウィンドウを開いていないとき（× で閉じてバックグラウンドにいるとき・最小化中）にも、ショートカットを使うか（タスクトレイのメニューで切り替え。初期はオン）。
+  // オフのときは、ウィンドウが 1 つでも見えている間だけ、ショートカットを登録する
+  let keysActive = true;
+  const anyOpen = () => (win.isVisible() && !win.isMinimized()) || [...popouts].some((x) => !x.isDestroyed() && x.isVisible());
+  const syncKeys = () => {
+    const want = prefs.bgKeys !== false || anyOpen();
+    if (want === keysActive) return;
+    keysActive = want;
+    if (want) Object.keys(ACTIONS).forEach(regKey);
+    else Object.values(keys).forEach((k) => { if (k) globalShortcut.unregister(k); });
+    updateTray?.();
+  };
+  ['show', 'hide', 'minimize', 'restore'].forEach((ev) => win.on(ev, syncKeys));
   ipcMain.handle('shortcut-status', (e) => (e.sender === wc ? { failed: [...failedKeys].map((a) => keys[a]) } : null));
-  ipcMain.handle('keys-get', (e) => (e.sender === wc ? { keys, defaults: DEFAULT_KEYS, failed: [...failedKeys] } : null));
+  ipcMain.handle('keys-get', (e) => (e.sender === wc ? { keys, defaults: DEFAULT_KEYS, failed: [...failedKeys], active: keysActive, bgKeys: prefs.bgKeys !== false } : null));
   ipcMain.handle('keys-set', (e, action, accel) => { // 割り当てを変える。登録できなければ、元のままにして ok: false
     if (e.sender !== wc || !ACTIONS[action]) return { ok: false };
+    if (!keysActive) { // いまは登録を止めているとき（ウィンドウが見えていない間）は、割り当てだけ保存する
+      if (accel && Object.entries(keys).some(([a, k]) => a !== action && k === accel)) return { ok: false, reason: 'ほかの操作と同じです' };
+      keys[action] = accel || ''; prefs.keys = { ...keys }; savePrefs(); return { ok: true };
+    }
     const old = keys[action];
     if (old) globalShortcut.unregister(old);
     if (accel && Object.entries(keys).some(([a, k]) => a !== action && k === accel)) { if (old) regKey(action); return { ok: false, reason: 'ほかの操作と同じです' }; }
@@ -202,6 +219,7 @@ function createWindow() {
       { label: '表示 / 隠す（Ctrl+Alt+G）', click: toggleWin },
       { label: '画面を取り込んでカードにする（Ctrl+Alt+S）', click: captureToApp },
       { label: '最前面に固定', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (i) => setPin(i.checked) },
+      { label: 'アプリを開いていないときも、ショートカットを使う', type: 'checkbox', checked: prefs.bgKeys !== false, click: (i) => { prefs.bgKeys = i.checked; savePrefs(); syncKeys(); updateTray(); } },
       { type: 'separator' },
       { label: '終了', click: () => app.quit() },
     ]));
@@ -230,7 +248,8 @@ function createWindow() {
     else if (action === 'pin') { w.setAlwaysOnTop(!w.isAlwaysOnTop(), 'floating'); w.webContents.send('win-state', { pin: w.isAlwaysOnTop() }); }
     else if (action === 'hide') w.hide();
     else if (action === 'close') w.close();
-    else if (action === 'store') { stored.add(w); w.hide(); showDock(); setTimeout(() => { if (dockWin && !dockWin.isFocused()) hideDock(); }, 2200); } // しまう: 隠して、左下の一覧に入れる（少しだけ見せる）
+    else if (action === 'store') storeWin(w); // しまう: 隠して、左下の一覧に入れる（少しだけ見せる）
+    else if (action === 'corner-check') checkCorner(w);
   });
   // ---- 外に出したウィンドウを、しまう（隠す）・画面の左下の一覧から取り出す ----
   const stored = new Set(); // しまってあるウィンドウ
@@ -255,11 +274,46 @@ function createWindow() {
   const toggleDock = () => { if (dockWin && !dockWin.isDestroyed() && dockWin.isVisible()) hideDock(); else showDock(); };
   ipcMain.handle('dock-list', (e) => (dockWin && e.sender === dockWin.webContents ? dockItems() : []));
   ipcMain.on('dock-hide', (e) => { if (dockWin && e.sender === dockWin.webContents) hideDock(); });
-  ipcMain.on('dock-restore', (e, id) => {
+  const storeWin = (w) => { stored.add(w); w.hide(); showDock(); setTimeout(() => { if (dockWin && !dockWin.isDestroyed() && !dockWin.isFocused()) hideDock(); }, 2200); };
+  // 画面の左下の角（アプリ内と同じ、角から 88px 以内）
+  const CORNER = 88;
+  const inCorner = (p, d, size = CORNER) => p.x <= d.bounds.x + size && p.y >= d.bounds.y + d.bounds.height - size;
+  // 外に出したウィンドウを、画面の左下の角へドラッグして離したら、しまう
+  const checkCorner = (w) => {
+    if (!w || w.isDestroyed() || !popouts.has(w) || w === searchWin) return;
+    const p = screen.getCursorScreenPoint();
+    if (inCorner(p, screen.getDisplayNearestPoint(p))) storeWin(w);
+  };
+  // 左下の角にカーソルを合わせて、止めると、しまってあるウィンドウの一覧を開く（しまってあるものがあるときだけ見張る）
+  let cornerSince = 0;
+  let cornerArmed = true; // 角から一度離れるまで、続けて開かない
+  setInterval(() => {
+    if (!stored.size) { cornerSince = 0; return; }
+    const p = screen.getCursorScreenPoint();
+    const hit = inCorner(p, screen.getDisplayNearestPoint(p), 6);
+    if (!hit) { cornerSince = 0; cornerArmed = true; return; }
+    if (!cornerArmed || (dockWin && !dockWin.isDestroyed() && dockWin.isVisible())) return;
+    if (!cornerSince) cornerSince = Date.now();
+    else if (Date.now() - cornerSince >= 350) { cornerArmed = false; cornerSince = 0; showDock(); }
+  }, 120);
+  ipcMain.on('dock-drag', (e, on) => { // ドラッグの間だけ、一覧のウィンドウを、画面いっぱいに（透明）
+    if (!dockWin || e.sender !== dockWin.webContents) return;
+    const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    if (on) dockWin.setBounds(d.bounds); else { const wa = d.workArea; dockWin.setBounds({ x: wa.x, y: wa.y + wa.height - 300, width: 440, height: 300 }); }
+  });
+  ipcMain.on('dock-restore', (e, id, pos) => {
     if (!dockWin || e.sender !== dockWin.webContents) return;
     const w = [...stored].find((x) => x.id === id);
     hideDock();
-    if (w && !w.isDestroyed()) { stored.delete(w); w.show(); w.focus(); }
+    if (w && !w.isDestroyed()) {
+      stored.delete(w);
+      if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) { // 離した場所に、ウィンドウを出す（見出しのあたりが、カーソルの位置に来るように）
+        const b = w.getBounds();
+        const wa = screen.getDisplayNearestPoint({ x: Math.round(pos.x), y: Math.round(pos.y) }).workArea;
+        w.setBounds({ x: Math.round(Math.max(wa.x, Math.min(wa.x + wa.width - 120, pos.x - b.width / 2))), y: Math.round(Math.max(wa.y, Math.min(wa.y + wa.height - 60, pos.y - 24))), width: b.width, height: b.height });
+      }
+      w.show(); w.focus();
+    }
   });
   ipcMain.on('dock-close', (e, id) => {
     if (!dockWin || e.sender !== dockWin.webContents) return;
@@ -288,15 +342,18 @@ function createWindow() {
     w.close();
   });
   let searchWin = null; // 検索のウィンドウ（開いていなくても、ショートカットで出せる。使い終わったら、隠して残す）
-  const openPopout = (entry, size) => {
+  const makePopout = (entry, size, hidden = false) => {
     const w = new BrowserWindow({
+      show: !hidden,
       frame: false, transparent: true, hasShadow: false, // 既定の枠はつけず、背景も透明に。アプリ内のウィンドウの形（角の丸み）そのままで外に出る。大きさの変更は、ページ側の縁のつまみから
       width: Math.max(420, Math.min(1600, Math.round(size?.width) || 900)), height: Math.max(360, Math.min(1200, Math.round(size?.height) || 760)),
       minWidth: 360, minHeight: 300, title: 'GeoChecker', icon: path.join(__dirname, 'icon.png'), backgroundColor: '#00000000', autoHideMenuBar: true,
-      webPreferences: { preload: path.join(__dirname, 'site-preload.js') },
+      webPreferences: { preload: path.join(__dirname, 'site-preload.js'), backgroundThrottling: false }, // 隠れている間も、先に読み込みを進める
     });
     popouts.add(w);
-    w.on('closed', () => { popouts.delete(w); stored.delete(w); popIcons.delete(w); sendDock(); });
+    w.on('closed', () => { popouts.delete(w); stored.delete(w); popIcons.delete(w); sendDock(); syncKeys(); });
+    ['show', 'hide'].forEach((ev) => w.on(ev, syncKeys));
+    w.on('moved', () => checkCorner(w)); // ドラッグで動かし終えたとき
     w.on('maximize', () => w.webContents.send('win-state', { max: true }));
     w.on('unmaximize', () => w.webContents.send('win-state', { max: false }));
     w.webContents.setWindowOpenHandler(handleOpen(w));
@@ -304,6 +361,32 @@ function createWindow() {
     w.loadURL(`${SITE}${SITE.includes('?') ? '&' : '?'}popout=${encodeURIComponent(JSON.stringify(entry))}`);
     return w;
   };
+  // 立ち上がりを速くする: 中身が空の外のウィンドウ（アプリの読み込みまで済ませたもの）を、隠して 1 つ先に用意しておく。
+  // 開くときは、それに中身を渡して表示するだけ（読み込みの待ちがない）。使ったら、次の 1 つを用意する
+  let warm = null;
+  let warmReady = false;
+  const ensureWarm = () => {
+    if (quitting || (warm && !warm.isDestroyed())) return;
+    const w = makePopout({ kind: 'idle' }, { width: 900, height: 760 }, true);
+    warm = w; warmReady = false;
+    w.on('closed', () => { if (warm === w) { warm = null; warmReady = false; } });
+  };
+  ipcMain.on('popout-ready', (e) => { const w = ownPopout(e); if (w && w === warm) warmReady = true; }); // 読み込みが終わった（ログイン済みで、中身を受け取れる）
+  const openPopout = (entry, size) => {
+    if (warm && !warm.isDestroyed() && warmReady) {
+      const w = warm; warm = null; warmReady = false;
+      w.setSize(Math.max(420, Math.min(1600, Math.round(size?.width) || 900)), Math.max(360, Math.min(1200, Math.round(size?.height) || 760)));
+      w.center();
+      w.webContents.send('popout-open', entry);
+      w.show(); w.focus();
+      setTimeout(ensureWarm, 800);
+      return w;
+    }
+    const w = makePopout(entry, size);
+    setTimeout(ensureWarm, 3000);
+    return w;
+  };
+  wc.once('did-finish-load', () => setTimeout(ensureWarm, 3000)); // 本体が起動して落ち着いたら、最初の 1 つを用意
   // 検索: アプリのウィンドウが閉じていても（バックグラウンドで動いていれば）、ショートカットで、外に出たウィンドウとして開く。検索結果も、外に出たウィンドウで開く
   function openSearchWin() {
     const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());

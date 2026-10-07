@@ -562,7 +562,7 @@ const assistantDeps = {
 /* ================= 再読み込みしても引き継ぐ（クイズ・暗記の途中・開いていたウィンドウなど） =================
    このタブの sessionStorage に、今の状態を定期的に（と、閉じる・再読み込みの直前に）保存し、起動したときに戻す */
 // Windows 版: 「外に出す」で開いたウィンドウ（?popout=…）。その 1 つの内容だけを、独立した Windows のウィンドウに表示する
-const POPOUT = (() => { try { return JSON.parse(new URLSearchParams(location.search).get('popout') || 'null'); } catch { return null; } })();
+let POPOUT = (() => { try { return JSON.parse(new URLSearchParams(location.search).get('popout') || 'null'); } catch { return null; } })();
 if (POPOUT) document.documentElement.classList.add('is-popout');
 let desktopCaptureBound = false;
 let desktopReturnBound = false;
@@ -729,7 +729,10 @@ async function enterApp() {
   const restored = POPOUT ? null : restoreSession(); // 再読み込み前の状態（クイズ・暗記の位置・絞り込みなど）
   await route();
   restoreOverlays(restored); // 開いていたウィンドウなど
-  if (POPOUT) openPopoutContent(POPOUT);
+  if (POPOUT?.kind === 'idle') { // 先に用意しておくウィンドウ: 読み込みを済ませて待つ。中身が渡されたら、開く
+    window.desktop?.onPopoutOpen?.((entry) => { POPOUT = entry; SEARCH_WIN = entry.kind === 'search'; openPopoutContent(entry); });
+    window.desktop?.popoutReady?.();
+  } else if (POPOUT) openPopoutContent(POPOUT);
   else startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
   if (window.desktop?.onReturnToApp && !POPOUT && !desktopReturnBound) { // 外に出したウィンドウを、アプリの中に戻したとき
     desktopReturnBound = true;
@@ -5028,7 +5031,7 @@ function setupPopoutResize() {
   document.body.append(box);
 }
 // 検索のウィンドウ（ショートカットで、アプリを開いていなくても出せる）: 検索結果は、アプリの中ではなく、いつも外に出たウィンドウで開く
-const SEARCH_WIN = !!POPOUT && POPOUT.kind === 'search';
+let SEARCH_WIN = !!POPOUT && POPOUT.kind === 'search';
 function popOutFromSearch(entry) {
   if (!SEARCH_WIN || !window.desktop?.popOut) return false;
   window.desktop.popOut({ entry, size: { width: 760, height: 780 } });

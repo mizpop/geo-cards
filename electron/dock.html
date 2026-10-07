@@ -9,6 +9,7 @@
   .ico { flex: 1; display: grid; place-items: center; background: #1f2a32; font-size: 38px; min-height: 0; }
   .ico img { width: 56px; height: 56px; object-fit: contain; }
   .tt { padding: 6px 28px 6px 9px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #172027; }
+  .card.dragging { position: fixed; z-index: 9999 !important; transition: none; animation: none; opacity: .92; transform: rotate(-3deg) scale(1.05) !important; box-shadow: 0 14px 34px rgba(0, 0, 0, .75), 0 0 0 2px #38b57d; }
   .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; cursor: pointer; line-height: 1; }
   .x:hover { background: #c2333d; }
   #empty { position: absolute; left: 14px; bottom: 14px; padding: 12px 16px; border-radius: 10px; background: #172027; border: 1px solid #2d3a44; box-shadow: 0 6px 18px rgba(0, 0, 0, .55); color: #94a2ae; }
@@ -31,13 +32,48 @@
       const ico = c.querySelector('.ico');
       if (it.icon) { const im = new Image(); im.src = it.icon; ico.append(im); } else ico.textContent = '🗂';
       c.querySelector('.tt').textContent = it.title;
-      c.addEventListener('click', (e) => { if (e.target.closest('.x')) { window.dock.close(it.id); return; } window.dock.restore(it.id); });
+      // ドラッグで取り出す: カードを、出したい場所（画面のどこでも）に運んで離すと、そこにウィンドウが開く。少ししか動かさなかったときは、クリックとして、しまう前の位置に出す
+      let st = null;
+      // ウィンドウの大きさが変わっても（ドラッグの間は画面いっぱいに広げる）途切れないように、動きは、ページ全体で受ける
+      const onMove = (e) => {
+        if (!st) return;
+        if (!st.started) {
+          if (Math.hypot(e.screenX - st.sx, e.screenY - st.sy) < 6) return;
+          st.started = true;
+          window.dock.drag(true);
+          c.classList.add('dragging');
+        }
+        c.style.left = `${e.clientX - st.dx}px`; c.style.top = `${e.clientY - st.dy}px`; c.style.bottom = 'auto';
+      };
+      const end = (e, cancelled) => {
+        document.removeEventListener('pointermove', onMove, true);
+        document.removeEventListener('pointerup', onUp, true);
+        document.removeEventListener('pointercancel', onCancel, true);
+        if (!st) return;
+        const s = st; st = null;
+        if (s.started) { if (cancelled) { window.dock.drag(false); c.classList.remove('dragging'); c.style.left = c.style.top = c.style.bottom = ''; } else window.dock.restore(it.id, { x: e.screenX, y: e.screenY }); }
+        else if (!cancelled) window.dock.restore(it.id);
+      };
+      const onUp = (e) => end(e, false);
+      const onCancel = (e) => end(e, true);
+      c.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || e.target.closest('.x')) return;
+        const r = c.getBoundingClientRect();
+        st = { sx: e.screenX, sy: e.screenY, dx: e.clientX - r.left, dy: e.clientY - r.top, started: false };
+        document.addEventListener('pointermove', onMove, true);
+        document.addEventListener('pointerup', onUp, true);
+        document.addEventListener('pointercancel', onCancel, true);
+      });
       c.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); window.dock.close(it.id); } }); // ホイールクリックで削除
       fan.append(c);
     });
   };
   window.dock.list().then(draw);
   window.dock.onList(draw);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.dock.hide(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { window.dock.drag(false); window.dock.hide(); } });
+  // カーソルが一覧のウィンドウから出て、しばらくそのままなら、閉じる（ドラッグ中は閉じない）
+  let leaveTimer = null;
+  document.addEventListener('mouseleave', () => { clearTimeout(leaveTimer); leaveTimer = setTimeout(() => { if (!document.querySelector('.dragging')) window.dock.hide(); }, 700); });
+  document.addEventListener('mouseenter', () => clearTimeout(leaveTimer));
   document.addEventListener('mousedown', (e) => { if (e.target === document.body || e.target === document.documentElement) window.dock.hide(); });
 </script>
