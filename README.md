@@ -232,3 +232,5 @@ Windows 版アプリは、Discord アプリが起動しているとき、今見�
 - アプリ側の入口は `window.desktop`（`electron/site-preload.js`）: `captureScreen` / `onCapture` / `getAlwaysOnTop` / `setAlwaysOnTop` / `getShortcutStatus`
 - **ウィンドウを外に出す**: カード・国・参考写真・Plonkit・ストリートビューのウィンドウの ↗ で、独立した Windows のウィンドウに（`?popout=…` で同じサイトを開き、その 1 つだけを全面に表示。ログインは同じ保存を共有）
 - **× で閉じてもバックグラウンド**: タスクトレイに残る（終了は、トレイのメニューの「終了」）。トレイが使えないときは、普通に閉じる
+- **全体のショートカットの割り当て**: 設定から変更（`prefs.keys` に保存）。初期値: 画面の取り込み Ctrl+Alt+S・表示/隠す Ctrl+Alt+G・しまってあるウィンドウの一覧 Ctrl+Alt+D
+- **外に出したウィンドウをしまう**: 見出しの ▾ で隠し、一覧（`electron/dock.html`・画面の左下に出る透明なウィンドウ）から取り出す

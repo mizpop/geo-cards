@@ -17,7 +17,10 @@ contextBridge.exposeInMainWorld('desktop', {
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
   onCapture: (fn) => ipcRenderer.on('capture', (_e, url) => fn(url)),
   // 外に出したウィンドウの操作（枠がないので、見出しのボタンから）
-  winControl: (action) => ipcRenderer.send('win-control', action), // 'minimize' | 'maximize' | 'pin' | 'close'
+  winControl: (action) => ipcRenderer.send('win-control', action), // 'minimize' | 'maximize' | 'pin' | 'store' | 'close'
+  setWinIcon: (dataUrl) => ipcRenderer.send('win-icon', dataUrl), // タスクバーのアイコン
+  getKeys: () => ipcRenderer.invoke('keys-get'), // 全体のショートカットの割り当て { keys, defaults, failed }
+  setKey: (action, accel) => ipcRenderer.invoke('keys-set', action, accel), // 'capture' | 'toggle' | 'dock'
   getWinBounds: () => ipcRenderer.invoke('win-bounds'),
   setWinBounds: (b) => ipcRenderer.send('win-set-bounds', b),
   getWinState: () => ipcRenderer.invoke('win-state'),

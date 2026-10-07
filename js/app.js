@@ -255,7 +255,8 @@ function openSettings() {
     <section class="set-group">
       ${item('画面を取り込んでカードにする', 'どのアプリを見ていても <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Alt</kbd>+<kbd class="kbd">S</kbd> で、マウスのある画面を撮って、トリミングの画面とカードの作成画面を開きます（GeoGuessr のプレイ中の場面を、そのままカードに）', '<button type="button" class="btn btn-sm" id="set-capture">今すぐ取り込む</button>')}
       ${item('最前面に固定', 'ほかのアプリの上に、いつも表示します（GeoGuessr を見ながら使うとき）。上のバーのピンのボタンでも切り替えられます', '<label class="switch"><input type="checkbox" id="set-pin"><span class="switch-track"><span class="switch-thumb"></span></span></label>')}
-      <p class="set-desc" id="desktop-keys">全体のショートカット: <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Alt</kbd>+<kbd class="kbd">G</kbd> で、アプリを表示 / 隠す（タスクトレイのアイコンでも）</p>
+      <p class="set-desc">全体のショートカット（どのアプリを見ていても使えます）。押す組み合わせを変えるには、右のボタンを押して、使いたいキーを押してください（Esc でやめる・Delete で割り当てなし）</p>
+      <div class="set-keys" id="desktop-keys"></div>
     </section>` : ''}
     ${window.desktop?.setPresence ? `<h3 class="set-group-title">🎮 Discord</h3>
     <section class="set-group">
@@ -456,7 +457,7 @@ function openSettings() {
     const pin = $('#set-pin');
     window.desktop.getAlwaysOnTop().then((on) => { if (pin?.isConnected) pin.checked = !!on; });
     pin?.addEventListener('change', () => window.desktop.setAlwaysOnTop(pin.checked));
-    window.desktop.getShortcutStatus?.().then((st) => { const el = $('#desktop-keys'); if (el?.isConnected && st?.failed?.length) el.innerHTML += `<br><b>登録できなかったショートカット:</b> ${st.failed.map(esc).join('、')}（ほかのアプリが使っています）`; });
+    initDesktopKeys($('#desktop-keys'));
   }
   $('#set-reset').addEventListener('click', () => { settings = { ...DEFAULT_SETTINGS }; saveSettings(); openSettings(); });
   // Discord につながっているかを出す（Windows 版）
@@ -1382,6 +1383,7 @@ function showNav(entry) {
     renderCountryModal(entry);
   }
   W.current = entry;
+  if (POPOUT) popoutIdentity(W); // 外に出したウィンドウ: タスクバーのタイトル・アイコンを、中身に合わせる
   // 参考写真の説明・撮影地点は大きいデータなので、必要になったときに読み込んで表示し直す
   if ((entry.kind === 'photo' || (entry.kind === 'card' && String(entry.id).startsWith('ref|'))) && !refInfoLoaded()) {
     const w = W; // 読み込み中に別のウィンドウへ移っても、このウィンドウに描き直す
@@ -2168,6 +2170,7 @@ function setupWindow(m) {
   if (POPOUT && window.desktop?.winControl) { // 外に出したウィンドウ: 枠がないので、見出しに操作のボタンを置く（アプリの中に戻す・最前面に固定・最小化・最大化）
     mk('win-return', 'アプリの中に戻す', '⤺', () => { const e = popOutEntry(win); if (e) window.desktop.returnToApp(e); });
     mk('win-pin', '最前面に固定（ほかのアプリの上に常に表示）', '📌', () => window.desktop.winControl('pin'));
+    mk('win-store', 'しまう（画面の左下の一覧に入れる。Ctrl+Alt+D で出る一覧から取り出せます）', '▾', () => window.desktop.winControl('store'));
     mk('win-minimize', '最小化', '—', () => window.desktop.winControl('minimize'));
     mk('win-maximize', '大きく / 元の大きさ', '⤢', () => window.desktop.winControl('maximize'));
     window.desktop.getWinState?.().then((st) => { const b = $('#win-pin', m); if (b && st) b.classList.toggle('is-on', !!st.pin); });
@@ -4906,6 +4909,84 @@ async function popOutWindow(w) {
   if (ok) closeModal(w); else toast('ウィンドウを外に出せませんでした', 'error');
 }
 if (POPOUT && window.desktop?.onWinState) window.desktop.onWinState((st) => { if ('max' in st) document.documentElement.classList.toggle('is-popout-max', !!st.max); if ('pin' in st) document.querySelectorAll('#win-pin, #sv-pin').forEach((b) => b.classList.toggle('is-on', !!st.pin)); });
+// Windows 版だけの全体のショートカット: 割り当ての表示・変更（押したキーの組み合わせを、Electron の Accelerator の形にして渡す）
+const DESKTOP_KEY_ACTIONS = [['capture', '画面を取り込んでカードにする'], ['toggle', 'アプリを表示 / 隠す'], ['dock', 'しまってあるウィンドウの一覧を出す（画面の左下）']];
+const prettyAccel = (a) => (a ? a.replace(/CommandOrControl/g, 'Ctrl').replace(/Return/g, 'Enter') : '割り当てなし');
+function accelFromEvent(e) {
+  const mods = [];
+  if (e.ctrlKey || e.metaKey) mods.push('CommandOrControl');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  let key = null;
+  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  else if (/^F([1-9]|1\d|2[0-4])$/.test(e.key)) key = e.key;
+  else key = { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Space: 'Space', Tab: 'Tab', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Insert: 'Insert' }[e.code] || null;
+  if (!key) return null;
+  if (!mods.length && !/^F/.test(key)) return null; // 修飾キー（Ctrl・Alt・Shift）なしは、ふだんの入力と重なるので不可（F キーは可）
+  return [...mods, key].join('+');
+}
+async function initDesktopKeys(root) {
+  if (!root || !window.desktop?.getKeys) return;
+  const draw = async () => {
+    const st = await window.desktop.getKeys();
+    if (!root.isConnected || !st) return;
+    root.innerHTML = DESKTOP_KEY_ACTIONS.map(([a, label]) => `<div class="set-key-row"><span>${esc(label)}</span><button type="button" class="btn btn-sm key-btn ${st.failed.includes(a) ? 'is-bad' : ''}" data-act="${a}" title="押して、使いたいキーを押す">${esc(prettyAccel(st.keys[a]))}</button><button type="button" class="btn btn-ghost btn-sm" data-reset="${a}" title="初期の割り当て（${esc(prettyAccel(st.defaults[a]))}）に戻す" ${st.keys[a] === st.defaults[a] ? 'disabled' : ''}>戻す</button>${st.failed.includes(a) ? '<span class="small key-warn">ほかのアプリが使っていて、登録できていません</span>' : ''}</div>`).join('');
+    root.querySelectorAll('[data-reset]').forEach((b) => b.addEventListener('click', async () => { const r = await window.desktop.setKey(b.dataset.reset, st.defaults[b.dataset.reset]); if (!r.ok) toast(r.reason || '登録できませんでした', 'error'); draw(); }));
+    root.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
+      b.textContent = 'キーを押してください…';
+      b.classList.add('is-listening');
+      const done = () => { document.removeEventListener('keydown', onKey, true); b.classList.remove('is-listening'); };
+      const onKey = async (e) => {
+        if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+        e.preventDefault(); e.stopPropagation();
+        if (e.key === 'Escape') { done(); draw(); return; }
+        if (e.key === 'Delete' || e.key === 'Backspace') { done(); await window.desktop.setKey(b.dataset.act, ''); draw(); return; }
+        const acc = accelFromEvent(e);
+        if (!acc) { toast('Ctrl・Alt・Shift のいずれかと、文字・数字・矢印などのキーを一緒に押してください', 'error'); return; }
+        done();
+        const r = await window.desktop.setKey(b.dataset.act, acc);
+        toast(r.ok ? `${prettyAccel(acc)} に割り当てました` : (r.reason || '登録できませんでした'), r.ok ? undefined : 'error');
+        draw();
+      };
+      document.addEventListener('keydown', onKey, true);
+    }));
+  };
+  draw();
+}
+// 外に出したウィンドウ: OS のタスクバーに出るタイトルとアイコンを、中身に合わせる（国なら国旗、ほかは絵文字）
+const iconCache = new Map();
+async function iconDataUrl(flagCode, emoji) {
+  const key = flagCode || emoji;
+  if (iconCache.has(key)) return iconCache.get(key);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  if (flagCode) {
+    try {
+      const blob = await (await fetch(flagUrl(flagCode))).blob();
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const w = 60; const h = Math.max(24, Math.min(60, Math.round(w * (img.naturalHeight / img.naturalWidth || 0.66))));
+      g.save(); g.beginPath(); g.roundRect(2, (64 - h) / 2, w, h, 6); g.clip(); g.drawImage(img, 2, (64 - h) / 2, w, h); g.restore();
+      URL.revokeObjectURL(url);
+    } catch { g.font = '48px "Segoe UI Emoji", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('🌐', 32, 36); }
+  } else { g.font = '48px "Segoe UI Emoji", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(emoji, 32, 36); }
+  const url = cv.toDataURL('image/png');
+  iconCache.set(key, url);
+  return url;
+}
+async function popoutIdentity(w) {
+  const e = w.current;
+  if (!e) return;
+  const label = dockLabel(w);
+  document.title = label || 'GeoChecker'; // Electron が、ウィンドウのタイトル（タスクバーの表示）に反映する
+  const flag = e.kind === 'country' ? e.code : null;
+  const emoji = { card: '🃏', photo: '📷', plonkit: '📖', panel: '🗂' }[e.kind] || '🗂';
+  try { window.desktop?.setWinIcon?.(await iconDataUrl(flag, emoji)); } catch { /* 既定のアイコンのまま */ }
+}
 // 外に出したウィンドウの縁のつまみ（透明なウィンドウは、縁をドラッグしても、大きさを変えられないため）
 function setupPopoutResize() {
   if (!POPOUT || !window.desktop?.setWinBounds || document.getElementById('po-resize')) return;
@@ -4948,7 +5029,7 @@ function openPopoutContent(e) {
   else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
   else if (e.kind === 'photo') openPhotoModal(e.topic, e.code, e.srcs, e.i);
   else if (e.kind === 'plonkit') openPlonkitWindow(e.code, null, e.slug);
-  else if (e.kind === 'sv') openSvWindow(e.lat, e.lng, { heading: e.heading, pitch: e.pitch, fov: e.fov });
+  else if (e.kind === 'sv') { openSvWindow(e.lat, e.lng, { heading: e.heading, pitch: e.pitch, fov: e.fov }); if (POPOUT) { document.title = 'ストリートビュー'; iconDataUrl(null, '🧍').then((u) => window.desktop?.setWinIcon?.(u)).catch(() => {}); } }
 }
 
 // ---- AI・メモを、ウィンドウとして開く（パネルの中身を、そのままウィンドウの中に入れる）----

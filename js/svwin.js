@@ -269,7 +269,7 @@ function ensure(inst) {
       <button type="button" class="icon-btn sv-btn" id="sv-card" title="この場所でカードを作る（国と場所を入れた状態で作成画面を開きます）" aria-label="この場所でカードを作る" hidden>📍</button>
       <button type="button" class="icon-btn sv-btn" id="sv-link" title="いる地点を、既存のカードに関連付ける（保存していなければ、保存してから関連付けます）" aria-label="既存のカードに関連付ける" hidden>🔗</button>
       <a class="icon-btn sv-btn" id="sv-ext" target="_blank" rel="noopener" title="Google マップで開く" aria-label="Google マップで開く">↗</a>
-      ${document.documentElement.classList.contains('is-popout') && window.desktop?.winControl ? '<button type="button" class="icon-btn sv-btn" id="sv-return" title="アプリの中に戻す" aria-label="アプリの中に戻す">⤺</button><button type="button" class="icon-btn sv-btn" id="sv-pin" title="最前面に固定（ほかのアプリの上に常に表示）" aria-label="最前面に固定">📌</button><button type="button" class="icon-btn sv-btn" id="sv-minimize" title="最小化" aria-label="最小化">—</button><button type="button" class="icon-btn sv-btn" id="sv-maximize" title="大きく / 元の大きさ" aria-label="大きく">⤢</button>' : ''}
+      ${document.documentElement.classList.contains('is-popout') && window.desktop?.winControl ? '<button type="button" class="icon-btn sv-btn" id="sv-return" title="アプリの中に戻す" aria-label="アプリの中に戻す">⤺</button><button type="button" class="icon-btn sv-btn" id="sv-pin" title="最前面に固定（ほかのアプリの上に常に表示）" aria-label="最前面に固定">📌</button><button type="button" class="icon-btn sv-btn" id="sv-store" title="しまう（画面の左下の一覧に入れる）" aria-label="しまう">▾</button><button type="button" class="icon-btn sv-btn" id="sv-minimize" title="最小化" aria-label="最小化">—</button><button type="button" class="icon-btn sv-btn" id="sv-maximize" title="大きく / 元の大きさ" aria-label="大きく">⤢</button>' : ''}
       ${window.desktop?.popOut && !document.documentElement.classList.contains('is-popout') ? '<button type="button" class="icon-btn sv-btn" id="sv-pop" title="ウィンドウを外に出す（独立した Windows のウィンドウで開く）" aria-label="ウィンドウを外に出す">↗</button>' : ''}
       <button type="button" class="icon-btn sv-btn" id="sv-min" title="一時的に縮小（ヘッダーだけにする）" aria-label="縮小">—</button>
       <button type="button" class="icon-btn sv-btn" id="sv-max" title="大きく / 元の大きさ（ヘッダーのダブルクリックでも）" aria-label="大きく表示">⤢</button>
@@ -294,6 +294,7 @@ function ensure(inst) {
 
   L(panel.querySelector('#sv-close')).addEventListener('click', () => { closeSvWindow(inst); if (document.documentElement.classList.contains('is-popout')) setTimeout(() => window.close(), 60); }); // 外に出したウィンドウは、閉じたら Windows のウィンドウも閉じる
   panel.querySelector('#sv-pin')?.addEventListener('click', () => window.desktop.winControl('pin'));
+  panel.querySelector('#sv-store')?.addEventListener('click', () => window.desktop.winControl('store'));
   panel.querySelector('#sv-minimize')?.addEventListener('click', () => window.desktop.winControl('minimize'));
   panel.querySelector('#sv-maximize')?.addEventListener('click', () => window.desktop.winControl('maximize'));
   panel.querySelector('#sv-return')?.addEventListener('click', () => { if (point) window.desktop.returnToApp({ kind: 'sv', lat: point[0], lng: point[1], heading: view.heading, pitch: view.pitch, fov: view.fov }); });

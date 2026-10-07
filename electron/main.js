@@ -167,10 +167,30 @@ function createWindow() {
     } catch (err) { new Notification({ title: 'GeoChecker', body: String(err.message || err) }).show(); }
   };
   ipcMain.handle('capture-screen', async (e) => { if (e.sender !== wc) return null; await captureToApp(); return true; });
-  const regs = [['CommandOrControl+Alt+S', captureToApp], ['CommandOrControl+Alt+G', toggleWin]];
-  const failed = regs.filter(([k, fn]) => { try { return !globalShortcut.register(k, fn); } catch { return true; } }).map(([k]) => k);
-  ipcMain.handle('shortcut-status', (e) => (e.sender === wc ? { failed } : null));
-  win.on('closed', () => { regs.forEach(([k]) => globalShortcut.unregister(k)); tray?.destroy(); });
+  let dockWin = null; // 画面の左下に出す「しまってあるウィンドウ」の一覧
+  // 全体のショートカット（どのアプリを見ていても使える）。割り当ては、設定の画面から変えられる（prefs.keys に保存）
+  const DEFAULT_KEYS = { capture: 'CommandOrControl+Alt+S', toggle: 'CommandOrControl+Alt+G', dock: 'CommandOrControl+Alt+D' };
+  const ACTIONS = { capture: () => captureToApp(), toggle: () => toggleWin(), dock: () => toggleDock() };
+  const keys = { ...DEFAULT_KEYS, ...(prefs.keys || {}) };
+  const failedKeys = new Set();
+  const regKey = (action) => { try { if (keys[action] && globalShortcut.register(keys[action], ACTIONS[action])) { failedKeys.delete(action); return true; } } catch { /* 登録できない */ } failedKeys.add(action); return false; };
+  Object.keys(ACTIONS).forEach(regKey);
+  ipcMain.handle('shortcut-status', (e) => (e.sender === wc ? { failed: [...failedKeys].map((a) => keys[a]) } : null));
+  ipcMain.handle('keys-get', (e) => (e.sender === wc ? { keys, defaults: DEFAULT_KEYS, failed: [...failedKeys] } : null));
+  ipcMain.handle('keys-set', (e, action, accel) => { // 割り当てを変える。登録できなければ、元のままにして ok: false
+    if (e.sender !== wc || !ACTIONS[action]) return { ok: false };
+    const old = keys[action];
+    if (old) globalShortcut.unregister(old);
+    if (accel && Object.entries(keys).some(([a, k]) => a !== action && k === accel)) { if (old) regKey(action); return { ok: false, reason: 'ほかの操作と同じです' }; }
+    keys[action] = accel || '';
+    let ok = true;
+    if (accel) { try { ok = globalShortcut.register(accel, ACTIONS[action]); } catch { ok = false; } }
+    if (!ok) { keys[action] = old; if (old) regKey(action); return { ok: false, reason: 'ほかのアプリが使っているため、登録できません' }; }
+    failedKeys.delete(action);
+    prefs.keys = { ...keys }; savePrefs();
+    return { ok: true };
+  });
+  win.on('closed', () => { globalShortcut.unregisterAll(); tray?.destroy(); dockWin?.destroy(); });
   // タスクトレイ: クリックで表示 / 隠す
   let tray = null;
   let updateTray = null;
@@ -208,6 +228,47 @@ function createWindow() {
     else if (action === 'maximize') (w.isMaximized() ? w.unmaximize() : w.maximize());
     else if (action === 'pin') { w.setAlwaysOnTop(!w.isAlwaysOnTop(), 'floating'); w.webContents.send('win-state', { pin: w.isAlwaysOnTop() }); }
     else if (action === 'close') w.close();
+    else if (action === 'store') { stored.add(w); w.hide(); showDock(); setTimeout(() => { if (dockWin && !dockWin.isFocused()) hideDock(); }, 2200); } // しまう: 隠して、左下の一覧に入れる（少しだけ見せる）
+  });
+  // ---- 外に出したウィンドウを、しまう（隠す）・画面の左下の一覧から取り出す ----
+  const stored = new Set(); // しまってあるウィンドウ
+  const popIcons = new Map(); // ウィンドウ → アイコン（data URL。一覧に出す用）
+  const dockItems = () => [...stored].filter((w) => !w.isDestroyed()).map((w) => ({ id: w.id, title: w.getTitle(), icon: popIcons.get(w) || null }));
+  const sendDock = () => { if (dockWin && !dockWin.isDestroyed()) dockWin.webContents.send('dock-list', dockItems()); };
+  const hideDock = () => { if (dockWin && !dockWin.isDestroyed()) dockWin.hide(); };
+  const showDock = () => {
+    if (!dockWin || dockWin.isDestroyed()) {
+      dockWin = new BrowserWindow({ width: 440, height: 300, frame: false, transparent: true, hasShadow: false, resizable: false, skipTaskbar: true, show: false, alwaysOnTop: true, backgroundColor: '#00000000', webPreferences: { preload: path.join(__dirname, 'dock-preload.js') } });
+      dockWin.loadFile(path.join(__dirname, 'dock.html'));
+      dockWin.on('blur', () => hideDock()); // ほかをクリックしたら、閉じる
+    }
+    const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()); // マウスのある画面の、左下
+    const wa = d.workArea;
+    dockWin.setBounds({ x: wa.x, y: wa.y + wa.height - 300, width: 440, height: 300 });
+    dockWin.setAlwaysOnTop(true, 'screen-saver');
+    sendDock();
+    dockWin.show();
+    dockWin.focus();
+  };
+  const toggleDock = () => { if (dockWin && !dockWin.isDestroyed() && dockWin.isVisible()) hideDock(); else showDock(); };
+  ipcMain.handle('dock-list', (e) => (dockWin && e.sender === dockWin.webContents ? dockItems() : []));
+  ipcMain.on('dock-hide', (e) => { if (dockWin && e.sender === dockWin.webContents) hideDock(); });
+  ipcMain.on('dock-restore', (e, id) => {
+    if (!dockWin || e.sender !== dockWin.webContents) return;
+    const w = [...stored].find((x) => x.id === id);
+    hideDock();
+    if (w && !w.isDestroyed()) { stored.delete(w); w.show(); w.focus(); }
+  });
+  ipcMain.on('dock-close', (e, id) => {
+    if (!dockWin || e.sender !== dockWin.webContents) return;
+    const w = [...stored].find((x) => x.id === id);
+    if (w && !w.isDestroyed()) { stored.delete(w); w.destroy(); }
+    sendDock();
+    if (!stored.size) hideDock();
+  });
+  ipcMain.on('win-icon', (e, url) => { // タスバーのアイコン（国なら国旗・ほかは絵文字）
+    const w = ownPopout(e); if (!w || typeof url !== 'string' || !url.startsWith('data:image/')) return;
+    try { w.setIcon(nativeImage.createFromDataURL(url)); popIcons.set(w, url); } catch { /* 無視 */ }
   });
   ipcMain.handle('win-bounds', (e) => ownPopout(e)?.getBounds() || null);
   ipcMain.on('win-set-bounds', (e, b) => { // 透明なウィンドウは、Windows では縁をドラッグしても大きさを変えられないので、ページ側のつまみから
@@ -226,13 +287,13 @@ function createWindow() {
   });
   const openPopout = (entry, size) => {
     const w = new BrowserWindow({
-      frame: false, transparent: true, hasShadow: false, backgroundColor: '#00000000', // 既定の枠はつけず、背景も透明に。アプリ内のウィンドウの形（角の丸み）そのままで外に出る。大きさの変更は、ページ側の縁のつまみから
+      frame: false, transparent: true, hasShadow: false, // 既定の枠はつけず、背景も透明に。アプリ内のウィンドウの形（角の丸み）そのままで外に出る。大きさの変更は、ページ側の縁のつまみから
       width: Math.max(420, Math.min(1600, Math.round(size?.width) || 900)), height: Math.max(360, Math.min(1200, Math.round(size?.height) || 760)),
-      minWidth: 360, minHeight: 300, title: 'GeoChecker', icon: path.join(__dirname, 'icon.png'), backgroundColor: '#0e1418', autoHideMenuBar: true,
+      minWidth: 360, minHeight: 300, title: 'GeoChecker', icon: path.join(__dirname, 'icon.png'), backgroundColor: '#00000000', autoHideMenuBar: true,
       webPreferences: { preload: path.join(__dirname, 'site-preload.js') },
     });
     popouts.add(w);
-    w.on('closed', () => popouts.delete(w));
+    w.on('closed', () => { popouts.delete(w); stored.delete(w); popIcons.delete(w); sendDock(); });
     w.on('maximize', () => w.webContents.send('win-state', { max: true }));
     w.on('unmaximize', () => w.webContents.send('win-state', { max: false }));
     w.webContents.setWindowOpenHandler(handleOpen(w));

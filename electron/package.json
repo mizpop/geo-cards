@@ -1,7 +1,7 @@
 {
   "name": "geochecker",
   "productName": "GeoChecker",
-  "version": "1.5.3",
+  "version": "1.6.0",
   "description": "GeoChecker（GeoGuessr 学習アプリ）のデスクトップ版。公開中のサイトを読み込むので、サイトの更新は自動で反映されます",
   "main": "main.js",
   "author": "mizpop",
@@ -21,6 +21,8 @@
       "main.js",
       "preload.js",
       "site-preload.js",
+      "dock-preload.js",
+      "dock.html",
       "discord.js",
       "icon.png",
       "package.json"
