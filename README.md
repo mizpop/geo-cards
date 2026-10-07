@@ -178,7 +178,6 @@ js/updatenotice.js      更新されて初めて起動したときの、右上�
 js/dock.js              ウィンドウをしまう場所（左下の角。トランプのカードのように広がる）
 js/cardpreview.js       関連カードなどにポインターを合わせたときの、カードのプレビュー（PC のみ）
 js/plonkit.js           Plonkit のガイド（日本語）のウィンドウの描画・ストリートビューへのリンク
-js/blur.js              ナンバープレートのぼかし（範囲の指定画面・ぼかした画像の生成）
 functions/api/plonkit.js Plonkit のガイドの取得・翻訳・画像の中継（Cloudflare Pages Functions）
 functions/_auth.js      ログイン確認の共通部分
 scripts/fetch-plonkit.mjs   Plonkit の全ガイドを data/plonkit-en.json に保存
