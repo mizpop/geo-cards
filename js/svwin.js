@@ -249,7 +249,7 @@ function refreshButtons() {
   }
 }
 /** 保存の状態が変わったとき（保存済みの表示を更新する） */
-export function refreshSvWindow() { const keep = cur; for (const i of svs) { if (!i.panel) continue; use(i); refreshButtons(); } if (keep) use(keep); }
+export function refreshSvWindow() { const keep = cur; for (const i of svs) { if (!i.panel) continue; use(i); refreshButtons(); i.mini?.drawSaved?.(); } if (keep) use(keep); }
 
 function ensure(inst) {
   use(inst);
@@ -303,6 +303,24 @@ function ensure(inst) {
 // 小さい地図: いる場所に近づいた状態で開き、押した場所のストリートビューに移る
   const mm = { map: null, marker: null, opening: false };
   inst.mini = {
+    drawSaved: () => { // 保存したストリートビューの場所を、小さい地図には常に出す（押すと、その場所を開く）
+      if (!mm.map || !mm.saved) return;
+      mm.saved.clearLayers();
+      const Lf = window.L;
+      for (const r of hooks.listSaved?.() || []) {
+        const ll = [Number(r.lat), Number(r.lng)];
+        if (!Number.isFinite(ll[0]) || !Number.isFinite(ll[1])) continue;
+        const m = Lf.marker(ll, { icon: Lf.divIcon({ className: 'sv-saved-pin sv-saved-mini', html: `<span>${SV_ICON}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }), keyboard: false, zIndexOffset: 500 });
+        m.bindTooltip(hooks.label?.(r) || 'ストリートビュー', { direction: 'top', offset: [0, -10] });
+        m.on('click', (ev) => {
+          Lf.DomEvent.stopPropagation(ev);
+          mm.self = true;
+          try { use(inst); active = inst; openSvWindow(ll[0], ll[1], { heading: Number(r.heading) || 0, pitch: Number(r.pitch) || 0, fov: Number(r.fov) || 0 }); } finally { mm.self = false; }
+          mm.marker?.setLatLng(ll);
+        });
+        mm.saved.addLayer(m);
+      }
+    },
     sync: () => { // いる場所が変わったら、目印と中心を合わせる
       const pt = inst.point || (inst === cur ? point : null);
       if (!mm.map || !pt) return;
@@ -334,6 +352,7 @@ function ensure(inst) {
         // ストリートビューのある道路を青く（地図タブと同じタイル）
         mm.map.createPane('svCoverage').style.cssText = 'z-index:450;pointer-events:none';
         Lf.tileLayer(SV_COVERAGE_TILE, { pane: 'svCoverage', tileSize: 128, zoomOffset: 1, maxNativeZoom: 20, maxZoom: 19, updateWhenZooming: false, keepBuffer: 1, attribution: '' }).addTo(mm.map);
+        mm.saved = Lf.layerGroup().addTo(mm.map);
         mm.marker = Lf.circleMarker(pt, { radius: 7, color: '#fff', weight: 2, fillColor: '#e8590c', fillOpacity: 1, interactive: false }).addTo(mm.map);
         window.__svMiniMap = mm.map; // デバッグ・動作確認用
         let clickSeq = 0;
@@ -357,6 +376,7 @@ function ensure(inst) {
           mm.marker.setLatLng([hit.lat, hit.lng]);
         });
       }
+      inst.mini.drawSaved();
       mm.map.invalidateSize();
       mm.map.setView(pt, point ? 15 : 3, { animate: false }); // 今のいる場所に近づいた状態で開く
       mm.marker.setLatLng(pt);
