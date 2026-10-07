@@ -10,7 +10,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { editBlur, blurredUrl, cleanRegions } from './blur.js';
-import { loadGuide, guideHtml, tocHtml, bindGuide } from './plonkit.js';
+import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
 import { initAssistant, teardownAssistant, raiseAssistant, openAssistant, getAssistantSession, setAssistantSession, embedAssistant } from './assistant.js';
@@ -4896,11 +4896,12 @@ function renderPlonkitModal(entry) {
     if (!el.contains(body) || w.current !== entry) return;
     const { body: html, toc } = guideHtml(g);
     body.innerHTML = `
-      ${g.hero ? `<div class="pk-hero"><img src="/api/plonkit?img=${encodeURIComponent(g.hero)}" alt="" loading="lazy"></div>` : ''}
+      ${g.hero ? `<div class="pk-hero pk-pic"><img data-src="/api/plonkit?img=${encodeURIComponent(g.hero)}" alt=""></div>` : ''}
       ${g.translated ? '' : `<div class="pk-note">${g.lang === 'ja' ? '一部は翻訳できなかったため、英語のままです。' : '翻訳の設定（GEMINI_API_KEY）がないため、英語のままです。'}</div>`}
       ${html}
       <p class="pk-credit muted small">出典: <a href="${orig}" target="_blank" rel="noopener">Plonk It（${esc(g.title || slug)}）</a>の内容を日本語に翻訳したものです（機械翻訳）。</p>`;
     tocEl.innerHTML = tocHtml(toc);
+    loadImages(body);
     bindGuide(body, {
       api: api,
       toast,

@@ -88,11 +88,11 @@ export function guideHtml(g) {
     toc.push({ id: sid, title: s.title, level: 1 });
     const items = s.items.map((it) => {
       if (it.k === 'div') { const id = `pk-${n++}`; toc.push({ id, title: it.title, level: 2 }); return `<h4 class="pk-div" id="${id}">${esc(it.title)}</h4>`; }
-      if (it.k === 'img') return `<figure class="pk-wide"><img src="${esc(imgSrc(it.img))}" alt="" loading="lazy"></figure>`;
+      if (it.k === 'img') return `<figure class="pk-wide pk-pic"><img data-src="${esc(imgSrc(it.img))}" alt=""></figure>`;
       const link = it.link || '';
       const sv = link && !/\.(png|jpe?g|webp|gif)(\?|$)/i.test(link) ? svAttr(link) : '';
       const w = it.w > 0 ? Math.max(28, Math.min(60, Math.round(it.w * 100))) : 40;
-      const img = it.img ? `<figure class="pk-img" style="--w:${w}%"><img src="${esc(imgSrc(it.img))}" alt="${esc(it.alt)}" loading="lazy" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}</figure>` : '';
+      const img = it.img ? `<figure class="pk-img pk-pic" style="--w:${w}%"><img data-src="${esc(imgSrc(it.img))}" alt="${esc(it.alt)}" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}</figure>` : '';
       return `<div class="pk-tip ${img ? '' : 'is-text'}">${img}<div class="pk-text">${textHtml(it.text)}</div></div>`;
     }).join('');
     return `<section class="pk-step" id="${sid}"><h3 class="pk-step-title">${esc(s.title)}</h3>${items}</section>`;
@@ -102,6 +102,45 @@ export function guideHtml(g) {
 
 export function tocHtml(toc) {
   return toc.map((t) => `<a href="#${t.id}" class="pk-toc-item lv${t.level}" data-pk-to="${t.id}">${esc(t.title)}</a>`).join('');
+}
+
+/** 画像を、画面に近づいたものから、少しずつ（同時に 4 枚まで）読み込む。Plonkit が続けての取得を断ることがあるので、失敗したら間をあけてやり直す */
+export function loadImages(root) {
+  const queue = [];
+  let active = 0;
+  const pump = () => {
+    while (active < 4 && queue.length) {
+      const img = queue.shift();
+      if (!img.isConnected) continue;
+      active++;
+      const done = () => { active--; pump(); };
+      const tries = Number(img.dataset.tries || 0);
+      img.onload = () => { img.closest('.pk-pic')?.classList.remove('is-failed'); img.closest('.pk-pic')?.classList.add('is-loaded'); done(); };
+      img.onerror = () => {
+        if (tries < 3) { img.dataset.tries = String(tries + 1); setTimeout(() => { queue.push(img); pump(); }, 1500 * (tries + 1)); } else img.closest('.pk-pic')?.classList.add('is-failed');
+        done();
+      };
+      const src = img.dataset.src;
+      img.src = tries ? `${src}${src.includes('?') ? '&' : '?'}r=${tries}` : src;
+    }
+  };
+  const start = (img) => { if (img.dataset.queued) return; img.dataset.queued = '1'; queue.push(img); pump(); };
+  const imgs = [...root.querySelectorAll('img[data-src]')];
+  if (!('IntersectionObserver' in window)) imgs.forEach(start);
+  else {
+    const io = new IntersectionObserver((list) => { for (const e of list) if (e.isIntersecting) { io.unobserve(e.target); const i = e.target.querySelector('img[data-src]'); if (i) start(i); } }, { rootMargin: '600px 0px' });
+    imgs.forEach((i) => io.observe(i.closest('.pk-pic') || i)); // 画像の入れ物（高さのある枠）を見張る
+  }
+  // 読み込めなかった画像は、押すと、もう一度試す
+  root.addEventListener('click', (e) => {
+    const f = e.target.closest('.pk-pic.is-failed');
+    if (!f) return;
+    e.preventDefault(); e.stopPropagation();
+    const img = f.querySelector('img');
+    f.classList.remove('is-failed');
+    img.dataset.tries = '0';
+    queue.push(img); pump();
+  }, true);
 }
 
 /** 画像・リンクを押したときの動作。openSv(lat, lng, {heading, pitch, fov}, newWindow) はアプリのストリートビュー */

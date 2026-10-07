@@ -2581,3 +2581,15 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .blur-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
 .blur-foot .grow { flex: 1; }
 .img-blur-wait { visibility: hidden; }
+
+/* Plonkit の画像: 読み込み中・失敗しても、高さを保って、仕切りの線やバッジと重ならないようにする */
+.pk-pic { min-height: 110px; background: var(--surface-2); border-radius: var(--radius-sm); overflow: hidden; }
+.pk-pic.is-loaded { min-height: 0; background: none; overflow: visible; }
+.pk-pic img:not([src]) { visibility: hidden; }
+.pk-pic:not(.is-loaded):not(.is-failed) { background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%) 0 0 / 200% 100%; animation: pk-shimmer 1.4s linear infinite; }
+@keyframes pk-shimmer { to { background-position: -200% 0; } }
+.pk-pic.is-failed { display: grid; place-items: center; cursor: pointer; min-height: 110px; }
+.pk-pic.is-failed img { display: none; }
+.pk-pic.is-failed::after { content: '画像を読み込めませんでした（押すと再試行）'; padding: 12px; text-align: center; font-size: 12px; color: var(--muted); }
+.pk-pic:not(.is-loaded) .pk-badge { display: none; }
+.pk-tip { padding: 14px 0; }

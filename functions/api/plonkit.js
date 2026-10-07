@@ -149,12 +149,19 @@ async function guideResponse(request, env, ctx, slug) {
   return new Response(body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
+const safeEncode = (p) => { try { return encodeURI(decodeURI(p)); } catch { return p; } };
 async function imageResponse(path) {
-  if (!/^\/(images|static|uploads)\/[\w\-./%() ]+$/.test(path) || path.includes('..')) return new Response('bad request', { status: 400 });
-  const res = await fetch(ORIGIN + path, { headers: { referer: `${ORIGIN}/`, 'user-agent': UA }, cf: { cacheTtl: 604800, cacheEverything: true } }).catch(() => null);
-  if (!res?.ok) return new Response('not found', { status: 404 });
+  if (!/^\/(images|static|uploads)\/[^?#\\]+$/.test(path) || path.includes('..')) return new Response('bad request', { status: 400 });
+  // Plonkit は、短い間に続けて取りにいくと、断る（403・429）ことがあるので、少し待って、やり直す
+  let res = null;
+  for (let i = 0; i < 3; i++) {
+    res = await fetch(ORIGIN + safeEncode(path), { headers: { referer: `${ORIGIN}/`, 'user-agent': UA, accept: 'image/*' }, cf: { cacheTtl: 604800, cacheEverything: true } }).catch(() => null);
+    if (res?.ok || (res && res.status === 404)) break;
+    await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+  }
+  if (!res?.ok) return new Response(`upstream ${res?.status || 'error'}`, { status: res?.status === 404 ? 404 : 502, headers: { 'cache-control': 'no-store', 'x-upstream-status': String(res?.status || 0) } });
   const type = res.headers.get('content-type') || '';
-  if (!type.startsWith('image/')) return new Response('not an image', { status: 415 });
+  if (!type.startsWith('image/')) return new Response('not an image', { status: 415, headers: { 'cache-control': 'no-store' } });
   return new Response(res.body, { headers: { 'content-type': type, 'cache-control': 'public, max-age=604800' } });
 }
 
