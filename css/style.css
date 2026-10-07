@@ -2570,7 +2570,7 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .sv-panel[popover] { margin: 0; padding: 0; color: var(--text); overflow: hidden; }
 
 /* ---------- ナンバープレートのカードの画像を、全体ぼかす（設定） ---------- */
-.plate-blur-on img[data-plate] { filter: blur(16px); }
+.plate-blur-on img[data-plate] { filter: blur(var(--plate-blur, 16px)); }
 
 /* Plonkit の画像: 読み込み中・失敗しても、高さを保って、仕切りの線やバッジと重ならないようにする */
 .pk-pic { min-height: 110px; background: var(--surface-2); border-radius: var(--radius-sm); overflow: hidden; }
@@ -2603,3 +2603,9 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 
 .tile.tile-country { border-top: 1px solid var(--border); }
 .tile.tile-country:hover, .tile.tile-country:focus-visible { border-top-color: var(--accent); }
+
+/* 設定: ナンバープレートのぼかしの強さ */
+.blur-range { display: flex; align-items: center; gap: 12px; width: 100%; }
+.blur-range input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.blur-range output { min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.blur-sample { padding: 2px 10px; border-radius: 4px; background: #f2f2f2; color: #111; font: 700 16px/1.4 monospace; letter-spacing: .08em; filter: blur(var(--plate-blur, 16px)); overflow: hidden; }

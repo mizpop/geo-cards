@@ -153,6 +153,7 @@ const DEFAULT_SETTINGS = {
   autoNext: false, // クイズで正解したら自動で次へ
   hoverExpand: true, // 地図: 国にマウスを乗せて止まると詳しいプレビューを表示
   cardSort: 'new', // 編集画面・検索結果の並び順（CARD_SORTS）
+  blurStrength: 16, // ナンバープレートのぼかしの強さ（px。大きいほど強い）
   blurPlates: false, // 暗記・クイズで、「ナンバープレート」カテゴリーのカードの画像全体をぼかす
   mapLite: 'auto', // 地図の軽量表示: auto（低スペックの端末で自動）/ on / off
   mapTiles: 'en', // 地図の背景: en（国名・地名が英語表記）/ osm（OpenStreetMap・現地の言語）
@@ -175,6 +176,7 @@ function applySettings() {
   else root.dataset.theme = settings.theme;
   setMuted(!settings.sound);
   root.classList.toggle('plate-blur-on', !!settings.blurPlates);
+  root.style.setProperty('--plate-blur', `${Math.max(1, Math.min(60, Number(settings.blurStrength) || 16))}px`);
   setTileStyle(settings.mapTiles);
   setMapLite(settings.mapLite);
   const sb = document.getElementById('sound-btn');
@@ -235,6 +237,7 @@ function openSettings() {
       ${item('最初に見る面', '「裏」から始めると、国名から特徴を思い出す練習に', seg('studyStart', [['front', '表（画像）'], ['back', '裏（国名）']]), true)}
       ${item('表面に説明文を表示', 'オフにすると画像だけで答える練習に', sw('showDesc'))}
       ${item('ナンバープレートをぼかす', '「ナンバープレート」カテゴリーのカードの画像を、暗記・クイズで、全体ぼかします（答えを見てもぼかしたまま。たとえば、ナンバーの文字が読めない状態で、色や形・位置から当てる練習に）', sw('blurPlates'))}
+      ${item('ぼかしの強さ', 'ナンバープレートのぼかしの強さ。大きいほど、文字が読めなくなります（値が見えるプレビューつき）', `<span class="blur-range"><input type="range" id="set-blur" min="2" max="40" step="1" value="${Number(settings.blurStrength) || 16}" aria-label="ぼかしの強さ"><span class="blur-sample" aria-hidden="true">AB 12-34</span><output id="set-blur-n">${Number(settings.blurStrength) || 16}</output></span>`, true)}
       ${item('正解したら自動で次へ', 'クイズで ○ のとき 1.2 秒後に次の問題へ', sw('autoNext'))}
     </section>
     <h3 class="set-group-title">🗺 地図</h3>
@@ -369,6 +372,11 @@ function openSettings() {
   };
   renderSyncBox();
   const changed = () => { saveSettings(); };
+  $('#set-blur')?.addEventListener('input', (e) => { // ぼかしの強さ: 動かしている間も、開いている画面にすぐ反映する
+    settings.blurStrength = Number(e.target.value);
+    $('#set-blur-n').textContent = e.target.value;
+    changed();
+  });
   $$('.switch input', W.el).forEach((cb) => cb.addEventListener('change', () => { settings[cb.dataset.key] = cb.checked; changed(); }));
   $$('.seg', W.el).forEach((g) => g.addEventListener('click', (e) => {
     const b = e.target.closest('button');
