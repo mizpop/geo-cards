@@ -2257,9 +2257,28 @@ function dockThumb(w) {
   return { emoji: '🗂' };
 }
 
+// 主ウィンドウ（#modal）は、設定・更新履歴・学習記録・編集などのモーダルにも使うので、浮かぶウィンドウとして開いていた中身（カード・国・Plonkit・AI・メモなど）は、
+// 追加のウィンドウに移してから使う（そのまま開くと、中身が消えてしまうため）
+function keepMainContent() {
+  const w = W0;
+  const e = w.current;
+  if (!canWindow() || !w.el.open || !w.el.classList.contains('is-window') || !e || e.kind === 'editor' || w.el.classList.contains('is-closing')) return;
+  const x = createWin();
+  x.rect = w.rect; x.stack = w.stack; x.current = e;
+  const keep = ['is-max', 'is-min', 'is-snap'].filter((c) => w.el.classList.contains(c));
+  const wasSnap = snappedSide(w.el);
+  w.stack = [];
+  w.current = null;
+  w.el.close();
+  activate(x);
+  showNav(e);
+  keep.forEach((c) => x.el.classList.add(c));
+  if (wasSnap) x.el.__win?.snap?.(wasSnap);
+  activate(W0);
+}
 function openModal(html, cls = '', nav = false) {
   const asWindow = nav && canWindow();
-  if (!asWindow) activate(W0); // モーダル（編集・設定など）は、主ウィンドウで開く
+  if (!asWindow) { activate(W0); keepMainContent(); } // モーダル（編集・設定・更新履歴など）は、主ウィンドウで開く。主ウィンドウに開いていた中身は、追加のウィンドウに移して残す
   else if (forceNewWin) claimNewWin(); // 右クリックで開いたときは、新しいウィンドウに
   else if (W.docked) undockWin(W, false); // しまってあったウィンドウに開くときは、取り出す
   const m = W.el;
