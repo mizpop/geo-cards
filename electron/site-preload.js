@@ -9,4 +9,13 @@ contextBridge.exposeInMainWorld('desktop', {
   setPresence: (data) => ipcRenderer.send('presence', data || null),
   // Discord につながっているか（'ready' など）
   getPresenceStatus: () => ipcRenderer.invoke('presence-status'),
+  // 最前面に固定（ほかのアプリの上に常に表示）
+  getAlwaysOnTop: () => ipcRenderer.invoke('get-pin'),
+  setAlwaysOnTop: (on) => ipcRenderer.send('set-pin', !!on),
+  onAlwaysOnTop: (fn) => ipcRenderer.on('pin', (_e, on) => fn(on)),
+  // 画面の取り込み（Ctrl+Alt+S でも。どのアプリを見ていても使える）: 撮れた画像（data URL）が届く
+  captureScreen: () => ipcRenderer.invoke('capture-screen'),
+  onCapture: (fn) => ipcRenderer.on('capture', (_e, url) => fn(url)),
+  // 全体のショートカットの登録状況（ほかのアプリと重なって登録できなかったものの一覧）
+  getShortcutStatus: () => ipcRenderer.invoke('shortcut-status'),
 });

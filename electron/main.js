@@ -1,6 +1,7 @@
 // GeoChecker のデスクトップ版: 公開中のサイトを読み込むだけの入れ物。サイトを更新すれば、このアプリにも自動で反映される
 // 上の細いバー（タイトルバー）に再読み込みボタンを置くため、バーとサイトを別々の画面（WebContentsView）にしている
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, globalShortcut, desktopCapturer, screen, Tray, Menu, nativeImage, Notification } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { DiscordPresence } = require('./discord');
 
@@ -19,11 +20,16 @@ const barHtml = `<!doctype html><meta charset="utf-8"><style>
   #t{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;opacity:.85}
   /* 右端の最小化・最大化・閉じるのボタン（約 140px）の左に置く */
   #r{-webkit-app-region:no-drag;margin-right:146px;width:30px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
-  #r:hover{background:#2a3640}#r:active{background:#34f0a022}
+  #p{-webkit-app-region:no-drag;margin-right:4px;width:30px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;opacity:.7}
+  #p.on{opacity:1;color:#34f0a0;background:#34f0a022}
+  #r:hover,#p:hover{background:#2a3640}#r:active{background:#34f0a022}
 </style><div id="t">GeoChecker</div>
+<button id="p" title="最前面に固定（ほかのアプリの上に常に表示。ゲームを見ながら使うとき）" aria-label="最前面に固定"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 6 3 3H7l3-3z"/></svg></button>
 <button id="r" title="再読み込み（Ctrl+R）／ Shift を押しながらで、キャッシュも捨てて読み込み直す" aria-label="再読み込み"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
 <script>
   document.getElementById('r').addEventListener('click', (e) => window.bar.reload(e.shiftKey));
+  document.getElementById('p').addEventListener('click', () => window.bar.togglePin());
+  window.bar.onPin((on) => document.getElementById('p').classList.toggle('on', on));
   window.bar.onTitle((t) => { document.getElementById('t').textContent = t || 'GeoChecker'; });
 </script>`;
 
@@ -106,6 +112,61 @@ function createWindow() {
   // 再読み込み: ボタン・Ctrl+R・F5（Shift を足すとキャッシュも捨てる）
   const reload = (hard) => { const u = wc.getURL(); if (!u || u.startsWith('data:')) wc.loadURL(SITE); else if (hard) wc.reloadIgnoringCache(); else wc.reload(); };
   ipcMain.on('reload', (e, hard) => { if (e.sender === bar.webContents) reload(hard); });
+  // ---- Windows 版だけの機能: 最前面に固定・どのアプリを見ていても使えるショートカット・画面の取り込み・タスクトレイ ----
+  const prefsFile = path.join(app.getPath('userData'), 'prefs.json');
+  const prefs = (() => { try { return JSON.parse(fs.readFileSync(prefsFile, 'utf8')); } catch { return {}; } })();
+  const savePrefs = () => { try { fs.writeFileSync(prefsFile, JSON.stringify(prefs)); } catch { /* 保存できなくても動く */ } };
+  const sendPin = () => { if (!bar.webContents.isDestroyed()) bar.webContents.send('pin', win.isAlwaysOnTop()); if (!wc.isDestroyed()) wc.send('pin', win.isAlwaysOnTop()); };
+  const setPin = (on) => { win.setAlwaysOnTop(!!on, 'floating'); prefs.pin = !!on; savePrefs(); sendPin(); updateTray?.(); };
+  if (prefs.pin) win.setAlwaysOnTop(true, 'floating');
+  bar.webContents.on('did-finish-load', sendPin);
+  ipcMain.on('toggle-pin', (e) => { if (e.sender === bar.webContents) setPin(!win.isAlwaysOnTop()); });
+  ipcMain.handle('get-pin', (e) => (e.sender === wc ? win.isAlwaysOnTop() : null));
+  ipcMain.on('set-pin', (e, on) => { if (e.sender === wc) setPin(on); });
+  const showWin = () => { if (win.isMinimized()) win.restore(); win.show(); win.focus(); };
+  const toggleWin = () => { if (win.isVisible() && win.isFocused()) win.hide(); else showWin(); };
+  // 画面の取り込み: マウスのある画面を撮って、アプリのカードの作成画面へ（自分のウィンドウは、一瞬だけ透明にして写さない）
+  const captureScreen = async () => {
+    const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const wasVisible = win.isVisible();
+    const op = win.getOpacity();
+    if (wasVisible) { win.setOpacity(0); await new Promise((r) => setTimeout(r, 120)); }
+    try {
+      const size = { width: Math.round(d.size.width * d.scaleFactor), height: Math.round(d.size.height * d.scaleFactor) };
+      const srcs = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: size });
+      const src = srcs.find((x) => String(x.display_id) === String(d.id)) || srcs[0];
+      if (!src || src.thumbnail.isEmpty()) throw new Error('画面を取り込めませんでした');
+      return src.thumbnail.toDataURL();
+    } finally { if (wasVisible) win.setOpacity(op || 1); }
+  };
+  const captureToApp = async () => {
+    try {
+      const url = await captureScreen();
+      showWin();
+      if (!wc.isDestroyed()) wc.send('capture', url);
+    } catch (err) { new Notification({ title: 'GeoChecker', body: String(err.message || err) }).show(); }
+  };
+  ipcMain.handle('capture-screen', async (e) => { if (e.sender !== wc) return null; await captureToApp(); return true; });
+  const regs = [['CommandOrControl+Alt+S', captureToApp], ['CommandOrControl+Alt+G', toggleWin]];
+  const failed = regs.filter(([k, fn]) => { try { return !globalShortcut.register(k, fn); } catch { return true; } }).map(([k]) => k);
+  ipcMain.handle('shortcut-status', (e) => (e.sender === wc ? { failed } : null));
+  win.on('closed', () => { regs.forEach(([k]) => globalShortcut.unregister(k)); tray?.destroy(); });
+  // タスクトレイ: クリックで表示 / 隠す
+  let tray = null;
+  let updateTray = null;
+  try {
+    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'icon.png')).resize({ width: 16, height: 16 }));
+    tray.setToolTip('GeoChecker（クリックで表示 / 隠す）');
+    tray.on('click', toggleWin);
+    updateTray = () => tray?.setContextMenu(Menu.buildFromTemplate([
+      { label: '表示 / 隠す（Ctrl+Alt+G）', click: toggleWin },
+      { label: '画面を取り込んでカードにする（Ctrl+Alt+S）', click: captureToApp },
+      { label: '最前面に固定', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (i) => setPin(i.checked) },
+      { type: 'separator' },
+      { label: '終了', click: () => app.quit() },
+    ]));
+    updateTray();
+  } catch { /* トレイが使えなくても動く */ }
   wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F5' || ((input.control || input.meta) && input.key.toLowerCase() === 'r')) { e.preventDefault(); reload(input.shift); }

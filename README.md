@@ -224,3 +224,9 @@ Windows 版アプリは、Discord アプリが起動しているとき、今見�
 ### Plonkit の画像
 ガイドの画像は、GitHub の `Currywarrior/geoguessr-guide`（Plonkit の画像を WebP で集めたもの）から、jsDelivr（CDN）経由で直接読み込みます（`js/plonkit.js` の `CDN`。コミットを固定）。そこにない画像（約 7 枚）と読み込めなかった画像は、`/api/plonkit?img=`（Plonkit から取得して中継）を使います。Plonkit は短時間の連続した取得を断る（429）ので、中継は予備です。
 - 予備として、R2 に画像を入れて配信することもできます（バインディング `PLONKIT_IMAGES`。`scripts/mirror-plonkit-images.mjs` で保存 → `scripts/compress-plonkit-images.mjs` で圧縮 → `scripts/upload-plonkit-images.mjs` で入れる）。通常は不要です。
+
+### Windows 版だけの機能
+- **画面の取り込み（Ctrl+Alt+S）**: どのアプリを見ていても、マウスのある画面を撮って、トリミング → カードの作成画面へ（`desktopCapturer`。自分のウィンドウは写らないよう一瞬だけ透明に）
+- **最前面に固定**: 上のバーのピンのボタン・設定・タスクトレイ。状態はユーザーデータの `prefs.json` に保存
+- **Ctrl+Alt+G**: アプリの表示 / 隠す。タスクトレイのアイコンでも
+- アプリ側の入口は `window.desktop`（`electron/site-preload.js`）: `captureScreen` / `onCapture` / `getAlwaysOnTop` / `setAlwaysOnTop` / `getShortcutStatus`

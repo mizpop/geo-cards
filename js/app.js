@@ -251,6 +251,12 @@ function openSettings() {
     <section class="set-group" id="sync-box"></section>
     ${offlineSupported() ? `<h3 class="set-group-title">📴 オフライン学習</h3>
     <section class="set-group" id="offline-box"></section>` : ''}
+    ${window.desktop?.captureScreen ? `<h3 class="set-group-title">🖥 Windows 版の機能</h3>
+    <section class="set-group">
+      ${item('画面を取り込んでカードにする', 'どのアプリを見ていても <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Alt</kbd>+<kbd class="kbd">S</kbd> で、マウスのある画面を撮って、トリミングの画面とカードの作成画面を開きます（GeoGuessr のプレイ中の場面を、そのままカードに）', '<button type="button" class="btn btn-sm" id="set-capture">今すぐ取り込む</button>')}
+      ${item('最前面に固定', 'ほかのアプリの上に、いつも表示します（GeoGuessr を見ながら使うとき）。上のバーのピンのボタンでも切り替えられます', '<label class="switch"><input type="checkbox" id="set-pin"><span class="switch-track"><span class="switch-thumb"></span></span></label>')}
+      <p class="set-desc" id="desktop-keys">全体のショートカット: <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Alt</kbd>+<kbd class="kbd">G</kbd> で、アプリを表示 / 隠す（タスクトレイのアイコンでも）</p>
+    </section>` : ''}
     ${window.desktop?.setPresence ? `<h3 class="set-group-title">🎮 Discord</h3>
     <section class="set-group">
       <p class="set-desc" id="discord-status">状態を確認しています…</p>
@@ -445,6 +451,13 @@ function openSettings() {
     };
     window.addEventListener('keydown', onKey, true);
   }));
+  if (window.desktop?.captureScreen) { // Windows 版: 画面の取り込み・最前面に固定
+    $('#set-capture')?.addEventListener('click', () => { window.desktop.captureScreen(); });
+    const pin = $('#set-pin');
+    window.desktop.getAlwaysOnTop().then((on) => { if (pin?.isConnected) pin.checked = !!on; });
+    pin?.addEventListener('change', () => window.desktop.setAlwaysOnTop(pin.checked));
+    window.desktop.getShortcutStatus?.().then((st) => { const el = $('#desktop-keys'); if (el?.isConnected && st?.failed?.length) el.innerHTML += `<br><b>登録できなかったショートカット:</b> ${st.failed.map(esc).join('、')}（ほかのアプリが使っています）`; });
+  }
   $('#set-reset').addEventListener('click', () => { settings = { ...DEFAULT_SETTINGS }; saveSettings(); openSettings(); });
   // Discord につながっているかを出す（Windows 版）
   if (window.desktop?.getPresenceStatus) {
@@ -547,6 +560,7 @@ const assistantDeps = {
 
 /* ================= 再読み込みしても引き継ぐ（クイズ・暗記の途中・開いていたウィンドウなど） =================
    このタブの sessionStorage に、今の状態を定期的に（と、閉じる・再読み込みの直前に）保存し、起動したときに戻す */
+let desktopCaptureBound = false;
 let sessionReady = false; // 戻し終わるまでは保存しない（途中の空の状態で、前の状態を上書きしないように）
 const sessionUser = () => state.user?.id || state.user?.email || '';
 function snapshotSession() {
@@ -711,6 +725,14 @@ async function enterApp() {
   await route();
   restoreOverlays(restored); // 開いていたウィンドウなど
   startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
+  if (window.desktop?.onCapture && !desktopCaptureBound) { // Windows 版: Ctrl+Alt+S で取り込んだ画面を、カードの作成画面へ
+    desktopCaptureBound = true;
+    window.desktop.onCapture(async (url) => {
+      if (!state.user) return;
+      if (!state.user.isEditor) { toast('画面の取り込みでカードを作れるのは、編集者のみです', 'error'); return; }
+      try { openEditor(null, { blob: await (await fetch(url)).blob(), editCrop: true }); } catch (ex) { toast(`取り込めませんでした: ${ex.message}`, 'error'); }
+    });
+  }
   setTimeout(() => showUpdateNoticeIfNeeded({ openChangelog }), 1200); // 更新されて初めて起動したときの通知（右上）
   sessionReady = true;
   startLive();
@@ -2539,9 +2561,9 @@ function renderStudy() {
       </div>
       <div class="study-nav">
         <button class="btn btn-round" id="study-prev" aria-label="前へ" ${s.index === 0 ? 'disabled' : ''}>←</button>
-        <button class="btn btn-mark mark-ng" id="study-ng" title="まだ覚えていない（すぐまた出ます）">😣 まだ<kbd>${esc(keyLabel(keys.unknown))}</kbd></button>
+        <button class="btn btn-mark mark-ng" id="study-ng" title="まだ覚えていない（すぐまた出ます）">😣 まだ<kbd class="kbd">${esc(keyLabel(keys.unknown))}</kbd></button>
         ${split ? '' : '<button class="btn btn-primary" id="study-flip">めくる</button>'}
-        <button class="btn btn-mark mark-ok" id="study-ok" title="覚えた（次に出るまでの間隔が空きます）">👍 覚えた<kbd>${esc(keyLabel(keys.known))}</kbd></button>
+        <button class="btn btn-mark mark-ok" id="study-ok" title="覚えた（次に出るまでの間隔が空きます）">👍 覚えた<kbd class="kbd">${esc(keyLabel(keys.known))}</kbd></button>
         <button class="btn btn-round" id="study-next" aria-label="次へ" ${s.index >= total - 1 ? 'disabled' : ''}>→</button>
       </div>
       <p class="hint">${split ? '<span class="tab-long">← → で移動・画像はホイールで拡大、ドラッグで移動</span><span class="tab-short">左右スワイプで移動・ピンチで拡大</span>' : '<span class="tab-long">クリック / スペースキーでめくる・← → で移動・画像はホイールで拡大、ドラッグで移動</span><span class="tab-short">タップでめくる・左右スワイプで移動・ピンチで拡大</span>'}</p>
@@ -4509,7 +4531,7 @@ function openEditor(card, preset = {}) {
   };
   $('#ed-annot').addEventListener('click', () => runImageEdit());
   // 参考写真などから作るときの初期値
-  if (preset.blob) setImage(preset.blob);
+  if (preset.blob) setImage(preset.blob).then(() => { if (preset.editCrop) runImageEdit({ tool: 'crop' }); }); // 画面の取り込みのときは、そのままトリミングの画面へ
   if (preset.description) $('#ed-desc').value = preset.description;
   if (preset.notes) $('#ed-notes').value = preset.notes;
   if (preset.area) $('#ed-area').value = preset.area;
