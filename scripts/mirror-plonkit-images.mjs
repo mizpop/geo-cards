@@ -14,8 +14,8 @@ for (const u of all) {
   const file = path.join(root, u);
   if (fs.existsSync(file)) { skipped++; continue; }
   for (let tries = 0; tries < 8; tries++) {
-    const r = await fetch(`https://www.plonkit.net${encodeURI(u)}`, { headers: { referer: 'https://www.plonkit.net/', 'user-agent': 'Mozilla/5.0 (GeoChecker image mirror)' } }).catch(() => null);
-    if (r?.status === 429) { await sleep((Number(r.headers.get('retry-after')) || 10) * 1000 + 500); continue; }
+    const r = await fetch(`https://www.plonkit.net${encodeURI(u)}`, { headers: { referer: 'https://www.plonkit.net/', 'user-agent': 'Mozilla/5.0 (GeoChecker image mirror)' }, signal: AbortSignal.timeout(30000) }).catch(() => null);
+    if (r?.status === 429) { await sleep((Number(r.headers.get('retry-after')) || 10) * 1000 + 5000); continue; }
     if (r?.ok && (r.headers.get('content-type') || '').startsWith('image/')) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
@@ -24,7 +24,7 @@ for (const u of all) {
     break;
   }
   if ((done + failed.length) % 50 === 0) console.log(`${done + skipped}/${all.length} 取得済み（失敗 ${failed.length}）経過 ${Math.round((Date.now() - t0) / 60000)} 分`);
-  await sleep(300);
+  await sleep(1500); // 約 9 枚続けて取ると断られる（断られるたびに待ち時間が延びる）ので、ゆっくり
 }
 fs.writeFileSync(path.join(root, '_failed.txt'), failed.join('\n'));
 console.log(`完了: 取得 ${done} / 既存 ${skipped} / 失敗 ${failed.length}`);

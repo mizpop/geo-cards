@@ -225,6 +225,7 @@ Windows 版アプリは、Discord アプリが起動しているとき、今見�
 ### Plonkit の画像を R2 に保管する
 Plonkit は画像の取得を短時間に続けると断る（429）ため、全画像（約 5,400 枚・約 2.6GB）を Cloudflare R2 に保管して配信します。
 1. `node scripts/mirror-plonkit-images.mjs`（制限に合わせて待ちながら、全画像を `../plonkit-images` に保存。2 時間ほど。途中から再開できる）
+1.5. 圧縮（見た目はほぼ変わらず、約 4 割小さくなる）: `npm i sharp` のあと `node scripts/compress-plonkit-images.mjs ../plonkit-images ../plonkit-images-opt`（途中から再開できる。環境によって sharp が止まるときは、Windows 側の Node で実行）。以降の手順では、圧縮後のフォルダーを使う
 2. Cloudflare の R2 でバケット（例: `plonkit-images`）を作り、「R2 API トークン」（オブジェクトの読み書き）の Access Key ID・Secret とアカウント ID を控える
 3. `cd scripts && npm i --no-save @aws-sdk/client-s3` のあと、`R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=plonkit-images node scripts/upload-plonkit-images.mjs`
 4. Pages プロジェクトの「設定 → バインド → R2 バケット」で、変数名 `PLONKIT_IMAGES`、バケットを選んで追加（再デプロイ）
