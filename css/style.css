@@ -2570,7 +2570,7 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .sv-panel[popover] { margin: 0; padding: 0; color: var(--text); overflow: hidden; }
 
 /* ---------- ナンバープレートのカードの画像を、全体ぼかす（設定） ---------- */
-.plate-blur-on #view img[data-plate], .plate-blur-on .quiz-card img[data-plate] { filter: blur(16px); }
+.plate-blur-on img[data-plate] { filter: blur(16px); }
 
 /* Plonkit の画像: 読み込み中・失敗しても、高さを保って、仕切りの線やバッジと重ならないようにする */
 .pk-pic { min-height: 110px; background: var(--surface-2); border-radius: var(--radius-sm); overflow: hidden; }

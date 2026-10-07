@@ -1184,7 +1184,7 @@ function svFrontHtml(card) {
 const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
 // 暗記・クイズで、設定がオンのとき、「ナンバープレート」カテゴリーのカードの画像は、全体をぼかす
-const isPlateCard = (card) => !card.sv && !card.photo && /ナンバー|plate/i.test(catOf(card).name);
+const isPlateCard = (card) => !card.sv && (card.photo ? card.topic === 'plate' : /ナンバー|plate/i.test(catOf(card).name)); // 参考写真は、種類がナンバープレートのもの
 const faceImgAttrs = (card, src) => `src="${esc(src)}"${isPlateCard(card) ? ' data-plate="1"' : ''}`; // ぼかすかどうかは、設定（html の plate-blur-on）で切り替わる。設定を変えると、すぐに反映される
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
   if (card.sv) return svFrontHtml(card);
@@ -1569,7 +1569,7 @@ function renderPhotoModal(entry) {
     </div>
     <div class="detail ${entry.enter ? `enter-${entry.enter}` : ''}">
       <div class="detail-front">
-        <div class="front-img"><img src="${esc(srcs[i])}" alt="${esc(countryName(code))}の${esc(m.name)}の参考写真"></div>
+        <div class="front-img"><img src="${esc(srcs[i])}"${topic === 'plate' ? ' data-plate="1"' : ''} alt="${esc(countryName(code))}の${esc(m.name)}の参考写真"></div>
         <p class="muted small photo-credit">写真: <a href="${REF_PAGES[topic] || 'https://geohints.com/'}" target="_blank" rel="noopener">GeoHints</a></p>
       </div>
       <div class="detail-back">
