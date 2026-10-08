@@ -265,20 +265,25 @@ export async function onRequestPost({ request, env }) {
     const spec = OR_MODELS[body.model];
     const msgs = [{ role: 'system', content: system }, ...messages.map((m) => ({ role: m.role, content: m.text }))];
     if (img) msgs[msgs.length - 1].content = [{ type: 'text', text: msgs[msgs.length - 1].content }, { type: 'image_url', image_url: { url: `data:${img.media_type};base64,${img.data}` } }];
-    let r = null;
-    try {
-      r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'http-referer': origin, 'x-title': 'GeoChecker' },
-        body: JSON.stringify({ model: spec.id, messages: msgs, stream: true, max_tokens: Math.min(MAX_OUT, 8000) }),
-      });
-    } catch { /* 接続できなかった */ }
-    if (r?.ok && r.body) return new Response(simplifyCf(r.body, spec.label, false), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+    const callOr = async (s) => {
+      try {
+        return await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'http-referer': origin, 'x-title': 'GeoChecker' },
+          body: JSON.stringify({ model: s.id, messages: msgs, stream: true, max_tokens: Math.min(MAX_OUT, 8000) }),
+        });
+      } catch { return null; }
+    };
+    let r = await callOr(spec);
+    let used = spec;
+    // 選んだ無料モデルが混み合って断られたときは、無料モデルを自動で選ぶ方（openrouter/free）でやり直す
+    if (r && SWITCH_ON.has(r.status) && spec !== OR_MODELS['openrouter-free']) { const r2 = await callOr(OR_MODELS['openrouter-free']); if (r2?.ok) { r = r2; used = OR_MODELS['openrouter-free']; } }
+    if (r?.ok && r.body) return new Response(simplifyCf(r.body, used.label, used !== spec), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
     if (!r) return json({ error: 'network', manual: true, message: 'OpenRouter に接続できませんでした' }, 502);
     let message = '';
     try { message = (await r.json())?.error?.message || ''; } catch { /* 本文なし */ }
     if (r.status === 401 || r.status === 403) return json({ error: 'bad_key', message: 'OpenRouter の API キーが無効か、権限がありません' }, 502);
-    if (r.status === 429) return json({ error: 'rate_limited', manual: true, model: spec.label, message: 'OpenRouter の無料枠の上限か、混み合いで断られました。少し待ってからもう一度お試しください' }, 429);
+    if (r.status === 429) return json({ error: 'rate_limited', manual: true, model: spec.label, message: `OpenRouter の無料枠の上限か、混み合いで断られました。少し待ってからもう一度お試しください${message ? `（${message.slice(0, 160)}）` : ''}` }, 429);
     return json({ error: 'busy', manual: true, model: spec.label, status: r.status, message: `OpenRouter から答えをもらえませんでした${message ? `（${message.slice(0, 120)}）` : ''}` }, 503);
   }
   let res = null;

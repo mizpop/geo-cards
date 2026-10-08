@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v107',
+    date: '2026-10-09',
+    sections: [
+      {
+        title: '修正',
+        items: ['OpenRouter で、選んだ無料モデルが混み合って断られたときは、「無料モデルを自動で選ぶ」でやり直す。それでも断られたときは、OpenRouter の返した理由も表示する'],
+      },
+    ],
+  },
+  {
     version: 'v106',
     date: '2026-10-09',
     sections: [
