@@ -103,8 +103,8 @@ export function parseProposals(text, tips, catNames, max = 20) {
     used.add(n);
     const cat = catNames.find((x) => x === c.category) || catNames.find((x) => String(c.category || '').includes(x) || x.includes(String(c.category || '!'))) || '';
     const sv = svLinkOf(tip);
-    const alsoText = (Array.isArray(c.also) ? c.also : []).map((x) => cleanText(x)).filter(Boolean).slice(0, 12).join('、');
-    list.push({ tip: n, item: tip, alsoText, front: cleanText(c.front).slice(0, 200), back: cleanText(c.back).slice(0, 1200), category: cat, area: cleanText(c.area).slice(0, 100), sv, svOn: !!sv });
+    const alsoRaw = (Array.isArray(c.also) ? c.also : []).map((x) => cleanText(x)).filter(Boolean).slice(0, 12);
+    list.push({ tip: n, item: tip, alsoRaw, front: cleanText(c.front).slice(0, 200), back: cleanText(c.back).slice(0, 1200), category: cat, area: cleanText(c.area).slice(0, 100), sv, svOn: !!sv });
     if (list.length >= max) break;
   }
   return list;
@@ -144,8 +144,8 @@ export async function proposeCards(deps) {
   };
   const prompt = () => `次は、${countryName}の GeoGuessr の攻略ガイド（Plonk It の日本語訳）の全文です。画像のある項目の先頭に [T番号] が付いています。
 この国を当てるための暗記カード（表面: 画像と短い説明、裏面: 見分け方の解説）にするとよい項目を、ガイドの最初から最後まで、全体を見て、偏りなく選び、最大 ${getCount()} 個、カードの案を、次の形の JSON だけで返してください（前後に説明は書かない）:
-{"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国名は書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）","also":["国名"]}]}
-- also は、その項目の本文に、「全く同じものが、ほかの国にもある」と、はっきり書かれているときだけ、その国の名前（日本語。${countryName}は入れない）を並べる。推測・似ているだけ・「少し違う」ものは入れない。書かれていなければ、空の配列にする。
+{"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国名は書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）","also":["DE","FR"]}]}
+- also は、その項目の本文に、「全く同じものが、ほかの国にもある」と、はっきり書かれているときだけ、その国の国コード（ISO 3166-1 の 2 文字の大文字。例: ドイツ DE・フランス FR・イギリス GB・アメリカ US。${countryName}は入れない）を並べる。国名では書かない。推測・似ているだけ・「少し違う」ものは入れない。書かれていなければ、空の配列にする。
 - tip は、[T番号] の数字だけ。同じ番号は 1 回だけ。front・back・area の文章には、[T10] のような番号や印は、書かない。
 - category は、次の中から 1 つ選ぶ（合うものがなければ空）: ${catNames.join('、')}
 - [T番号] が付いていない項目（画像なし・地図の画像）は、選ばない。画像が地図（地図・カバレッジ・地域区分・位置図など）だと思われる項目も、選ばない。
@@ -268,7 +268,11 @@ export async function proposeCards(deps) {
     if (closed || mine !== runId) return;
     const list = parseProposals(answer, tips, catNames, getCount());
     if (!list.length) throw new Error('カードにできそうな項目が見つかりませんでした');
-    list.forEach((p) => { p.categoryId = cats.find((c) => c.name === p.category)?.id || ''; p.checked = true; });
+    list.forEach((p) => {
+      p.categoryId = cats.find((c) => c.name === p.category)?.id || ''; p.checked = true;
+      // 他の国: 2 文字のコードは、日本語の国名にして、欄に出す（読めないコードは、そのまま出して、作成のときにお知らせ）
+      p.alsoText = (p.alsoRaw || []).map((x) => (/^[A-Za-z]{2}$/.test(x) ? (deps.codeName?.(x.toUpperCase()) || x.toUpperCase()) : x)).filter((x, i, a) => a.indexOf(x) === i).join('、');
+    });
     renderList(list, { at: Date.now(), model: getAiModel() });
   } catch (ex) {
     if (closed || mine !== runId) return;
