@@ -60,6 +60,12 @@ async function askText(api, prompt, context, model = 'auto') {
   return text;
 }
 
+// ---- 提案の保存（国ごと。閉じて、また開いても、前回の提案が残る）----
+const cacheKey = (code) => `geo-aicards-v1:${code}`;
+const loadCache = (code, sig) => { try { const v = JSON.parse(localStorage.getItem(cacheKey(code))); return v && v.sig === sig && Array.isArray(v.items) ? v : null; } catch { return null; } };
+let cacheCtx = { code: '', sig: '' };
+function saveCache(items, meta) { try { localStorage.setItem(cacheKey(cacheCtx.code), JSON.stringify({ sig: cacheCtx.sig, at: meta.at, model: meta.model, items })); } catch { /* 保存できなくても使える */ } }
+
 export function parseProposals(text, tips, catNames) {
   const m = /\{[\s\S]*\}/.exec(text);
   if (!m) throw new Error('提案を読み取れませんでした（AI の答えが、決まった形ではありませんでした）');
@@ -83,6 +89,7 @@ export function parseProposals(text, tips, catNames) {
 export async function proposeCards(deps) {
   const { api, toast, host, guide, code, countryName, cats } = deps;
   const { text, tips } = guideToContext(guide);
+  cacheCtx = { code, sig: `${tips.size}:${text.length}` }; // ガイドが変わったら、前回の提案は使わない
   if (!tips.size) { toast('画像のある項目がないので、提案できません', 'error'); return; }
   const d = document.createElement('dialog');
   d.className = 'modal modal-sm modal-aicards';
@@ -107,28 +114,19 @@ export async function proposeCards(deps) {
 - tip は、[T番号] の数字だけ。同じ番号は 1 回だけ。
 - category は、次の中から 1 つ選ぶ（合うものがなければ空）: ${catNames.join('、')}
 - 国全体に共通して役立つ手がかりや、見分けやすい手がかりを優先する。ガイドにない内容は書かない。`;
-  const loadingHtml = '<p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p>';
-  let runId = 0;
-  const run = async () => {
-    const mine = ++runId;
-    body.innerHTML = loadingHtml;
-    try {
-    const answer = await askText(api, prompt, text, getAiModel());
-    if (mine !== runId) return;
-    if (closed || mine !== runId) return;
-    const list = parseProposals(answer, tips, catNames);
-    if (!list.length) throw new Error('カードにできそうな項目が見つかりませんでした');
+  // 提案の一覧を描く（AI の答え・前回の保存、どちらからでも）
+  const renderList = (list, meta) => {
     body.innerHTML = `
-      <p class="muted small aic-note">AI の提案です。間違いや言い過ぎがないか、確認してから作成してください。チェックしたものが作成されます。</p>
+      <p class="muted small aic-note">${meta.cached ? `前回の提案（${esc(new Date(meta.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}・${esc((AI_MODELS.find(([id]) => id === meta.model) || [0, meta.model])[1])}）を、そのまま表示しています。` : 'AI の提案です。'}間違いや言い過ぎがないか、確認してから作成してください。チェックしたものが作成されます。内容は、閉じても、覚えておきます（「もう一度提案」で、作り直せます）。</p>
       <div class="aic-list">${list.map((p, i) => `
-        <div class="aic-card" data-i="${i}">
-          <label class="aic-check"><input type="checkbox" checked></label>
+        <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
+          <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
           <img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy">
           <div class="aic-fields">
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
             <textarea class="input aic-back" rows="3" placeholder="裏面の解説">${esc(p.back)}</textarea>
             <div class="aic-row">
-              <select class="select select-sm aic-cat"><option value="">カテゴリーなし</option>${cats.map((c) => `<option value="${esc(c.id)}" ${c.name === p.category ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+              <select class="select select-sm aic-cat"><option value="">カテゴリーなし</option>${cats.map((c) => `<option value="${esc(c.id)}" ${c.id === p.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
               <input class="input aic-area" value="${esc(p.area)}" placeholder="詳細エリア（任意）">
               <button type="button" class="btn btn-ghost btn-sm aic-edit" title="作成画面で、編集してから作る">✎ 編集して作る</button>
             </div>
@@ -169,13 +167,34 @@ export async function proposeCards(deps) {
           const blob = await deps.fetchImage(p.item);
           await deps.createCard({ description: f.description, countries: [code], area: f.area, notes: f.notes, category_id: f.categoryId, related: [], sv_ids: [], places: [] }, blob);
           ok++;
+          p.done = true;
           el.classList.add('is-done');
         } catch { ng++; el.classList.add('is-ng'); }
       }
       toast(ng ? `${ok} 件を作成しました（${ng} 件は、作成できませんでした）` : `${ok} 件のカードを作成しました`, ng ? 'error' : undefined);
+      persist();
       await deps.onCreated?.();
       if (!ng) close(); else { btn.textContent = '選んだカードを作成'; btn.disabled = false; }
     });
+    const persist = () => saveCache(list.map((p, i) => { const el = body.querySelectorAll('.aic-card')[i]; const f = el ? { front: el.querySelector('.aic-front').value, back: el.querySelector('.aic-back').value, categoryId: el.querySelector('.aic-cat').value, area: el.querySelector('.aic-area').value, checked: el.querySelector('input[type=checkbox]').checked } : {}; return { tip: p.tip, front: p.front, back: p.back, categoryId: p.categoryId, area: p.area, checked: p.checked, done: !!p.done, ...f }; }), meta);
+    let pt = null;
+    body.querySelector('.aic-list').addEventListener('input', () => { clearTimeout(pt); pt = setTimeout(persist, 400); });
+    body.querySelector('.aic-list').addEventListener('change', () => { clearTimeout(pt); pt = setTimeout(persist, 100); });
+    persist();
+  };
+  const loadingHtml = '<p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p>';
+  let runId = 0;
+  const run = async () => {
+    const mine = ++runId;
+    body.innerHTML = loadingHtml;
+    try {
+    const answer = await askText(api, prompt, text, getAiModel());
+    if (mine !== runId) return;
+    if (closed || mine !== runId) return;
+    const list = parseProposals(answer, tips, catNames);
+    if (!list.length) throw new Error('カードにできそうな項目が見つかりませんでした');
+    list.forEach((p) => { p.categoryId = cats.find((c) => c.name === p.category)?.id || ''; p.checked = true; });
+    renderList(list, { at: Date.now(), model: getAiModel() });
   } catch (ex) {
     if (closed || mine !== runId) return;
     body.innerHTML = `<p class="aic-err">${esc(ex.message || '提案できませんでした')}</p><div class="modal-foot"><span class="grow"></span><button class="btn" type="button" data-x>閉じる</button></div>`;
@@ -185,5 +204,7 @@ export async function proposeCards(deps) {
   // モデルを変えたら、そのモデルで、もう一度提案する（「もう一度提案」でも）
   d.querySelector('#aic-model').addEventListener('change', (e) => { setAiModel(e.target.value); run(); });
   d.querySelector('#aic-again').addEventListener('click', () => run());
-  run();
+  const cached = loadCache(code, cacheCtx.sig);
+  const cachedList = cached ? cached.items.map((c) => ({ ...c, item: tips.get(c.tip), category: '' })).filter((p) => p.item) : [];
+  if (cachedList.length) renderList(cachedList, { at: cached.at, model: cached.model, cached: true }); else run();
 }
