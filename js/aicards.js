@@ -8,6 +8,9 @@ const getAutoMap = () => { try { return localStorage.getItem(AUTOMAP_KEY) !== '0
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MAX_CONTEXT = 140000; // ガイドは、長くても 2 万文字ほど。全文を渡す（途中で切らない）
 const COUNTS = [10, 15, 20, 30, 50, 80, 100];
+const LINE_KEY = 'geo-aicards-mapline'; // 地図が始まる位置（画像の上からの割合）。Plonkit の画像は、下のほうの同じ位置に地図が入るので、人が決める
+const getLine = () => { try { const v = localStorage.getItem(LINE_KEY); if (v === null) return null; const n = Number(v); return Number.isFinite(n) && n > 0 && n < 1 ? n : null; } catch { return null; } };
+const setLine = (v) => { try { if (v == null) localStorage.removeItem(LINE_KEY); else localStorage.setItem(LINE_KEY, String(v)); } catch { /* 保存できなくても使える */ } };
 const MINSCORE_KEY = 'geo-aicards-minscore';
 const SCORE_OPTS = [[5, '★5 のみ（決め手になるものだけ）'], [4, '★4 以上（初期）'], [3, '★3 以上'], [1, 'すべて']];
 const getMinScore = () => { try { const v = Number(localStorage.getItem(MINSCORE_KEY)); return SCORE_OPTS.some(([n]) => n === v) ? v : 4; } catch { return 4; } };
@@ -131,6 +134,7 @@ export async function proposeCards(deps) {
       <label class="muted small" for="aic-minscore">絞り込み</label>
       <select class="select select-sm" id="aic-minscore" title="AI が付けた「この国だと特定するのに役立つ度」で絞り込みます。多くの国で使われている手がかり（シェブロンなど）は、低くなります">${SCORE_OPTS.map(([n, label]) => `<option value="${n}" ${n === getMinScore() ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <label class="aic-auto small" title="作るときに、画像に地図（挿入地図・位置図など）が映っていたら、軽量で画像を読める AI（Gemini Flash-Lite → Cloudflare の Llama 4 Scout）が範囲を見つけて、黒で塗りつぶします"><input type="checkbox" id="aic-automap" ${getAutoMap() ? 'checked' : ''}> 🗺 画像に映った地図を、自動で消す</label>
+      <span class="aic-linebox small"><button type="button" class="btn btn-ghost btn-sm" id="aic-line" title="Plonkit の画像は、下のほうの同じ位置に地図が入ります。その位置を決めると、すべての提案の画像で、そこから下を消します（AI は使いません）">📏 地図の位置を決める</button><span id="aic-linestate" class="muted"></span> <button type="button" class="btn btn-ghost btn-sm" id="aic-lineclear" hidden>解除</button></span>
       <button type="button" class="btn btn-ghost btn-sm" id="aic-again" title="今のモデル・数で、もう一度提案する">↻ もう一度提案</button></div>
     <div class="aic-body"><p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p></div>
   </div>`;
@@ -168,7 +172,7 @@ export async function proposeCards(deps) {
       <div class="aic-list">${list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() || p.done).map(([p, i]) => `
         <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
           <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
-          <div class="aic-imgbox"><img class="aic-img" src="${esc(p.blob ? URL.createObjectURL(p.blob) : deps.imgSrc(p.item.img))}" alt="" loading="lazy"><span class="aic-mapstate small muted"></span><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
+          <div class="aic-imgbox"><img class="aic-img" src="${esc(p.blob ? URL.createObjectURL(p.blob) : deps.imgSrc(p.item.img))}" alt="" loading="lazy"><span class="aic-mapstate small muted"></span><button type="button" class="btn btn-ghost btn-sm aic-imgline" title="決めた位置から下を、黒で消します（位置は「地図の位置を決める」で決めます）">⬇ ここから下を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
           <div class="aic-fields">
             <div class="aic-score small" title="この国だと特定するのに、どれだけ役立つか（AI の判断）">国の特定に役立つ度: <b>${'★'.repeat(p.score)}${'☆'.repeat(5 - p.score)}</b></div>
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
@@ -212,6 +216,12 @@ export async function proposeCards(deps) {
       } catch (ex) { b.textContent = label; toast(`地図を探せませんでした: ${ex.message}`, 'error'); }
       b.disabled = false;
     }));
+    body.querySelectorAll('.aic-imgline').forEach((b) => b.addEventListener('click', async () => {
+      const el = b.closest('.aic-card');
+      b.disabled = true;
+      try { if (getLine() == null && !(await pickLine())) { b.disabled = false; return; } await applyLine(list, Number(el.dataset.i)); persistNow?.(); } catch (ex) { toast(`消せませんでした: ${ex.message}`, 'error'); }
+      b.disabled = false;
+    }));
     // 画像の一部（地図の映り込みなど）を、消す・ぼかす・トリミングする。編集した画像は、このウィンドウを閉じるまで、使われる
     body.querySelectorAll('.aic-imgedit').forEach((b) => b.addEventListener('click', async () => {
       const el = b.closest('.aic-card');
@@ -253,7 +263,7 @@ export async function proposeCards(deps) {
         btn.textContent = `作成中… ${ok + ng + 1}`;
         try {
           let blob = p.blob || await deps.fetchImage(p.item);
-          if (autoMap && !p.mapChecked) { // 作るときに、地図が映っていたら、自動で消す（軽量な AI。失敗しても、元の画像で作る）
+          if (autoMap && !p.mapChecked && getLine() != null) { blob = await eraseRegions(blob, lineRegions()); p.mapChecked = true; mapsRemoved++; } else if (autoMap && !p.mapChecked) { // 作るときに、地図が映っていたら、自動で消す（軽量な AI。失敗しても、元の画像で作る）
             btn.textContent = `地図を確認中… ${ok + ng + 1}`;
             try { const r = await removeMaps(api, blob); p.mapChecked = true; if (r.found) { blob = r.blob; mapsRemoved++; } } catch { mapFail++; }
           }
@@ -279,6 +289,49 @@ export async function proposeCards(deps) {
     persist();
     startClean(list);
   };
+  // 地図の位置（人が決める）: 決めた位置から下を、全部消す
+  const lineRegions = () => { const y = getLine(); return y == null ? [] : [[0, y, 1, 1 - y]]; };
+  const showLine = () => { const y = getLine(); const s = d.querySelector('#aic-linestate'); if (s) s.textContent = y == null ? '' : `（上から ${Math.round(y * 100)}% より下を消す）`; const c = d.querySelector('#aic-lineclear'); if (c) c.hidden = y == null; };
+  const applyLine = async (list, i) => {
+    const p = list[i]; const regions = lineRegions();
+    if (!regions.length) return;
+    const base = await deps.fetchImage(p.item);
+    p.mapRegions = regions; p.edit = null; p.mapChecked = true;
+    p.blob = await eraseRegions(base, regions);
+    const el = body.querySelector(`.aic-card[data-i="${i}"]`);
+    if (el) { el.querySelector('.aic-img').src = URL.createObjectURL(p.blob); const st = el.querySelector('.aic-mapstate'); if (st) st.textContent = '✔ 決めた位置から下を消しました'; }
+  };
+  const applyLineAll = async (list) => {
+    const idx = list.map((p, i) => i).filter((i) => list[i].score >= getMinScore() && !list[i].done && !list[i].edit);
+    for (const i of idx) { try { await applyLine(list, i); } catch { /* 取れなかった画像は、そのまま */ } }
+    persistNow?.();
+  };
+  // 画像の上で、地図が始まる位置を決める（見本の画像を切り替えて、どれにも合うか確かめられる）
+  const pickLine = () => new Promise((resolve) => {
+    const cands = (curList || []).filter((p) => p.item?.img);
+    if (!cands.length) { resolve(false); return; }
+    let k = 0; let y = getLine() ?? 0.8;
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:1rem';
+    ov.innerHTML = `<div style="background:var(--surface,#fff);color:inherit;border-radius:10px;padding:1rem;max-width:min(96vw,900px);max-height:96vh;display:flex;flex-direction:column;gap:.5rem">
+      <p class="small" style="margin:0">地図が始まる位置を、画像の上で<strong>クリック（またはドラッグ）</strong>して決めてください。暗くなった部分（ここから下）が消えます。<br><span class="muted">「次の画像」で、ほかの画像にも合うか確かめられます。</span></p>
+      <div class="aic-pick" style="position:relative;align-self:center;touch-action:none;cursor:ns-resize;line-height:0"><img style="max-width:100%;max-height:62vh;display:block;user-select:none" draggable="false" alt=""><div class="aic-pickmask" style="position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.72);border-top:2px solid #ff3b30;pointer-events:none"></div></div>
+      <div style="display:flex;gap:.5rem;align-items:center"><button type="button" class="btn btn-ghost btn-sm" data-n>次の画像 ▶</button><span class="small muted" data-info></span><span class="grow" style="flex:1"></span><button type="button" class="btn btn-ghost" data-c>キャンセル</button><button type="button" class="btn" data-ok>この位置にする</button></div></div>`;
+    d.appendChild(ov);
+    const wrap = ov.querySelector('.aic-pick'); const img = wrap.querySelector('img'); const mask = ov.querySelector('.aic-pickmask');
+    const paint = () => { mask.style.height = `${(1 - y) * 100}%`; ov.querySelector('[data-info]').textContent = `${k + 1} / ${cands.length} 枚目・上から ${Math.round(y * 100)}%`; };
+    const show = () => { img.src = deps.imgSrc(cands[k].item.img); paint(); };
+    const at = (e) => { const r = wrap.getBoundingClientRect(); y = Math.max(0.02, Math.min(0.98, (e.clientY - r.top) / r.height)); paint(); };
+    let drag = false;
+    wrap.addEventListener('pointerdown', (e) => { drag = true; wrap.setPointerCapture(e.pointerId); at(e); });
+    wrap.addEventListener('pointermove', (e) => { if (drag) at(e); });
+    wrap.addEventListener('pointerup', () => { drag = false; });
+    ov.querySelector('[data-n]').addEventListener('click', () => { k = (k + 1) % cands.length; show(); });
+    const end = (ok) => { ov.remove(); resolve(ok); };
+    ov.querySelector('[data-c]').addEventListener('click', () => end(false));
+    ov.querySelector('[data-ok]').addEventListener('click', () => { setLine(y); showLine(); end(true); });
+    show();
+  });
   // 提案の時点で、地図を、あらかじめ全部消しておく（画面に出ている提案の画像を、軽量な AI で確認して、地図の範囲を黒で塗りつぶす）。
   // 見つけた範囲は覚えておき、開き直したときは、AI に聞かずに、同じ範囲を消す
   const startClean = async (list) => {
@@ -296,7 +349,7 @@ export async function proposeCards(deps) {
         setState(i, '🗺 地図を確認中…');
         try {
           const base = await deps.fetchImage(p.item);
-          const regions = Array.isArray(p.mapRegions) ? p.mapRegions : await detectMapRegions(api, base);
+          const regions = getLine() != null ? lineRegions() : Array.isArray(p.mapRegions) ? p.mapRegions : await detectMapRegions(api, base); // 位置を決めてあるときは、AI を使わない
           p.mapRegions = regions;
           p.mapChecked = true;
           if (regions.length) {
@@ -361,6 +414,9 @@ export async function proposeCards(deps) {
   d.querySelector('#aic-count-sel').addEventListener('change', (e) => { try { localStorage.setItem(COUNT_KEY, e.target.value); } catch { /* 保存できなくても使える */ } run(); });
   d.querySelector('#aic-automap').addEventListener('change', (e) => { try { localStorage.setItem(AUTOMAP_KEY, e.target.checked ? '1' : '0'); } catch { /* 保存できなくても使える */ } if (curList) startClean(curList); });
   d.querySelector('#aic-minscore').addEventListener('change', (e) => { try { localStorage.setItem(MINSCORE_KEY, e.target.value); } catch { /* 保存できなくても使える */ } if (curList) renderList(curList, curMeta); });
+  d.querySelector('#aic-line').addEventListener('click', async () => { if (await pickLine() && curList) { await applyLineAll(curList); } });
+  d.querySelector('#aic-lineclear').addEventListener('click', () => { setLine(null); showLine(); toast('地図の位置を解除しました（すでに消した画像は、「🖌 画像を編集」で直せます）'); });
+  showLine();
   d.querySelector('#aic-again').addEventListener('click', () => run());
   const cached = loadCache(code, cacheCtx.sig);
   const cachedList = cached ? cached.items.map((c) => { const item = tips.get(c.tip); const sv = item ? svLinkOf(item) : ''; return { ...c, item, category: '', sv, svOn: sv ? c.svOn !== false : false, mapChecked: false }; }).filter((p) => p.item) : [];
