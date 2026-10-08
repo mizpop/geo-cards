@@ -177,7 +177,7 @@ js/session.js           再読み込みで引き継ぐ状態の保存
 js/updatenotice.js      更新されて初めて起動したときの、右上の通知
 js/dock.js              ウィンドウをしまう場所（左下の角。トランプのカードのように広がる）
 js/cardpreview.js       関連カードなどにポインターを合わせたときの、カードのプレビュー（PC のみ）
-js/mapdetect.js         画像に映った地図を、軽量で画像を読める AI（Flash-Lite → Llama 4 Scout）に探させて、消す
+js/mapdetect.js         範囲（割合）を黒で塗りつぶした画像を作る（カード提案の「ここから下を消す」用）
 js/aicards.js           AI が Plonkit のガイドからカードを提案（ガイドを [T番号] 付きで /api/ask に渡して JSON で受け取る）
 js/plonkit.js           Plonkit のガイド（日本語）のウィンドウの描画・ストリートビューへのリンク
 functions/api/plonkit.js Plonkit のガイドの取得・翻訳・画像の中継（Cloudflare Pages Functions）

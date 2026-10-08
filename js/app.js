@@ -11,7 +11,6 @@ import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { COMMANDS, parseCommand, complete as cmdComplete, syntaxHint, optionMap, unq as cmdUnq, commandNames } from './commands.js';
 import { proposeCards } from './aicards.js';
-import { detectMapRegions, eraseRegions } from './mapdetect.js';
 import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc, parseStreetView } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
@@ -4537,7 +4536,6 @@ function renderManage() {
     </div>
     ${ed ? `<div class="toolbar toolbar-sub">
       <button class="btn btn-ghost btn-sm" id="m-cats">🏷 カテゴリー管理</button>
-      <button class="btn btn-ghost btn-sm" id="m-mapclean" title="カードの画像に映り込んだ地図を、軽量な AI で見つけて、まとめて消します">🗺 地図を一括で消す</button>
       <button class="btn btn-ghost btn-sm" id="m-bulk" title="複数の画像からまとめてカードを作る">📥 まとめて追加</button>
       ${api.mode === 'supabase' && state.cards.some((c) => !c.thumb_path) ? `<button class="btn btn-ghost btn-sm" id="m-thumbs" title="一覧・地図で読み込む画像を軽くします（まだ低画質版のないカード ${state.cards.filter((c) => !c.thumb_path).length} 枚）">🖼 軽量画像を作成 <b class="badge-n">${state.cards.filter((c) => !c.thumb_path).length}</b></button>` : ''}
       <button class="btn btn-ghost btn-sm" id="m-export">バックアップを書き出し</button>
@@ -4583,7 +4581,6 @@ function renderManage() {
     }
   });
   $('#m-bulk')?.addEventListener('click', openBulkAdd);
-  $('#m-mapclean')?.addEventListener('click', openBulkMapRemove);
   $('#m-cats')?.addEventListener('click', openCategoryManager);
   $('#m-import')?.addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
   $('#m-sel-all')?.addEventListener('click', () => { for (const c of manageFiltered()) m.sel.add(c.id); updateSelUI(); });
@@ -4879,7 +4876,7 @@ function openEditor(card, preset = {}) {
     const btn = $('#ed-annot');
     btn.disabled = true;
     try {
-      const out = await editImage(ed.preview, { backSrc: ed.backPreview, host: W.el, autoErase: (blob) => detectMapRegions(api, blob), ...opts });
+      const out = await editImage(ed.preview, { backSrc: ed.backPreview, host: W.el, ...opts });
       if (!out) return;
       if (out.image) await setImage(out.image, true);
       if (out.back instanceof Blob) { ed.back = out.back; ed.backPreview = await blobToDataUrl(out.back); }
@@ -5514,7 +5511,7 @@ function renderPlonkitModal(entry) {
         },
         codeName: (code) => COUNTRY_BY_CODE.get(code)?.ja || null, // 2 文字の国コード → 日本語の国名（なければ null）
         resolveCountry: (name) => findCountry(name)?.code || null, // 国名（日本語・英語・略称）→ 国コード（完全に一致するものだけ）
-        editImage: (url, host, extra = {}) => editImage(url, { host, tool: 'erase', autoErase: (blob) => detectMapRegions(api, blob), ...extra }), // 画像の一部を消す・ぼかす（画像編集の「消す」から始める）
+        editImage: (url, host, extra = {}) => editImage(url, { host, tool: 'erase', ...extra }), // 画像の一部を消す・ぼかす（画像編集の「消す」から始める）
         createCard: (fields, blob) => api.createCard(fields, blob, null),
         addSv: async (url) => { // ガイドのストリートビューのリンクを、保存したストリートビューにして、その id を返す（短縮リンクは、元のリンクに戻す）
           let p = parseStreetView(url);
@@ -5930,92 +5927,6 @@ async function exportBackup() {
 }
 
 /* ---- カードのまとめて追加: 複数の画像をドロップし、国・カテゴリーを選んで一度に作る ---- */
-// カードの画像に映り込んだ地図を、まとめて消す: ① 軽量で画像を読める AI で、地図のある画像を探す（どこにあるかを枠で見せる） ② 選んだものだけ、その範囲を黒で塗りつぶして、画像を置き換える
-function openBulkMapRemove() {
-  if (!state.user?.isEditor) { toast('編集できるのは、編集者のみです', 'error'); return; }
-  const hasImg = (list) => list.filter((c) => imgUrl(c));
-  const shown = hasImg(manageFiltered());
-  const all = hasImg(state.cards);
-  openModal(`
-    <div class="modal-head"><h2>🗺 地図を一括で消す</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
-    <p class="muted small">カードの画像に、挿入地図・位置図などが映っていたら、軽量で画像を読める AI（Gemini Flash-Lite → Cloudflare の Llama 4 Scout）が見つけて、その範囲を黒で塗りつぶします。まず「探す」で、見つかった画像を、枠つきで確認してから、消したいものだけを選んで、消します。</p>
-    <div class="bmr-opts">
-      <label class="small">対象
-        <select id="bmr-scope" class="select select-sm"><option value="shown">今表示しているカード（${shown.length} 枚）</option><option value="all">すべてのカード（${all.length} 枚）</option></select></label>
-      <button class="btn btn-primary btn-sm" id="bmr-scan" type="button">🔍 探す</button>
-      <button class="btn btn-ghost btn-sm" id="bmr-stop" type="button" hidden>止める</button>
-      <span class="muted small" id="bmr-progress"></span>
-    </div>
-    <div class="bmr-list" id="bmr-list"></div>
-    <div class="modal-foot">
-      <span class="muted small" id="bmr-count"></span><span class="grow"></span>
-      <button class="btn btn-ghost" data-close type="button">閉じる</button>
-      <button class="btn btn-danger" id="bmr-apply" type="button" disabled>選んだものから地図を消す</button>
-    </div>`, 'modal-wide');
-  const results = []; // { card, regions, blob }
-  let stop = false; let busy = false;
-  const progress = $('#bmr-progress');
-  const listEl = $('#bmr-list');
-  const count = () => { const n = $$('.bmr-row input:checked', W.el).length; $('#bmr-count').textContent = results.length ? `${results.length} 枚で見つかりました（${n} 枚を選択中）` : ''; $('#bmr-apply').disabled = busy || !n; };
-  const row = (r, i) => `<label class="bmr-row" data-i="${i}">
-    <input type="checkbox" checked>
-    <span class="bmr-thumb"><img src="${esc(thumbUrl(r.card) || imgUrl(r.card))}" alt="">${r.regions.map(([x, y, w, h]) => `<span class="bmr-box" style="left:${x * 100}%;top:${y * 100}%;width:${w * 100}%;height:${h * 100}%"></span>`).join('')}</span>
-    <span class="bmr-info"><b>${esc(cardLabelOf(r.card))}</b><span class="muted small">地図らしい範囲: ${r.regions.length} か所（赤い枠）</span></span></label>`;
-  $('#bmr-scan').addEventListener('click', async () => {
-    if (busy) return;
-    busy = true; stop = false; results.length = 0; listEl.innerHTML = '';
-    const targets = $('#bmr-scope').value === 'all' ? all : shown;
-    $('#bmr-scan').disabled = true; $('#bmr-stop').hidden = false;
-    let done = 0; let fail = 0; let next = 0;
-    const worker = async () => {
-      while (!stop && next < targets.length) {
-        const card = targets[next++];
-        for (let attempt = 0; attempt < 2 && !stop; attempt++) {
-          try {
-            const blob = await (await fetch(imgUrl(card))).blob();
-            const regions = await detectMapRegions(api, blob);
-            if (regions.length) { results.push({ card, regions, blob }); listEl.insertAdjacentHTML('beforeend', row(results[results.length - 1], results.length - 1)); }
-            break;
-          } catch (ex) { if (attempt === 1) fail++; else await new Promise((r) => setTimeout(r, 4000)); } // 混み合っているときは、少し待って、もう 1 回
-        }
-        done++;
-        progress.textContent = `確認中… ${done} / ${targets.length} 枚（見つかった: ${results.length}${fail ? `・確認できなかった: ${fail}` : ''}）`;
-        count();
-      }
-    };
-    await Promise.all([worker(), worker()]);
-    busy = false;
-    $('#bmr-scan').disabled = false; $('#bmr-stop').hidden = true;
-    progress.textContent = `${stop ? '止めました' : '確認しました'}: ${done} / ${targets.length} 枚、地図が見つかったのは ${results.length} 枚${fail ? `（${fail} 枚は、確認できませんでした）` : ''}`;
-    if (!results.length && !stop) listEl.innerHTML = '<p class="muted">地図が映った画像は、見つかりませんでした。</p>';
-    count();
-  });
-  $('#bmr-stop').addEventListener('click', () => { stop = true; });
-  listEl.addEventListener('change', count);
-  $('#bmr-apply').addEventListener('click', async () => {
-    const picked = $$('.bmr-row', W.el).filter((r) => r.querySelector('input').checked).map((r) => results[Number(r.dataset.i)]);
-    if (!picked.length) return;
-    if (!confirm(`${picked.length} 枚の画像から、地図の範囲を黒で塗りつぶします。元の画像には戻せません。よろしいですか？`)) return;
-    busy = true; $('#bmr-apply').disabled = true; $('#bmr-scan').disabled = true;
-    let ok = 0; let ng = 0;
-    for (const r of picked) {
-      progress.textContent = `消しています… ${ok + ng + 1} / ${picked.length}`;
-      try {
-        const blob = await eraseRegions(r.blob, r.regions);
-        const c = r.card;
-        await api.updateCard(c, { description: c.description, countries: c.countries, area: c.area, notes: c.notes, category_id: c.category_id || null, related: c.related || [], sv_ids: c.sv_ids || [], places: c.places || [] }, blob);
-        ok++;
-        W.el.querySelector(`.bmr-row[data-i="${results.indexOf(r)}"]`)?.classList.add('is-done');
-      } catch { ng++; }
-    }
-    busy = false;
-    toast(ng ? `${ok} 枚から地図を消しました（${ng} 枚は、できませんでした）` : `${ok} 枚から地図を消しました`, ng ? 'error' : undefined);
-    await reloadCards();
-    closeModal();
-    render();
-  });
-  count();
-}
 function openBulkAdd() {
   const items = []; // { blob, url, country, desc }
   openModal(`
