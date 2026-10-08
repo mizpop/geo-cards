@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v106',
+    date: '2026-10-09',
+    sections: [
+      {
+        title: '修正',
+        items: ['カードの提案で、OpenRouter などが混み合っていたり、キーが未設定のときも、「GEMINI_API_KEY が設定されていません」と表示されていたのを、実際の原因のメッセージ（OpenRouter のキー未設定・混み合い・上限など）が出るように'],
+      },
+    ],
+  },
+  {
     version: 'v105',
     date: '2026-10-09',
     sections: [

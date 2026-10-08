@@ -55,7 +55,7 @@ async function askText(api, prompt, context, model = 'auto', maxTokens = 12000) 
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
-    throw new Error(j.error === 'not_configured' || res.status === 503 ? 'AI が設定されていません（GEMINI_API_KEY）' : j.message || j.error || `AI に接続できませんでした（${res.status}）`);
+    throw new Error(j.error === 'not_configured' ? 'AI が設定されていません（GEMINI_API_KEY か OPENROUTER_API_KEY）' : j.message || j.error || `AI に接続できませんでした（${res.status}）`);
   }
   const reader = res.body.getReader();
   const dec = new TextDecoder();
