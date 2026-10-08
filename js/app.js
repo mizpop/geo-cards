@@ -565,6 +565,18 @@ const assistantDeps = {
 // Windows 版: 「外に出す」で開いたウィンドウ（?popout=…）。その 1 つの内容だけを、独立した Windows のウィンドウに表示する
 let POPOUT = (() => { try { return JSON.parse(new URLSearchParams(location.search).get('popout') || 'null'); } catch { return null; } })();
 if (POPOUT) document.documentElement.classList.add('is-popout');
+// 外に出したタブ（地図・比較など）: そのタブの画面を、独立した Windows のウィンドウに表示する
+const TAB_NAMES = { study: '暗記カード', quiz: 'クイズ', map: '地図', manage: 'カード', compare: '比較', lang: '言語', sv: 'ストリートビュー' };
+const TAB_EMOJI = { study: '🃏', quiz: '🎯', map: '🗺', manage: '🗂', compare: '⚖', lang: '🔤', sv: '🧍' };
+if (POPOUT?.kind === 'tab' && TAB_NAMES[POPOUT.tab]) { document.documentElement.classList.add('is-tabwin'); history.replaceState(null, '', `#${POPOUT.tab}`); }
+// 画面（タブ）を切り替える。外のウィンドウの中なら、そのウィンドウは変えずに、外の新しいウィンドウでそのタブを開く
+function gotoView(view, ctx = {}) {
+  if (POPOUT && POPOUT.kind !== 'tab' && window.desktop?.popOut) {
+    window.desktop.popOut({ entry: { kind: 'tab', tab: view, ...ctx }, size: { width: 1100, height: 760 } });
+    return;
+  }
+  location.hash = `#${view}`;
+}
 let desktopCaptureBound = false;
 let desktopReturnBound = false;
 let desktopOutsideBound = false;
@@ -772,7 +784,7 @@ async function enterApp() {
       if (battle) { battle.leave(); battle = null; }
       state.quiz.kind = 'battle';
       state.quiz.phase = 'setup';
-      if (state.view === 'quiz') renderQuiz(); else location.hash = '#quiz';
+      if (state.view === 'quiz') renderQuiz(); else gotoView('quiz');
     } });
   }
   // 学習記録の同期（引き継ぎコードを設定している場合）: 起動時と、記録が変わったあと自動で
@@ -949,7 +961,7 @@ function bindGlobal() {
     e.stopPropagation();
     showCityOnNextRender(place);
     closeModal();
-    if (state.view === 'map') render(); else location.hash = '#map';
+    if (state.view === 'map') render(); else gotoView('map', { place });
   }, true);
   bindWinEvents(W0);
   // 画像の標準のドラッグ（ブラウザの機能）が始まると、ウィンドウやカードをドラッグしている途中で取り消されてしまうので、画像はドラッグさせない
@@ -1496,7 +1508,7 @@ function bindCardFacts(root) {
     saveSettings();
     focusOnNextRender(b.dataset.mapCode);
     closeModal();
-    if (state.view === 'map') render(); else location.hash = '#map';
+    if (state.view === 'map') render(); else gotoView('map', { focus: b.dataset.mapCode });
   }));
 }
 
@@ -1869,7 +1881,7 @@ function openCompare(code) {
   const c = state.compare;
   if (!c.codes.includes(code)) c.codes = c.codes.length >= MAX_COMPARE ? [code] : [...c.codes, code];
   closeModal();
-  if (state.view === 'compare') render(); else location.hash = '#compare';
+  if (state.view === 'compare') render(); else gotoView('compare', { compare: c.codes });
 }
 function renderCompare() {
   setFit('scroll');
@@ -1966,7 +1978,7 @@ function startPairQuiz(pair) {
   q.answered = null;
   q.phase = 'question';
   startQuizClock(q);
-  if (state.view === 'quiz') renderQuiz(); else location.hash = '#quiz';
+  if (state.view === 'quiz') renderQuiz(); else gotoView('quiz');
 }
 
 /* ================= 学習記録（毎日の目標・連続日数・地域ごとの正答率） ================= */
@@ -2046,7 +2058,7 @@ function openStats() {
   $$('[data-pair-cmp]', W.el).forEach((b) => b.addEventListener('click', () => {
     state.compare.codes = b.dataset.pairCmp.split('|');
     closeModal();
-    if (state.view === 'compare') render(); else location.hash = '#compare';
+    if (state.view === 'compare') render(); else gotoView('compare', { compare: state.compare.codes });
   }));
   $$('[data-pair-quiz]', W.el).forEach((b) => b.addEventListener('click', () => startPairQuiz(b.dataset.pairQuiz.split('|'))));
   $('#st-goal').addEventListener('change', (e) => { settings.dailyGoal = Math.max(1, Number(e.target.value) || 30); saveSettings(); openStats(); });
@@ -4036,6 +4048,12 @@ async function runCommand(text) {
     case 'help': return { html: cmdHelpHtml(p.args[0]?.value) };
     case 'open': {
       const tab = TAB_OF[p.args[0]?.value] || null;
+      if (o.outside) { // -outside: そのタブを、外のウィンドウで開く（Windows 版）
+        if (!tab) return { error: '開くタブを指定してください: !open map -outside' };
+        const e = needDesk(); if (e) return e;
+        desk.popOut({ entry: { kind: 'tab', tab }, size: { width: 1100, height: 760 } });
+        return { close: true };
+      }
       if (cmdOutside()) { desk.openMain(tab || ''); return { close: true }; }
       if (tab) location.hash = `#${tab}`;
       return { close: true };
@@ -5358,8 +5376,40 @@ function openSearchContent() {
   open();
   window.desktop.onSearchFocus?.(() => { const sp = $('#spotlight'); if (sp.open) { const i = $('#search-input'); i?.focus(); i?.select(); } else open(); });
 }
+// 外に出したタブのウィンドウ: 上に、移動・操作のためのバー（枠がないので）を置く
+function openTabContent(e) {
+  const name = TAB_NAMES[e.tab];
+  if (!name) { window.close(); return; }
+  document.documentElement.classList.add('is-tabwin');
+  if (e.compare) state.compare.codes = e.compare.filter((c) => COUNTRY_BY_CODE.has(c));
+  if (e.focus) focusOnNextRender(e.focus);
+  if (e.place) showCityOnNextRender(e.place);
+  document.getElementById('po-bar')?.remove();
+  const bar = document.createElement('div');
+  bar.id = 'po-bar';
+  bar.innerHTML = `<span class="po-title">${TAB_EMOJI[e.tab] || ''} ${esc(name)}</span><span class="po-sp"></span>
+    <button type="button" class="icon-btn" data-po="return" title="アプリの中に戻す（メインのウィンドウでこのタブを開く）">⤺</button>
+    <button type="button" class="icon-btn" data-po="pin" id="po-pin" title="最前面に固定（ほかのアプリの上に常に表示）">📌</button>
+    <button type="button" class="icon-btn" data-po="store" title="しまう（画面の左下の一覧に入れる）">▾</button>
+    <button type="button" class="icon-btn" data-po="minimize" title="最小化">—</button>
+    <button type="button" class="icon-btn" data-po="maximize" title="大きく / 元の大きさ">⤢</button>
+    <button type="button" class="icon-btn" data-po="close" title="閉じる">✕</button>`;
+  document.body.prepend(bar);
+  bar.addEventListener('click', (ev) => {
+    const act = ev.target.closest('[data-po]')?.dataset.po;
+    if (!act) return;
+    if (act === 'return') { window.desktop.openMain(e.tab); window.desktop.winControl('close'); } else window.desktop.winControl(act);
+  });
+  bar.addEventListener('dblclick', (ev) => { if (!ev.target.closest('button')) window.desktop.winControl('maximize'); });
+  window.desktop.getWinState?.().then((st) => { if (st) document.getElementById('po-pin')?.classList.toggle('is-on', !!st.pin); });
+  document.title = name;
+  window.desktop?.setWinMeta?.({ kind: 'tab', code: e.tab, cardId: '' });
+  iconDataUrl(null, TAB_EMOJI[e.tab] || '🗂').then((u) => window.desktop?.setWinIcon?.(u)).catch(() => {});
+  if (location.hash !== `#${e.tab}`) location.hash = `#${e.tab}`; else if (state.user) route();
+}
 function openPopoutContent(e) {
   setupPopoutResize();
+  if (e.kind === 'tab') { openTabContent(e); return; }
   if (e.kind === 'search') { openSearchContent(); return; }
   if (e.kind === 'card') { const c = cardById(e.id); if (c) openCardModal(c, null, e.list); else window.close(); }
   else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
@@ -5547,7 +5597,7 @@ function renderCountryModal(entry) {
   $('#cinfo-map').addEventListener('click', () => { // 地図でこの国へ移動する（浮かぶウィンドウは、開いたまま。モーダルは閉じる）
     focusOnNextRender(code);
     if (!modalIsWindow()) closeModal();
-    if (state.view === 'map') render(); else location.hash = '#map';
+    if (state.view === 'map') render(); else gotoView('map', { focus: code });
   });
   // 地図のデータ: 写真を押すとカードと同じ画面で開く・開閉を覚える
   $$('.cfacts-photo', W.el).forEach((b) => b.addEventListener('click', () => {
@@ -5559,7 +5609,7 @@ function renderCountryModal(entry) {
     saveSettings();
     focusOnNextRender(code);
     closeModal();
-    if (state.view === 'map') render(); else location.hash = '#map';
+    if (state.view === 'map') render(); else gotoView('map', { focus: code });
   }));
   $('.cinfo-facts', W.el)?.addEventListener('toggle', (e) => { settings.countryFactsOpen = e.currentTarget.open; saveSettings(); });
 

@@ -8,7 +8,7 @@ const normId = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 // slots: 引数の並び。t: text | num | country | card | win | enum。opt: 省略可。values: enum の値。rest: 以降の引数（...）
 export const COMMANDS = {
   help: { desc: 'コマンドの構文や使い方を表示します（コマンド名を付けると、そのコマンドの説明）', slots: [{ t: 'enum', name: 'text', opt: true, values: () => Object.keys(COMMANDS) }] },
-  open: { desc: 'GeoChecker のメインウィンドウを開きます（タブを指定できます）', slots: [{ t: 'enum', name: 'text', opt: true, values: ['memorize', 'quiz', 'map', 'cards', 'comparison', 'languages', 'streetviews'] }] },
+  open: { desc: 'GeoChecker のメインウィンドウを開きます（タブを指定できます。-outside で、そのタブを外のウィンドウで開きます）', slots: [{ t: 'enum', name: 'text', opt: true, values: ['memorize', 'quiz', 'map', 'cards', 'comparison', 'languages', 'streetviews'] }] },
   exit: { desc: 'GeoChecker を終了します（Windows 版のみ）', slots: [] },
   restart: { desc: 'GeoChecker を再起動します（Windows 版のみ）', slots: [] },
   update: { desc: 'クライアントのアップデートを確認し、実行します（Windows 版のみ）', slots: [] },
@@ -335,6 +335,7 @@ export function complete(text, env, wins = []) {
 }
 const dedupe = (a) => { const seen = new Set(); return a.filter((x) => (seen.has(x.insert) ? false : (seen.add(x.insert), true))); };
 function optionList(p) {
+  if (p.name === 'open') return ['outside'];
   if (p.name === 'card' && p.sub === 'create') return COMMANDS.card.create.opts;
   const sub = p.args[1]?.value || (p.segs[1] ? unq(p.segs[1].text).toLowerCase() : '');
   return (p.def.opts && p.def.opts[sub]) || [];

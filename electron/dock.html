@@ -14,6 +14,7 @@
   .ico { flex: 1; display: grid; place-items: center; background: #1f2a32; font-size: 38px; min-height: 0; }
   .ico img { width: 56px; height: 56px; object-fit: contain; }
   .tt { padding: 6px 28px 6px 9px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #172027; }
+  .card.ghost { box-shadow: 0 14px 34px rgba(0, 0, 0, .75), 0 0 0 2px #38b57d; opacity: .95; will-change: transform; }
   .card.dragging { position: fixed; z-index: 9999 !important; transition: none; animation: none; opacity: .92; transform: rotate(-3deg) scale(1.05) !important; box-shadow: 0 14px 34px rgba(0, 0, 0, .75), 0 0 0 2px #38b57d; }
   .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; cursor: pointer; line-height: 1; }
   .x:hover { background: #c2333d; }
@@ -42,37 +43,63 @@
       c.querySelector('.tt').textContent = it.title;
       // ドラッグで取り出す: カードを、出したい場所（画面のどこでも）に運んで離すと、そこにウィンドウが開く。少ししか動かさなかったときは、クリックとして、しまう前の位置に出す
       let st = null;
-      // ウィンドウの大きさが変わっても（ドラッグの間は画面いっぱいに広げる）途切れないように、動きは、ページ全体で受ける
-      const place = (e) => { c.style.left = `${e.screenX - st.origin.x - st.dx}px`; c.style.top = `${e.screenY - st.origin.y - st.dy}px`; c.style.bottom = 'auto'; }; // 画面上の位置から決める（一覧のウィンドウが広がっても、ずれない）
+      // ドラッグで取り出す: カードを、出したい場所（画面のどこでも）に運んで離すと、そこにウィンドウが開く。少ししか動かさなかったときは、クリックとして、しまう前の位置に出す。
+      // 押した瞬間に、一覧のウィンドウを画面いっぱいに広げ（透明）、カードの複製（ghost）を、画面の位置から決めて動かす。広がる前に速く動かしても、ついてくる
+      const place = () => {
+        if (!st || !st.ghost || !st.last) return;
+        st.raf = 0;
+        const e = st.last;
+        st.ghost.style.transform = `translate3d(${e.clientX - st.dx}px, ${e.clientY - st.dy}px, 0) rotate(-3deg) scale(1.05)`; // いまの画面（広げたあと）でのカーソルの位置から、押した位置のずれを引く
+      };
+      const schedule = () => { if (st && !st.raf) st.raf = requestAnimationFrame(place); };
+      const startDrag = () => {
+        st.started = true;
+        const g = c.cloneNode(true);
+        g.className = 'card ghost';
+        g.style.cssText = 'position:fixed;left:0;top:0;bottom:auto;z-index:99999;pointer-events:none;transition:none;animation:none;transform:translate3d(-9999px,-9999px,0)';
+        g.querySelector('.x')?.remove();
+        document.body.append(g);
+        st.ghost = g;
+        c.style.visibility = 'hidden';
+        schedule();
+      };
       const onMove = (e) => {
         if (!st) return;
-        if (!st.started) {
-          if (Math.hypot(e.screenX - st.sx, e.screenY - st.sy) < 6) return;
-          st.started = true;
-          const s0 = st;
-          window.dock.drag(true).then((o) => { if (st !== s0) return; s0.origin = o || { x: 0, y: 0 }; c.classList.add('dragging'); place(s0.last || e); }); // ウィンドウが広がってから、カードを動かし始める（一瞬、ずれた場所に出ないように）
-        }
         st.last = e;
-        if (st.origin) place(e);
+        if (!st.started && Math.hypot(e.screenX - st.sx, e.screenY - st.sy) >= 5) startDrag();
+        if (st.started) schedule();
       };
-      const end = (e, cancelled) => {
+      const cleanup = () => {
         document.removeEventListener('pointermove', onMove, true);
         document.removeEventListener('pointerup', onUp, true);
         document.removeEventListener('pointercancel', onCancel, true);
+        document.removeEventListener('keydown', onKey, true);
+      };
+      const end = async (e, cancelled) => {
+        cleanup();
         if (!st) return;
         const s = st; st = null;
-        if (s.started) { if (cancelled) { window.dock.drag(false); c.classList.remove('dragging'); c.style.left = c.style.top = c.style.bottom = ''; } else window.dock.restore(it.id, { x: e.screenX, y: e.screenY }); }
-        else if (!cancelled) window.dock.restore(it.id);
+        if (s.raf) cancelAnimationFrame(s.raf);
+        s.ghost?.remove();
+        c.style.visibility = '';
+        if (s.started && !cancelled) window.dock.restore(it.id, { x: e.screenX, y: e.screenY });
+        else if (!s.started && !cancelled) window.dock.restore(it.id);
+        else window.dock.drag(false); // やめた: 一覧の大きさを戻す
       };
       const onUp = (e) => end(e, false);
       const onCancel = (e) => end(e, true);
+      const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); end(e, true); } };
       c.addEventListener('pointerdown', (e) => {
         if (e.button !== 0 || e.target.closest('.x')) return;
+        e.preventDefault();
         const r = c.getBoundingClientRect();
-        st = { sx: e.screenX, sy: e.screenY, dx: e.clientX - r.left, dy: e.clientY - r.top, started: false };
+        st = { sx: e.screenX, sy: e.screenY, dx: e.clientX - r.left, dy: e.clientY - r.top, started: false, last: e, origin: null, ghost: null, raf: 0 };
+        const mine = st;
+        window.dock.drag(true).then((o) => { if (st === mine) { mine.origin = o || { x: 0, y: 0 }; schedule(); } }); // 先に、画面いっぱいに広げておく
         document.addEventListener('pointermove', onMove, true);
         document.addEventListener('pointerup', onUp, true);
         document.addEventListener('pointercancel', onCancel, true);
+        document.addEventListener('keydown', onKey, true);
       });
       c.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); window.dock.close(it.id); } }); // ホイールクリックで削除
       fan.append(c);

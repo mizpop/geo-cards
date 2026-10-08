@@ -2623,7 +2623,7 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .sv-minimap-pop .leaflet-popup-content { margin: 8px 12px; font-size: 12px; font-weight: 700; color: #b02a2a; white-space: nowrap; }
 
 /* ---------- Windows 版: 外に出したウィンドウ（?popout=…）。中身のウィンドウを、Windows のウィンドウいっぱいに表示する ---------- */
-.is-popout .topbar, .is-popout #demo-banner, .is-popout #view, .is-popout .banner, .is-popout .chat-btn, .is-popout .ai-btn, .is-popout #dock-root { display: none !important; }
+.is-popout .topbar, .is-popout #demo-banner, .is-popout:not(.is-tabwin) #view, .is-popout .banner, .is-popout .chat-btn, .is-popout .ai-btn, .is-popout #dock-root { display: none !important; }
 .is-popout body, .is-popout { overflow: hidden; }
 .is-popout dialog.modal.is-window[open] { position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; max-height: none !important; margin: 0 !important; resize: none; transform: none !important; box-shadow: none !important; }
 .is-popout #win-min, .is-popout #win-max, .is-popout #win-pop, .is-popout #sv-pop, .is-popout #sv-min, .is-popout #sv-max { display: none !important; }
@@ -2680,3 +2680,16 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 
 /* ストリートビューの見出し: 座標が隠れているときも、ボタンを右に寄せる */
 .sv-spacer { flex: 1 1 0; min-width: 0; align-self: stretch; }
+
+/* 外に出したタブ（地図・比較など）: 上のバー（移動・操作）と、その下のタブの画面。ウィンドウの角は丸く、背景は透明 */
+.is-tabwin #app { position: fixed; inset: 0; border-radius: 14px; overflow: hidden; background: var(--bg); border: 1px solid var(--border); display: flex; flex-direction: column; }
+.is-tabwin.is-popout-max #app { border-radius: 0; }
+.is-tabwin { --topbar-h: 40px !important; }
+#po-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 3000; height: 38px; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 14px; background: var(--surface); border-bottom: 1px solid var(--border); border-radius: 14px 14px 0 0; -webkit-app-region: drag; user-select: none; }
+.is-popout-max #po-bar { border-radius: 0; }
+#po-bar .po-title { font-weight: 700; font-size: 14px; }
+#po-bar .po-sp { flex: 1; }
+#po-bar .icon-btn { -webkit-app-region: no-drag; width: 30px; height: 30px; }
+#po-bar .icon-btn.is-on { background: var(--accent-soft); color: var(--accent); }
+.is-tabwin #view { margin-top: 38px; flex: 1; min-height: 0; overflow: auto; }
+.is-tabwin #app.app-fit { height: 100%; }
