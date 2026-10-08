@@ -26,8 +26,10 @@ export function loadGuide(slug, api) {
 // そこにない画像・読み込めない画像は、このサイトの中継（/api/plonkit?img=）から取得する
 const CDN = 'https://cdn.jsdelivr.net/gh/Currywarrior/geoguessr-guide@fe8d0288858de706f56b273ca801bf2c3267fdd1/assets/img/plonkit/';
 const proxySrc = (u) => (!u ? '' : u.startsWith('/') ? `/api/plonkit?img=${encodeURIComponent(u)}` : u);
+// 画像集（CDN）にない画像は、最初から、このサイトの中継から取る（CDN に問い合わせて、断られるのを待たない）
+const NOT_IN_CDN = new Set(["/images/argentina/salta_canyon_gen4.png", "/images/argentina/arg_hills_gen4.png", "/images/argentina/rn293_gen4.png", "/images/australia/au_chevrons_new", "/images/malaysia/Diagonal_Support_Poles_v2.png", "/images/new-zealand/nz_arthurspass_new.png", "/images/panama/panamacity_new.png"]);
 export function imgSrc(u) {
-  if (!u || !u.startsWith('/images/')) return proxySrc(u);
+  if (!u || !u.startsWith('/images/') || NOT_IN_CDN.has(u)) return proxySrc(u);
   let key = u.slice('/images/'.length);
   try { key = decodeURI(key); } catch { /* そのまま */ }
   return CDN + encodeURI(key.replace(/\.[A-Za-z0-9]+$/, '') + '.webp');
@@ -121,11 +123,11 @@ export function loadImages(root) {
   const queue = [];
   let active = 0;
   const pump = () => {
-    while (active < 6 && queue.length) {
+    while (active < 12 && queue.length) {
       const img = queue.shift();
       if (!img.isConnected) continue;
       active++;
-      const done = () => { active--; pump(); };
+      const done = () => { active--; pump(); if (active < 4 && !queue.length) idleFill(4 - active); };
       const tries = Number(img.dataset.tries || 0);
       img.onload = () => { img.closest('.pk-pic')?.classList.remove('is-failed'); img.closest('.pk-pic')?.classList.add('is-loaded'); done(); };
       img.onerror = () => {
@@ -137,11 +139,16 @@ export function loadImages(root) {
       img.src = src;
     }
   };
+  // 見えている付近の画像の読み込みが落ち着いたら、残りの画像も、少しずつ（同時に 4 枚くらい、途切れずに）先に読み込んでおく（スクロールしたときに、すぐ見えるように）
+  const idleFill = (n = 4) => {
+    const rest = [...root.querySelectorAll('img[data-src]:not([data-queued])')].slice(0, n);
+    rest.forEach((i) => start(i));
+  };
   const start = (img) => { if (img.dataset.queued) return; img.dataset.queued = '1'; queue.push(img); pump(); };
   const imgs = [...root.querySelectorAll('img[data-src]')];
   if (!('IntersectionObserver' in window)) imgs.forEach(start);
   else {
-    const io = new IntersectionObserver((list) => { for (const e of list) if (e.isIntersecting) { io.unobserve(e.target); const i = e.target.querySelector('img[data-src]'); if (i) start(i); } }, { rootMargin: '600px 0px' });
+    const io = new IntersectionObserver((list) => { for (const e of list) if (e.isIntersecting) { io.unobserve(e.target); const i = e.target.querySelector('img[data-src]'); if (i) start(i); } }, { rootMargin: '1800px 0px' }); // 画面の少し先（約 2 画面ぶん）まで、先に読み込む
     imgs.forEach((i) => io.observe(i.closest('.pk-pic') || i)); // 画像の入れ物（高さのある枠）を見張る
   }
   // 読み込めなかった画像は、押すと、もう一度試す
