@@ -4,7 +4,7 @@ import { AI_MODELS, getAiModel, setAiModel } from './assistant.js';
 import { parseStreetView } from './plonkit.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MAX_CONTEXT = 140000; // ガイドは、長くても 2 万文字ほど。全文を渡す（途中で切らない）
-const COUNTS = [10, 15, 20, 30];
+const COUNTS = [10, 15, 20, 30, 50, 80, 100];
 const COUNT_KEY = 'geo-aicards-count';
 const getCount = () => { try { const v = Number(localStorage.getItem(COUNT_KEY)); return COUNTS.includes(v) ? v : 20; } catch { return 20; } };
 
@@ -40,7 +40,7 @@ export function guideToContext(g) {
 }
 
 // /api/ask に質問して、答えの文章（ストリーミングを、まとめて受け取る）を返す
-async function askText(api, prompt, context, model = 'auto', maxTokens = 12000) {
+async function askText(api, prompt, context, model = 'auto', maxTokens = 12000) { // 答えの長さの上限。カード 1 件に、約 300 トークン
   const token = await api.getAccessToken();
   const res = await fetch('/api/ask', {
     method: 'POST',
@@ -215,7 +215,7 @@ export async function proposeCards(deps) {
     const mine = ++runId;
     body.innerHTML = loadingHtml;
     try {
-    const answer = await askText(api, prompt(), text, getAiModel());
+    const answer = await askText(api, prompt(), text, getAiModel(), Math.min(30000, 2000 + getCount() * 320));
     if (mine !== runId) return;
     if (closed || mine !== runId) return;
     const list = parseProposals(answer, tips, catNames, getCount());

@@ -213,7 +213,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   const context = typeof body.context === 'string' ? body.context.slice(0, MAX_CONTEXT) : '';
-  const MAX_OUT = Math.max(1024, Math.min(16000, Number(body.maxTokens) || 4096)); // 答えの長さの上限（カードの提案など、長い答えが要るときに、増やせる）
+  const MAX_OUT = Math.max(1024, Math.min(32000, Number(body.maxTokens) || 4096)); // 答えの長さの上限（カードの提案など、長い答えが要るときに、増やせる）
   const system = context.trim() ? `${SYSTEM}\n\n<参考資料>\n${context}\n</参考資料>` : SYSTEM;
 
   // 画面で選ばれたモデル: 'auto'（自動）/ Gemini のモデル / 'cloudflare'
