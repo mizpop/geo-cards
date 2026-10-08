@@ -93,8 +93,12 @@ function textHtml(lines) {
 }
 
 /** ガイド全体の HTML と、目次の項目 */
+// 画像が地図（地図・カバレッジ図・位置図）かどうか。ファイル名で判断する（例: Canada_Map16.png・ru_coverage1.png・as_locator.png）。地図は、カードにしない
+const MAP_RE = /(^|[^a-z])(maps?|atlas|locator|coverage)([^a-z]|$)/i;
+export const isMapImage = (item) => { let f = String(item?.img || '').split('/').pop(); try { f = decodeURIComponent(f); } catch { /* そのまま */ } return MAP_RE.test(f) || MAP_RE.test(String(item?.alt || '')); };
 export function guideHtml(g, { editor = false } = {}) {
   const addBtn = editor ? '<button type="button" class="pk-add" data-pk-add title="この画像で、カードを作る（国と画像を入れた状態で、作成画面を開きます）">＋ カード</button>' : '';
+  const addBtnFor = (it) => (isMapImage(it) ? '' : addBtn); // 地図の画像には、「＋ カード」を出さない
   const toc = [];
   let n = 0;
   const body = g.steps.map((s) => {
@@ -102,11 +106,11 @@ export function guideHtml(g, { editor = false } = {}) {
     toc.push({ id: sid, title: s.title, level: 1 });
     const items = s.items.map((it) => {
       if (it.k === 'div') { const id = `pk-${n++}`; toc.push({ id, title: it.title, level: 2 }); return `<h4 class="pk-div" id="${id}">${esc(it.title)}</h4>`; }
-      if (it.k === 'img') return `<figure class="pk-wide pk-pic"><img ${imgAttrs(it.img)} alt="">${addBtn}</figure>`;
+      if (it.k === 'img') return `<figure class="pk-wide pk-pic"><img ${imgAttrs(it.img)} alt="">${addBtnFor(it)}</figure>`;
       const link = it.link || '';
       const sv = link && !/\.(png|jpe?g|webp|gif)(\?|$)/i.test(link) ? svAttr(link) : '';
       const w = it.w > 0 ? Math.max(28, Math.min(60, Math.round(it.w * 100))) : 40;
-      const img = it.img ? `<figure class="pk-img pk-pic" style="--w:${w}%"><img ${imgAttrs(it.img)} alt="${esc(it.alt)}" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}${addBtn}</figure>` : '';
+      const img = it.img ? `<figure class="pk-img pk-pic" style="--w:${w}%"><img ${imgAttrs(it.img)} alt="${esc(it.alt)}" ${sv ? `${sv} class="pk-sv" title="押すとストリートビューで開く"` : link && externalOk(link) && !sv ? `data-pk-ext="${esc(link)}" class="pk-zoom" title="押すと拡大"` : 'class="pk-zoom" title="押すと拡大"'}>${sv ? '<span class="pk-badge" aria-hidden="true">📍 ストリートビュー</span>' : ''}${addBtnFor(it)}</figure>` : '';
       return `<div class="pk-tip ${img ? '' : 'is-text'}">${img}<div class="pk-text">${textHtml(it.text)}</div></div>`;
     }).join('');
     return `<section class="pk-step" id="${sid}"><h3 class="pk-step-title">${esc(s.title)}</h3>${items}</section>`;

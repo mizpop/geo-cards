@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v93',
+    date: '2026-10-08',
+    sections: [
+      {
+        title: 'Plonkit・AI のカード提案',
+        items: ['画像が地図（ファイル名に map・coverage・locator・atlas を含むもの。例: Canada_Map16.png・ru_coverage1.png。全 5,106 枚のうち 140 枚ほど）の項目は、カードにしないように。Plonkit のガイドの画像の「＋ カード」ボタンを出さない・AI のカード提案の対象から外す（AI にも、地図の画像の項目は選ばないよう伝える。前回の提案に含まれていても、除く）'],
+      },
+    ],
+  },
+  {
     version: 'v92',
     date: '2026-10-08',
     sections: [

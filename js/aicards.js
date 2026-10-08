@@ -1,7 +1,7 @@
 // AI が、Plonkit のガイドを読んで、作るとよいカードを提案する。提案から、選んだものを、そのまま作成する（または、作成画面で編集してから作る）
 // ガイド（日本語訳）の画像つきの項目に [T番号] を付けて AI に渡し、「どの項目を、どんなカードにするか」を JSON で返してもらう
 import { AI_MODELS, getAiModel, setAiModel } from './assistant.js';
-import { parseStreetView } from './plonkit.js';
+import { parseStreetView, isMapImage } from './plonkit.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MAX_CONTEXT = 140000; // ガイドは、長くても 2 万文字ほど。全文を渡す（途中で切らない）
 const COUNTS = [10, 15, 20, 30, 50, 80, 100];
@@ -31,7 +31,7 @@ export function guideToContext(g) {
       if (it.k !== 'tip' || !it.text?.length) continue;
       const body = it.text.map((t) => String(t).replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\*\*/g, '')).join(' ').replace(/\s+/g, ' ').trim();
       if (!body) continue;
-      if (it.img) { n++; tips.set(n, it); out.push(`[T${n}] ${body}`); } else out.push(`（画像なし）${body}`);
+      if (it.img && !isMapImage(it)) { n++; tips.set(n, it); out.push(`[T${n}] ${body}`); } else out.push(`（${it.img ? '地図の画像' : '画像なし'}・カードにしない）${body}`); // 地図の画像の項目には、番号を付けない（カードにしない）
     }
   }
   let text = out.join('\n');
@@ -136,6 +136,7 @@ export async function proposeCards(deps) {
 {"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国名は書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）"}]}
 - tip は、[T番号] の数字だけ。同じ番号は 1 回だけ。front・back・area の文章には、[T10] のような番号や印は、書かない。
 - category は、次の中から 1 つ選ぶ（合うものがなければ空）: ${catNames.join('、')}
+- [T番号] が付いていない項目（画像なし・地図の画像）は、選ばない。画像が地図（地図・カバレッジ・地域区分・位置図など）だと思われる項目も、選ばない。
 - ガイドの前半だけに偏らず、後半の項目も選ぶ。国全体に共通して役立つ手がかりや、見分けやすい手がかりを優先する。ガイドにない内容は書かない。`;
   // 提案の一覧を描く（AI の答え・前回の保存、どちらからでも）
   const renderList = (list, meta) => {
