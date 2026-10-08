@@ -23,11 +23,18 @@ const FREE_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash',
 // 予備（と、手動で選べる）Cloudflare Workers AI のモデル。画像も読める
 const CF_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 const CF_LABEL = 'cloudflare:llama-4-scout';
+// 画面から選べる Cloudflare AI のモデル（Workers AI）。vision: 画像も読める。大きいモデルほど、賢いが、無料枠（1 日 10,000 ニューロン）を、早く使う
+// 画像つきの質問は、画像を読めるモデルに切り替える。モデルの名前は、Cloudflare の提供状況で変わることがある（使えないときは、Scout に切り替えて答える）
+const CF_MODELS = {
+  cloudflare: { id: CF_MODEL, label: CF_LABEL, vision: true },
+  'cloudflare-70b': { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'cloudflare:llama-3.3-70b', vision: false },
+  'cloudflare-mistral': { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'cloudflare:mistral-small-3.1', vision: true },
+};
 const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const SWITCH_ON = new Set([429, 500, 502, 503, 504]); // これらのときだけ次のモデルを試す（キーや入力の問題は、どのモデルでも同じなので切り替えない）
 const MAX_MESSAGES = 20; // 会話の履歴の最大数
 const MAX_TEXT = 4000; // 1 つの発言の最大文字数
-const MAX_CONTEXT = 40000; // 参考資料の最大文字数
+const MAX_CONTEXT = 150000; // 参考資料の最大文字数（Plonkit のガイドの全文などを、渡せるように）
 const MAX_IMAGE_B64 = 6_000_000; // 添付画像（base64）の最大の長さ
 const MAX_BODY = 8_000_000; // リクエスト全体の最大バイト数
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -148,12 +155,12 @@ function simplifyCf(upstream, label, switched) {
 }
 
 // Cloudflare Workers AI に質問する。画像つきで失敗したときは、画像なしでやり直す（そのときは本文の先頭に断りを入れる）
-async function askCloudflare(env, system, messages, img, label, switched) {
+async function askCloudflare(env, system, messages, img, label, switched, spec = CF_MODELS.cloudflare, maxTokens = 2048) {
   const chat = [{ role: 'system', content: system }, ...messages.map((m) => ({ role: m.role, content: m.text }))];
   const run = (withImage) => {
     const msgs = chat.map((m) => ({ ...m }));
     if (withImage && img) msgs[msgs.length - 1].content = [{ type: 'text', text: msgs[msgs.length - 1].content }, { type: 'image_url', image_url: { url: `data:${img.media_type};base64,${img.data}` } }];
-    return env.AI.run(CF_MODEL, { messages: msgs, stream: true, max_tokens: 2048 });
+    return env.AI.run(spec.id, { messages: msgs, stream: true, max_tokens: maxTokens });
   };
   let out;
   let noImage = false;
@@ -206,10 +213,13 @@ export async function onRequestPost({ request, env }) {
   }
 
   const context = typeof body.context === 'string' ? body.context.slice(0, MAX_CONTEXT) : '';
+  const MAX_OUT = Math.max(1024, Math.min(16000, Number(body.maxTokens) || 4096)); // 答えの長さの上限（カードの提案など、長い答えが要るときに、増やせる）
   const system = context.trim() ? `${SYSTEM}\n\n<参考資料>\n${context}\n</参考資料>` : SYSTEM;
 
   // 画面で選ばれたモデル: 'auto'（自動）/ Gemini のモデル / 'cloudflare'
-  const wantCf = body.model === 'cloudflare' && !!env.AI; // 予備の AI が設定されていないときは、自動と同じ
+  const wantCf = !!CF_MODELS[body.model] && !!env.AI; // 予備の AI が設定されていないときは、自動と同じ
+  let cfSpec = CF_MODELS[body.model] || CF_MODELS.cloudflare;
+  if (wantCf && img && !cfSpec.vision) cfSpec = CF_MODELS.cloudflare; // 画像つきのときは、画像を読めるモデルに
   const manual = typeof body.model === 'string' && FREE_MODELS.includes(body.model);
   const useGemini = !!env.GEMINI_API_KEY && !wantCf;
   const valid = (m) => /^[\w.\-]+$/.test(m || '');
@@ -233,10 +243,10 @@ export async function onRequestPost({ request, env }) {
   };
   const attempt = async (model) => {
     const withThinking = /^gemini-[3-9]/.test(model);
-    const cfg = { maxOutputTokens: 4096, ...(withThinking ? { thinkingConfig: { thinkingLevel: level.toUpperCase() } } : {}) };
+    const cfg = { maxOutputTokens: MAX_OUT, ...(withThinking ? { thinkingConfig: { thinkingLevel: level.toUpperCase() } } : {}) };
     let r = await send(model, cfg);
     if (r && r.status === 400 && withThinking) { // 考える深さの指定が合わないモデルのときは、指定なしでやり直す
-      const r2 = await send(model, { maxOutputTokens: 4096 });
+      const r2 = await send(model, { maxOutputTokens: MAX_OUT });
       if (r2?.ok) r = r2;
     }
     return r;
@@ -254,7 +264,12 @@ export async function onRequestPost({ request, env }) {
   // Cloudflare AI: 手動で選ばれたとき、または、自動のときに Gemini が使えなかったとき（キー未設定・混み合い・上限・エラー）の予備
   if (env.AI && (wantCf || (!manual && !res?.ok))) {
     try {
-      const stream = await askCloudflare(env, system, messages, img ? { media_type: img.media_type, data: img.data } : null, CF_LABEL, useGemini);
+      const imgArg = img ? { media_type: img.media_type, data: img.data } : null;
+      let stream;
+      try { stream = await askCloudflare(env, system, messages, imgArg, cfSpec.label, useGemini, cfSpec, Math.min(MAX_OUT, 6000)); } catch (e) {
+        if (cfSpec === CF_MODELS.cloudflare) throw e; // 選んだモデルが使えないときは、Scout で答える
+        stream = await askCloudflare(env, system, messages, imgArg, CF_LABEL, useGemini, CF_MODELS.cloudflare, Math.min(MAX_OUT, 6000));
+      }
       return new Response(stream, { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
     } catch (e) {
       return cfError(e, wantCf);

@@ -2715,3 +2715,5 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 @media (max-width: 640px) { .aic-card { flex-wrap: wrap; } .aic-img { width: 100%; } }
 
 .aic-model-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+
+.aic-svrow { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--muted); }

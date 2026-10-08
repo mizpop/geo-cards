@@ -11,7 +11,7 @@ import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { COMMANDS, parseCommand, complete as cmdComplete, syntaxHint, optionMap, unq as cmdUnq, commandNames } from './commands.js';
 import { proposeCards } from './aicards.js';
-import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc } from './plonkit.js';
+import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc, parseStreetView } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
 import { initAssistant, teardownAssistant, raiseAssistant, openAssistant, getAssistantSession, setAssistantSession, embedAssistant } from './assistant.js';
@@ -5510,6 +5510,17 @@ function renderPlonkitModal(entry) {
           throw new Error('画像を取得できません');
         },
         createCard: (fields, blob) => api.createCard(fields, blob, null),
+        addSv: async (url) => { // ガイドのストリートビューのリンクを、保存したストリートビューにして、その id を返す（短縮リンクは、元のリンクに戻す）
+          let p = parseStreetView(url);
+          if (!p && /^https?:\/\/(goo\.gl\/maps\/|maps\.app\.goo\.gl\/)/.test(url)) {
+            const token = await api.getAccessToken();
+            const r = await fetch(`/api/plonkit?go=${encodeURIComponent(url)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+            p = parseStreetView((await r.json()).url);
+          }
+          if (!p) return null;
+          const row = savedSvAt(p) || await saveSv({ lat: p.lat, lng: p.lng, heading: p.heading, pitch: p.pitch, fov: p.fov });
+          return row?.id || null;
+        },
         openEditor: (preset) => openEditor(null, preset),
         onCreated: async () => { await reloadCards(); if (state.view !== 'map') render(); },
       }));

@@ -32,7 +32,9 @@ const MODELS = [
   ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
   ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite（軽い）'],
   ['gemini-3.1-flash-lite', 'Gemini 3.1 Flash-Lite（軽い）'],
-  ['cloudflare', 'Cloudflare AI（Llama 4 Scout）'],
+  ['cloudflare', 'Cloudflare AI（Llama 4 Scout・画像も読める）'],
+  ['cloudflare-70b', 'Cloudflare AI（Llama 3.3 70B・高性能・画像は読めない）'],
+  ['cloudflare-mistral', 'Cloudflare AI（Mistral Small 3.1 24B・画像も読める）'],
 ];
 const MODEL_KEY = 'geochecker-ai-model';
 export const AI_MODELS = MODELS; // 画面の選択欄（AI のチャット・カードの提案）で共通
