@@ -2655,3 +2655,28 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .is-search #spotlight::backdrop { background: transparent; backdrop-filter: none; }
 .is-search .spot-bar { -webkit-app-region: drag; }
 .is-search .spot-bar input, .is-search .spot-bar button, .is-search .spot-field { -webkit-app-region: no-drag; }
+
+/* ストリートビュー: 外に出したウィンドウで、リンクから開いたときの「← 戻る」 */
+.sv-back { flex: none; margin-right: 6px; white-space: nowrap; -webkit-app-region: no-drag; }
+.sv-back[hidden] { display: none; }
+
+/* 検索の「!」コマンド */
+.cmd-ghost .cmd-hint { opacity: .5; }
+.cmd-panel { display: flex; flex-direction: column; gap: 8px; }
+.cmd-list { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow-y: auto; }
+.cmd-item { display: flex; align-items: baseline; gap: 10px; text-align: left; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+.cmd-item b { font-weight: 600; white-space: nowrap; }
+.cmd-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-item:hover, .cmd-item.on { background: var(--accent-soft); }
+.cmd-err { margin: 0; color: var(--ng); font-weight: 600; }
+.cmd-out { padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.cmd-out.is-err { border-color: var(--ng); background: var(--ng-soft); }
+.cmd-out p { margin: 0; }
+.cmd-help-row { display: flex; gap: 12px; align-items: baseline; padding: 4px 0; flex-wrap: wrap; }
+.cmd-help-row code { font-family: 'Cascadia Mono', Consolas, monospace; color: var(--accent); white-space: nowrap; }
+.cmd-help-sub { padding: 2px 0 2px 14px; font-size: 13px; }
+.cmd-none { margin: 4px 2px; }
+.cmd-foot { margin: 0; }
+
+/* ストリートビューの見出し: 座標が隠れているときも、ボタンを右に寄せる */
+.sv-spacer { flex: 1 1 0; min-width: 0; align-self: stretch; }

@@ -73,7 +73,7 @@ let view = { heading: 0, pitch: 0, fov: 0 }; // 向き・傾き・視野（ズ�
 let rect = null; // { left, top, width, height }（画面全体の中の位置と大きさ。開き直しても引き継ぐ）
 let hooks = { isEditor: () => false, canSave: () => false, createCard: null, save: null, isSaved: () => false, savedAt: null, nearSaved: null, deleteSaved: null, renameSaved: null, placeName: null, toast: () => {}, readPosition: null, linkCard: null, listSaved: null, label: null, sub: null, flag: null };
 const listeners = new Set();
-const mobile = () => window.matchMedia('(max-width: 760px)').matches;
+const mobile = () => !document.documentElement.classList.contains('is-popout') && window.matchMedia('(max-width: 760px)').matches; // 外に出したウィンドウは、幅が狭くても、スマホ用の表示にしない
 // スマホでは、カードなどの詳細がモーダル（最前面の層）で開くので、そのままだとストリートビューが下に隠れる。
 // ストリートビューも最前面の層（popover）に出して、あとから開いた方が手前に来るようにする（PC は、浮かぶウィンドウどうしの重なりを保つため使わない）
 function raiseTop() {
@@ -260,8 +260,9 @@ function ensure(inst) {
   panel.hidden = true;
   panel.innerHTML = `
     <div class="sv-head" id="sv-head">
+      <button type="button" class="btn btn-ghost btn-sm sv-back" id="sv-back" title="前の画面に戻る（ストリートビューを閉じる）" aria-label="前の画面に戻る" hidden>← 戻る</button>
       <span class="sv-title">${SV_ICON} <span id="sv-title-text">ストリートビュー</span></span>
-      <span class="sv-coord muted small" id="sv-coord"></span>
+      <span class="sv-coord muted small" id="sv-coord"></span><span class="sv-spacer" aria-hidden="true"></span>
       <button type="button" class="icon-btn sv-btn" id="sv-paste" title="いる位置を取り込む（ウィンドウ内の「Google マップで見る」を右クリック →「リンクのアドレスをコピー」してから押す）" aria-label="位置を貼り付けて合わせる">📋</button>
       <button type="button" class="icon-btn sv-btn" id="sv-map" title="地図で場所を選ぶ（小さい地図が開きます。いる場所の近くが表示されます）" aria-label="地図で場所を選ぶ" aria-expanded="false">🗺</button>
       <button type="button" class="icon-btn sv-btn" id="sv-list" title="保存したストリートビューの一覧を開く" aria-label="保存したストリートビューの一覧">📂</button>
@@ -292,14 +293,17 @@ function ensure(inst) {
   window.addEventListener('blur', () => { if (document.activeElement === F) { active = inst; bringFront(P); } });
   document.addEventListener('mousemove', (e) => { if (document.activeElement === F && !P.contains(e.target)) releaseFocus(); }, true); // ウィンドウの外でポインターが動いたら（mouseleave が届かない場合の備え）
 
-  L(panel.querySelector('#sv-close')).addEventListener('click', () => { closeSvWindow(inst); if (document.documentElement.classList.contains('is-popout')) setTimeout(() => window.close(), 60); }); // 外に出したウィンドウは、閉じたら Windows のウィンドウも閉じる
+  const popoutHasOthers = () => !!document.querySelector('dialog.modal[open]'); // 外に出したウィンドウで、ほかの画面（リンク元）が下に開いているか
+  L(panel.querySelector('#sv-close')).addEventListener('click', () => { closeSvWindow(inst); if (document.documentElement.classList.contains('is-popout') && !popoutHasOthers()) setTimeout(() => window.close(), 60); });
+  L(panel.querySelector('#sv-back')).addEventListener('click', () => closeSvWindow(inst)); // 前の画面（リンク元のウィンドウ）に戻る // 外に出したウィンドウは、閉じたら Windows のウィンドウも閉じる
   panel.querySelector('#sv-pin')?.addEventListener('click', () => window.desktop.winControl('pin'));
   panel.querySelector('#sv-store')?.addEventListener('click', () => window.desktop.winControl('store'));
   panel.querySelector('#sv-minimize')?.addEventListener('click', () => window.desktop.winControl('minimize'));
   panel.querySelector('#sv-maximize')?.addEventListener('click', () => window.desktop.winControl('maximize'));
   panel.querySelector('#sv-return')?.addEventListener('click', () => { if (point) window.desktop.returnToApp({ kind: 'sv', lat: point[0], lng: point[1], heading: view.heading, pitch: view.pitch, fov: view.fov }); });
   if (panel.querySelector('#sv-pin')) window.desktop.getWinState?.().then((st) => { if (st) panel.querySelector('#sv-pin')?.classList.toggle('is-on', !!st.pin); });
-  L(panel.querySelector('#sv-pop'))?.addEventListener('click', async () => { // Windows 版: 独立した Windows のウィンドウに出す
+  const popBtn = panel.querySelector('#sv-pop'); // ブラウザ版には無い（Windows 版だけ）。無いときに、エラーで、あとのボタンの設定が止まらないように
+  if (popBtn) L(popBtn).addEventListener('click', async () => { // Windows 版: 独立した Windows のウィンドウに出す
     if (!point) return;
     const r = panel.getBoundingClientRect();
     const ok = await window.desktop.popOut({ entry: { kind: 'sv', lat: point[0], lng: point[1], heading: view.heading, pitch: view.pitch, fov: view.fov }, size: { width: Math.max(r.width, 640), height: Math.max(r.height, 480) } }).catch(() => false);
@@ -564,6 +568,7 @@ export function openSvWindow(lat, lng, opts = {}) {
   setMin(false); // 縮小していても、新しい場所を開いたら戻す
   panel.classList.remove('is-closing');
   if (panel.hidden) { panel.hidden = false; place(); bringFront(panel); setPopOrigin(panel); }
+  { const back = panel.querySelector('#sv-back'); if (back) back.hidden = !(document.documentElement.classList.contains('is-popout') && document.querySelector('dialog.modal[open]')); } // 外に出したウィンドウで、ほかの画面から開いたときは、「← 戻る」を出す
   raiseTop();
   view = { heading: Number(opts.heading) || 0, pitch: Number(opts.pitch) || 0, fov: Number(opts.fov) || 0 };
   frameReady = false; // 新しい映像が読み込まれるまで、読み取った位置では上書きしない

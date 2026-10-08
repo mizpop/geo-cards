@@ -239,3 +239,9 @@ Windows 版アプリは、Discord アプリが起動しているとき、今見�
 - **立ち上がりの高速化**: 中身が空の外のウィンドウ（`?popout={"kind":"idle"}`）を、隠して 1 つ先に用意（`electron/main.js` の `ensureWarm`）。開くときは `popout-open` で中身を渡して表示する
 - **左下の角**: 外に出したウィンドウをドラッグして離すとしまう / カーソルを止めると一覧が出る（約 0.35 秒）。一覧からは、ドラッグ（離した場所）かクリック（元の位置）で取り出す
 - **トレイのメニュー**: 「アプリを開いていないときも、ショートカットを使う」（`prefs.bgKeys`）
+
+### 検索のコマンド
+検索欄で `!` を入力すると、コマンドを使えます（仕様は `js/commands.js` の `COMMANDS`、実行は `js/app.js` の `runCommand`）。
+- コマンド: `help` `open` `exit` `restart` `update` `version` `win` `card create` `card` `country`（exit / restart / update / win は Windows 版のみ）
+- セレクター: 国 `@all` `@region.<英語名>` `@available` / カード `@all` `@available` `@country.<国>` `@category.<名前>` `@hasstreetview` `@hascard` `@relatedto.<カード>` / ウィンドウ `@all` `@this` `@country.<国>` `@plonkit.<国>` `@streetview` `@card.<カード>` `@minimized` `@maximized` `@stored` `@renamed` `@pinned`。`&`（かつ）・`|`（または）・`not`・カッコで組み合わせる
+- カードの指定は、補完が入れる `#<IDの先頭>` か、検索のことば。オプションは、最後に `-名前` `-名前.値`

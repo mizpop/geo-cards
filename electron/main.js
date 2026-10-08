@@ -1,6 +1,6 @@
 // GeoChecker のデスクトップ版: 公開中のサイトを読み込むだけの入れ物。サイトを更新すれば、このアプリにも自動で反映される
 // 上の細いバー（タイトルバー）に再読み込みボタンを置くため、バーとサイトを別々の画面（WebContentsView）にしている
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, globalShortcut, desktopCapturer, screen, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, globalShortcut, desktopCapturer, screen, Tray, Menu, nativeImage, Notification, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { DiscordPresence } = require('./discord');
@@ -255,7 +255,7 @@ function createWindow() {
   const stored = new Set(); // しまってあるウィンドウ
   const popIcons = new Map(); // ウィンドウ → アイコン（data URL。一覧に出す用）
   const dockItems = () => [...stored].filter((w) => !w.isDestroyed()).map((w) => ({ id: w.id, title: w.getTitle(), icon: popIcons.get(w) || null }));
-  const sendDock = () => { if (dockWin && !dockWin.isDestroyed()) dockWin.webContents.send('dock-list', dockItems()); };
+  const sendDock = () => { if (dockWin && !dockWin.isDestroyed()) dockWin.webContents.send('dock-list', dockItems(), justStored); };
   const hideDock = () => { if (dockWin && !dockWin.isDestroyed()) dockWin.hide(); };
   const showDock = () => {
     if (!dockWin || dockWin.isDestroyed()) {
@@ -272,9 +272,89 @@ function createWindow() {
     dockWin.focus();
   };
   const toggleDock = () => { if (dockWin && !dockWin.isDestroyed() && dockWin.isVisible()) hideDock(); else showDock(); };
-  ipcMain.handle('dock-list', (e) => (dockWin && e.sender === dockWin.webContents ? dockItems() : []));
+  ipcMain.handle('dock-list', (e) => (dockWin && e.sender === dockWin.webContents ? { items: dockItems(), justStored } : { items: [], justStored: '' }));
   ipcMain.on('dock-hide', (e) => { if (dockWin && e.sender === dockWin.webContents) hideDock(); });
-  const storeWin = (w) => { stored.add(w); w.hide(); showDock(); setTimeout(() => { if (dockWin && !dockWin.isDestroyed() && !dockWin.isFocused()) hideDock(); }, 2200); };
+  // 格納する前の位置を覚える（ドラッグで角に運んで格納したときは、運ぶ前の位置。クリックで取り出すときは、そこに戻す）
+  const beforeDrag = new Map();
+  const dragging = new Set();
+  const storedBounds = new Map();
+  let justStored = '';
+  // ---- 検索のコマンド（!win など）用: 外のウィンドウの一覧・操作 ----
+  const winMeta = new Map(); // ウィンドウ → { kind, code, cardId }
+  const customTitle = new Map(); // ウィンドウ → win rename で付けた名前
+  let lastFocusedPop = null;
+  const isAppSender = (e) => e.sender === wc || !!BrowserWindow.fromWebContents(e.sender) && popouts.has(BrowserWindow.fromWebContents(e.sender));
+  ipcMain.on('win-meta', (e, meta) => { const w = ownPopout(e); if (w && meta && typeof meta === 'object') winMeta.set(w, { kind: String(meta.kind || ''), code: String(meta.code || ''), cardId: String(meta.cardId || '') }); });
+  const listWins = () => [...popouts].filter((w) => !w.isDestroyed() && w !== warm && w !== searchWin).map((w) => {
+    const m = winMeta.get(w) || {};
+    return { id: w.id, title: customTitle.get(w) || w.getTitle(), kind: m.kind || '', code: m.code || '', cardId: m.cardId || '', stored: stored.has(w), minimized: w.isMinimized(), maximized: w.isMaximized(), pinned: w.isAlwaysOnTop(), renamed: customTitle.has(w), last: w === lastFocusedPop };
+  });
+  ipcMain.handle('win-list', (e) => (isAppSender(e) ? listWins() : []));
+  ipcMain.handle('win-cmd', (e, id, action, arg) => {
+    if (!isAppSender(e)) return false;
+    const w = [...popouts].find((x) => x.id === id && !x.isDestroyed());
+    if (!w) return false;
+    if (action === 'open') { stored.delete(w); sendDock(); if (w.isMinimized()) w.restore(); w.show(); w.focus(); const st = storedBounds.get(w); if (st) { w.setBounds(st); storedBounds.delete(w); } }
+    else if (action === 'close') w.destroy();
+    else if (action === 'rename') { const t = String(arg || '').slice(0, 80); if (t) { customTitle.set(w, t); w.setTitle(t); sendDock(); } }
+    else if (action === 'resetname') { customTitle.delete(w); w.setTitle(w.webContents.getTitle() || 'GeoChecker'); sendDock(); }
+    else if (action === 'store') storeWin(w);
+    else if (action === 'pin') { w.setAlwaysOnTop(true, 'floating'); w.webContents.send('win-state', { pin: true }); }
+    else if (action === 'putin') w.webContents.send('request-return');
+    else return false;
+    return true;
+  });
+  ipcMain.on('win-open-in', (e, id, entry) => { // そのウィンドウの中で、別の内容を開く（!card … -on.[win]）
+    if (!isAppSender(e) || !entry) return;
+    const w = [...popouts].find((x) => x.id === id && !x.isDestroyed());
+    if (!w) return;
+    stored.delete(w); sendDock();
+    if (w.isMinimized()) w.restore();
+    w.show(); w.focus();
+    w.webContents.send('popout-open', entry);
+  });
+  ipcMain.on('open-main', (e, tab) => { if (!isAppSender(e)) return; showWin(); if (tab && !wc.isDestroyed()) wc.send('goto-tab', String(tab)); });
+  ipcMain.on('send-to-main', (e, msg) => { if (!isAppSender(e) || !msg) return; showWin(); if (!wc.isDestroyed()) wc.send('from-outside', msg); });
+  ipcMain.handle('clipboard-image', (e) => { if (!isAppSender(e)) return null; const img = clipboard.readImage(); return img.isEmpty() ? null : img.toDataURL(); });
+  ipcMain.handle('app-cmd', async (e, cmd) => {
+    if (!isAppSender(e)) return { ok: false };
+    if (cmd === 'version') return { ok: true, client: app.getVersion() };
+    if (cmd === 'exit') { setTimeout(() => { quitting = true; app.quit(); }, 150); return { ok: true }; }
+    if (cmd === 'restart') { setTimeout(() => { quitting = true; app.relaunch(); app.quit(); }, 150); return { ok: true }; }
+    if (cmd === 'update') { manualUpdateCheck(); return { ok: true, text: updateInfo.text || '更新を確認しています…' }; }
+    return { ok: false };
+  });
+  const storeWin = (w) => {
+    storedBounds.set(w, beforeDrag.get(w) || w.getBounds());
+    beforeDrag.delete(w); dragging.delete(w);
+    justStored = w.getTitle();
+    stored.add(w); w.hide(); showDock();
+    setTimeout(() => { justStored = ''; sendDock(); if (dockWin && !dockWin.isDestroyed() && !dockWin.isFocused()) hideDock(); }, 2600);
+  };
+  // ウィンドウを左下の角へドラッグしている間、「ここで離すとしまう」と角に表示する
+  let hintWin = null;
+  const hintShow = (on) => {
+    if (!on) { if (hintWin && !hintWin.isDestroyed()) hintWin.hide(); return; }
+    const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const b = { x: d.bounds.x, y: d.bounds.y + d.bounds.height - 200, width: 260, height: 200 };
+    if (!hintWin || hintWin.isDestroyed()) {
+      hintWin = new BrowserWindow({ ...b, frame: false, transparent: true, hasShadow: false, resizable: false, skipTaskbar: true, focusable: false, show: false, alwaysOnTop: true, backgroundColor: '#00000000' });
+      hintWin.setIgnoreMouseEvents(true);
+      hintWin.loadFile(path.join(__dirname, 'hint.html'));
+    }
+    hintWin.setBounds(b);
+    hintWin.setAlwaysOnTop(true, 'screen-saver');
+    if (!hintWin.isVisible()) hintWin.showInactive();
+  };
+  let dragTimer = null;
+  const watchDrag = () => {
+    if (dragTimer) return;
+    dragTimer = setInterval(() => {
+      if (!dragging.size) { clearInterval(dragTimer); dragTimer = null; hintShow(false); return; }
+      const p = screen.getCursorScreenPoint();
+      hintShow(inCorner(p, screen.getDisplayNearestPoint(p)));
+    }, 80);
+  };
   // 画面の左下の角（アプリ内と同じ、角から 88px 以内）
   const CORNER = 88;
   const inCorner = (p, d, size = CORNER) => p.x <= d.bounds.x + size && p.y >= d.bounds.y + d.bounds.height - size;
@@ -296,10 +376,11 @@ function createWindow() {
     if (!cornerSince) cornerSince = Date.now();
     else if (Date.now() - cornerSince >= 350) { cornerArmed = false; cornerSince = 0; showDock(); }
   }, 120);
-  ipcMain.on('dock-drag', (e, on) => { // ドラッグの間だけ、一覧のウィンドウを、画面いっぱいに（透明）
-    if (!dockWin || e.sender !== dockWin.webContents) return;
+  ipcMain.handle('dock-drag', (e, on) => { // ドラッグの間だけ、一覧のウィンドウを、画面いっぱいに（透明）。画面の左上の位置を返す（カードを、カーソルの位置に、ずれなく置くため）
+    if (!dockWin || e.sender !== dockWin.webContents) return null;
     const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     if (on) dockWin.setBounds(d.bounds); else { const wa = d.workArea; dockWin.setBounds({ x: wa.x, y: wa.y + wa.height - 300, width: 440, height: 300 }); }
+    return { x: dockWin.getBounds().x, y: dockWin.getBounds().y };
   });
   ipcMain.on('dock-restore', (e, id, pos) => {
     if (!dockWin || e.sender !== dockWin.webContents) return;
@@ -307,6 +388,7 @@ function createWindow() {
     hideDock();
     if (w && !w.isDestroyed()) {
       stored.delete(w);
+      if (!pos) { const sb = storedBounds.get(w); if (sb) w.setBounds(sb); } // クリックで取り出すときは、しまう前の場所に戻す
       if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) { // 離した場所に、ウィンドウを出す（見出しのあたりが、カーソルの位置に来るように）
         const b = w.getBounds();
         const wa = screen.getDisplayNearestPoint({ x: Math.round(pos.x), y: Math.round(pos.y) }).workArea;
@@ -351,13 +433,15 @@ function createWindow() {
       webPreferences: { preload: path.join(__dirname, 'site-preload.js'), backgroundThrottling: false }, // 隠れている間も、先に読み込みを進める
     });
     popouts.add(w);
-    w.on('closed', () => { popouts.delete(w); stored.delete(w); popIcons.delete(w); sendDock(); syncKeys(); });
+    w.on('closed', () => { popouts.delete(w); stored.delete(w); popIcons.delete(w); winMeta.delete(w); customTitle.delete(w); storedBounds.delete(w); if (lastFocusedPop === w) lastFocusedPop = null; sendDock(); syncKeys(); });
     ['show', 'hide'].forEach((ev) => w.on(ev, syncKeys));
-    w.on('moved', () => checkCorner(w)); // ドラッグで動かし終えたとき
+    w.on('will-move', () => { if (!dragging.has(w)) { dragging.add(w); beforeDrag.set(w, w.getBounds()); } watchDrag(); }); // ドラッグを始めたとき（動かす前の位置を覚える）
+    w.on('moved', () => { checkCorner(w); dragging.delete(w); if (!stored.has(w)) beforeDrag.delete(w); hintShow(false); }); // ドラッグで動かし終えたとき
     w.on('maximize', () => w.webContents.send('win-state', { max: true }));
     w.on('unmaximize', () => w.webContents.send('win-state', { max: false }));
     w.webContents.setWindowOpenHandler(handleOpen(w));
-    w.webContents.on('page-title-updated', (_e, t) => w.setTitle(t));
+    w.webContents.on('page-title-updated', (_e, t) => { if (!customTitle.has(w)) w.setTitle(t); }); // win rename で付けた名前は、そのまま
+    w.on('focus', () => { lastFocusedPop = w; });
     w.loadURL(`${SITE}${SITE.includes('?') ? '&' : '?'}popout=${encodeURIComponent(JSON.stringify(entry))}`);
     return w;
   };

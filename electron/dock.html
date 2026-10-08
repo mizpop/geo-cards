@@ -12,13 +12,16 @@
   .card.dragging { position: fixed; z-index: 9999 !important; transition: none; animation: none; opacity: .92; transform: rotate(-3deg) scale(1.05) !important; box-shadow: 0 14px 34px rgba(0, 0, 0, .75), 0 0 0 2px #38b57d; }
   .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; cursor: pointer; line-height: 1; }
   .x:hover { background: #c2333d; }
+  #banner { position: absolute; left: 14px; bottom: 268px; padding: 7px 13px; border-radius: 999px; background: #0c2a1e; color: #34f0a0; border: 2px solid #34f0a0; box-shadow: 0 6px 18px rgba(0, 0, 0, .5); font-weight: 700; max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: pop .25s ease both; }
   #empty { position: absolute; left: 14px; bottom: 14px; padding: 12px 16px; border-radius: 10px; background: #172027; border: 1px solid #2d3a44; box-shadow: 0 6px 18px rgba(0, 0, 0, .55); color: #94a2ae; }
 </style>
 <div id="fan"></div>
 <script>
   const fan = document.getElementById('fan');
-  const draw = (items) => {
+  const draw = (items, justStored) => {
     fan.innerHTML = '';
+    document.getElementById('banner')?.remove();
+    if (justStored) { const b = document.createElement('div'); b.id = 'banner'; b.textContent = `✔ 「${justStored}」をしまいました`; document.body.append(b); }
     if (!items.length) { fan.innerHTML = '<div id="empty">しまってあるウィンドウは、ありません（外に出したウィンドウの「しまう」で、ここに入ります）</div>'; return; }
     items.forEach((it, i) => {
       const n = items.length;
@@ -35,15 +38,17 @@
       // ドラッグで取り出す: カードを、出したい場所（画面のどこでも）に運んで離すと、そこにウィンドウが開く。少ししか動かさなかったときは、クリックとして、しまう前の位置に出す
       let st = null;
       // ウィンドウの大きさが変わっても（ドラッグの間は画面いっぱいに広げる）途切れないように、動きは、ページ全体で受ける
+      const place = (e) => { c.style.left = `${e.screenX - st.origin.x - st.dx}px`; c.style.top = `${e.screenY - st.origin.y - st.dy}px`; c.style.bottom = 'auto'; }; // 画面上の位置から決める（一覧のウィンドウが広がっても、ずれない）
       const onMove = (e) => {
         if (!st) return;
         if (!st.started) {
           if (Math.hypot(e.screenX - st.sx, e.screenY - st.sy) < 6) return;
           st.started = true;
-          window.dock.drag(true);
-          c.classList.add('dragging');
+          const s0 = st;
+          window.dock.drag(true).then((o) => { if (st !== s0) return; s0.origin = o || { x: 0, y: 0 }; c.classList.add('dragging'); place(s0.last || e); }); // ウィンドウが広がってから、カードを動かし始める（一瞬、ずれた場所に出ないように）
         }
-        c.style.left = `${e.clientX - st.dx}px`; c.style.top = `${e.clientY - st.dy}px`; c.style.bottom = 'auto';
+        st.last = e;
+        if (st.origin) place(e);
       };
       const end = (e, cancelled) => {
         document.removeEventListener('pointermove', onMove, true);
@@ -68,7 +73,7 @@
       fan.append(c);
     });
   };
-  window.dock.list().then(draw);
+  window.dock.list().then((r) => draw(r.items, r.justStored));
   window.dock.onList(draw);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { window.dock.drag(false); window.dock.hide(); } });
   // カーソルが一覧のウィンドウから出て、しばらくそのままなら、閉じる（ドラッグ中は閉じない）

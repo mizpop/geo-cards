@@ -22,6 +22,18 @@ contextBridge.exposeInMainWorld('desktop', {
   getKeys: () => ipcRenderer.invoke('keys-get'), // 全体のショートカットの割り当て { keys, defaults, failed }
   setKey: (action, accel) => ipcRenderer.invoke('keys-set', action, accel), // 'capture' | 'toggle' | 'dock'
   openSearch: () => ipcRenderer.send('open-search'), // 検索のウィンドウを出す（外に出たウィンドウ）
+  // 検索のコマンド（!win など）用
+  listWindows: () => ipcRenderer.invoke('win-list'),
+  winCommand: (id, action, arg) => ipcRenderer.invoke('win-cmd', id, action, arg),
+  openOnWindow: (id, entry) => ipcRenderer.send('win-open-in', id, entry),
+  openMain: (tab) => ipcRenderer.send('open-main', tab || ''),
+  sendToMain: (msg) => ipcRenderer.send('send-to-main', msg),
+  appCommand: (cmd) => ipcRenderer.invoke('app-cmd', cmd), // 'version' | 'exit' | 'restart' | 'update'
+  readClipboardImage: () => ipcRenderer.invoke('clipboard-image'),
+  setWinMeta: (meta) => ipcRenderer.send('win-meta', meta),
+  onGotoTab: (fn) => ipcRenderer.on('goto-tab', (_e, tab) => fn(tab)),
+  onFromOutside: (fn) => ipcRenderer.on('from-outside', (_e, msg) => fn(msg)),
+  onRequestReturn: (fn) => ipcRenderer.on('request-return', () => fn()),
   popoutReady: () => ipcRenderer.send('popout-ready'), // （先に用意しておく外のウィンドウ）読み込みが終わった
   onPopoutOpen: (fn) => ipcRenderer.on('popout-open', (_e, entry) => fn(entry)), // 先に用意しておいたウィンドウに、中身が渡された
   onSearchFocus: (fn) => ipcRenderer.on('search-focus', () => fn()), // 検索のウィンドウを、もう一度出したとき（入力欄に合わせる）

@@ -9,6 +9,7 @@ import { initSavedSv, loadSavedSv, savedSvList, saveSv, deleteSv, renameSv, isSa
 import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
+import { COMMANDS, parseCommand, complete as cmdComplete, syntaxHint, optionMap, unq as cmdUnq, commandNames } from './commands.js';
 import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
@@ -566,6 +567,8 @@ let POPOUT = (() => { try { return JSON.parse(new URLSearchParams(location.searc
 if (POPOUT) document.documentElement.classList.add('is-popout');
 let desktopCaptureBound = false;
 let desktopReturnBound = false;
+let desktopOutsideBound = false;
+let desktopReqReturnBound = false;
 let sessionReady = false; // 戻し終わるまでは保存しない（途中の空の状態で、前の状態を上書きしないように）
 const sessionUser = () => state.user?.id || state.user?.email || '';
 function snapshotSession() {
@@ -734,6 +737,18 @@ async function enterApp() {
     window.desktop?.popoutReady?.();
   } else if (POPOUT) openPopoutContent(POPOUT);
   else startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
+  if (window.desktop?.onFromOutside && !POPOUT && !desktopOutsideBound) { // 外の検索ウィンドウから、メインのウィンドウに頼まれたこと（!card create など）
+    desktopOutsideBound = true;
+    window.desktop.onGotoTab?.((tab) => { if (state.user && tab) location.hash = `#${tab}`; });
+    window.desktop.onFromOutside(async (msg) => {
+      if (!state.user) return;
+      if (msg.type === 'card-create') { const r = await execCardCreate(msg.preset || {}, !!msg.confirm); if (r === 'created') toast('カードを作成しました'); } else if (msg.type === 'card-edit') openMainCardEdit(msg.id);
+    });
+  }
+  if (POPOUT && window.desktop?.onRequestReturn && !desktopReqReturnBound) { // !win … putin: このウィンドウを、アプリの中に戻す
+    desktopReqReturnBound = true;
+    window.desktop.onRequestReturn(() => { const w = wins.find((x) => x.el.open && x.current && popOutEntry(x)); const e = w && popOutEntry(w); if (e) window.desktop.returnToApp(e); });
+  }
   if (window.desktop?.onReturnToApp && !POPOUT && !desktopReturnBound) { // 外に出したウィンドウを、アプリの中に戻したとき
     desktopReturnBound = true;
     window.desktop.onReturnToApp((entry) => { if (state.user) openPopoutContent(entry); });
@@ -1412,7 +1427,7 @@ function bindModalNav() {
 // src: クリックされたタイル等。そこから飛び出すように開く
 // list: 開いた場所に並んでいたカードの id。あれば ← → / 矢印ボタンで前後のカードへ移れる
 function openCardModal(card, src = null, list = null) {
-  if (popOutFromSearch({ kind: 'card', id: card.id })) return;
+  if (popOutFromSearch({ kind: 'card', id: card.id, list: list && list.length > 1 ? list : null })) return;
   claimNewWin();
   const fresh = !W.el.open;
   navModal({ kind: 'card', id: card.id, list: list && list.length > 1 && list.includes(card.id) ? list : null });
@@ -3450,6 +3465,7 @@ function renderQuestion() {
   if (q.mode === 'pin' && card.lat != null) { renderPinQuestion(card); return; }
 
   let answerUi;
+  const flagQ = /国旗|flag/i.test(catOf(card).name); // 国旗のカードの問題は、選択肢の国旗が答えになってしまうので、国名の横に国旗を出さない
   if (q.mode === 'choice') {
     answerUi = `<div class="choices">${item.options.map((code, i) => {
       let cls = '';
@@ -3459,7 +3475,7 @@ function renderQuestion() {
         else cls = 'dim';
       }
       return `<button class="choice ${cls}" data-code="${code}" ${a ? 'disabled' : ''}>
-        <span class="kbd">${i + 1}</span>${flagImg(code)}<span>${esc(countryName(code))}</span></button>`;
+        <span class="kbd">${i + 1}</span>${flagQ ? '' : flagImg(code)}<span>${esc(countryName(code))}</span></button>`;
     }).join('')}</div>`;
   } else if (!a) {
     answerUi = `
@@ -3913,6 +3929,185 @@ function textSnippet(card, query) {
 }
 
 // 検索は Spotlight 風のパネル（今の画面の手前に浮かぶ）
+
+/* ================= 検索の「!」コマンド（仕様: commands.txt。解析・補完は js/commands.js）================= */
+const regionEn = (id) => id.split('-').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+const cardLabelOf = (card) => `${card.countries[0] ? countryName(card.countries[0]) : ''} ${card.description || catOf(card).name}`.trim() || 'カード';
+const cmdEnv = {
+  countries: {
+    all: () => COUNTRIES,
+    find: (t) => findCountry(t),
+    search: (t) => searchCountries(t),
+    playable: (code) => isPlayable(code),
+    regionOf: (code) => { const r = REGION_BY_ID.get(COUNTRY_BY_CODE.get(code).region); return { id: r.id, en: regionEn(r.id), name: r.name }; },
+    regions: () => REGIONS.map((r) => ({ id: r.id, en: regionEn(r.id), name: r.name })),
+  },
+  cards: { all: () => state.cards, byId: (id) => cardById(id), match: (t) => matchCards(t), label: cardLabelOf, catName: (c) => catOf(c).name },
+};
+let cmdWinsCache = { at: 0, list: [] };
+async function cmdWins(force = false) { // 外に出たウィンドウの一覧（Windows 版のみ。短い間は、覚えておく）
+  if (!window.desktop?.listWindows) return [];
+  if (!force && Date.now() - cmdWinsCache.at < 800) return cmdWinsCache.list;
+  const list = await window.desktop.listWindows().catch(() => []);
+  cmdWinsCache = { at: Date.now(), list };
+  return list;
+}
+const cmdOutside = () => SEARCH_WIN; // 外の検索ウィンドウで実行したコマンドは、外のウィンドウで開く
+const TAB_OF = { memorize: 'study', quiz: 'quiz', map: 'map', cards: 'manage', comparison: 'compare', languages: 'lang', streetviews: 'sv' };
+const cmdSyntax = (name) => {
+  const d = COMMANDS[name];
+  if (!d) return `!${name}`;
+  const lab = (sl) => `${sl.opt ? '(' : ''}[${sl.name || sl.t}]${sl.opt ? ')' : ''}`;
+  let t = `!${name} ${d.slots.map(lab).join(' ')}`.trim();
+  if (name === 'win') t += ' ...';
+  if (name === 'card') t = '!card create [opt]\n!card [card] [text] ...';
+  if (name === 'country') t += ' ...';
+  return t;
+};
+function cmdHelpHtml(arg) {
+  const row = (n) => `<div class="cmd-help-row"><code>${esc(cmdSyntax(n)).replace(/\n/g, '<br>')}</code><span>${esc(COMMANDS[n].desc)}</span></div>`;
+  if (arg && COMMANDS[arg]) {
+    const d = COMMANDS[arg];
+    const vals = d.values ? Object.entries(d.values).map(([k, v]) => `<div class="cmd-help-sub"><b>${esc(k)}</b> ${esc(v)}</div>`).join('') : '';
+    const opts = d.create ? `<div class="cmd-help-sub"><b>card create のオプション</b> ${d.create.opts.map((o) => `<code>-${esc(o)}</code>`).join(' ')}</div>` : '';
+    return `${row(arg)}${vals}${opts}`;
+  }
+  return `<p class="muted small">! に続けてコマンドを入力します。引数は半角スペースで区切り、スペースを含む文字は "…" で囲みます。セレクター（@all など）は、& | not とカッコで組み合わせられます。</p>${commandNames().map(row).join('')}`;
+}
+// card create のオプション → 作成画面の初期値
+async function cmdCardPreset(o) {
+  const preset = { countries: [] };
+  const errs = [];
+  const resolveSet = (txt, type) => { const r = parseCommand(`!x ${txt}`, cmdEnv, []); void r; const { parseExpr, evalExpr } = cmdParse; const pr = parseExpr(txt, type); if (pr.error) { errs.push(pr.error); return new Set(); } return evalExpr(pr.ast, type, cmdEnv, []); };
+  if (o.country) preset.countries = [...resolveSet(o.country, 'country')];
+  if (o.category) { const q = String(o.category).toLowerCase(); const k = allCats().find((c) => c.name.toLowerCase() === q) || allCats().find((c) => c.name.toLowerCase().includes(q)); if (k) preset.categoryId = k.id; else errs.push(`カテゴリー「${o.category}」が見つかりません`); }
+  if (o.area && o.area !== true) preset.area = String(o.area);
+  if (o.textfront && o.textfront !== true) preset.description = String(o.textfront);
+  if (o.textback && o.textback !== true) preset.notes = String(o.textback);
+  if (o.relatedto) preset.related = [...resolveSet(o.relatedto, 'card')];
+  if (o.placename && o.placename !== true) {
+    try { const c = await findCity(String(o.placename)); if (c) { preset.places = [{ name: c.name, en: c.en || '', local: c.local || '', sub: c.sub || '', code: c.code || '', lat: c.lat, lng: c.lng, zoom: c.zoom || 11 }]; if (c.code && !preset.countries.includes(c.code)) preset.countries.push(c.code); } else errs.push(`地名「${o.placename}」が見つかりません`); } catch { errs.push('地名を検索できませんでした'); }
+  }
+  if (o.addimage) {
+    let url = null;
+    try { url = window.desktop?.readClipboardImage ? await window.desktop.readClipboardImage() : null; } catch { /* なし */ }
+    if (!url) { try { const b = await readClipboardImage(); if (b) url = await blobToDataUrl(b); } catch { /* なし */ } }
+    if (url) preset.imageUrl = url; // クリップボードに画像がなければ、無視
+  }
+  return { preset, errs };
+}
+import * as cmdParse from './commands.js';
+// 作成画面を開く（-confirm なら、国と画像がそろっているときだけ、そのまま作成）
+async function execCardCreate(preset, confirm) {
+  if (!state.user?.isEditor) { toast('カードを作れるのは、編集者のみです', 'error'); return 'editor'; }
+  const blob = preset.imageUrl ? dataUrlToBlob(preset.imageUrl) : null;
+  const { imageUrl, ...rest } = preset;
+  void imageUrl;
+  if (confirm && blob && rest.countries?.length) {
+    try {
+      await api.createCard({ description: rest.description || '', countries: rest.countries, area: rest.area || '', notes: rest.notes || '', category_id: rest.categoryId || null, related: rest.related || [], sv_ids: [], places: rest.places || [] }, blob, null);
+      await reloadCards(); render();
+      toast('カードを作成しました');
+      return 'created';
+    } catch (ex) { toast(`作成できませんでした: ${ex.message}`, 'error'); return 'error'; }
+  }
+  openEditor(null, { ...rest, blob: blob || undefined });
+  return 'opened';
+}
+function openMainCardEdit(id) {
+  const card = cardById(id);
+  if (!card) return;
+  if (!state.user?.isEditor) { toast('カードを編集できるのは、編集者のみです', 'error'); return; }
+  openEditor(card);
+}
+/** コマンドを実行する。戻り値: { html?, msg?, error?, close? } */
+async function runCommand(text) {
+  const wins = await cmdWins(true);
+  const p = parseCommand(text, cmdEnv, wins);
+  if (!p.def) return { error: p.errors[0] || 'コマンドを入力してください（!help で一覧）' };
+  if (p.errors.length) return { error: p.errors[0] };
+  if (p.missing?.length) return { error: `引数が足りません: ${cmdSyntax(p.name)}` };
+  const o = optionMap(p);
+  const desk = window.desktop;
+  const needDesk = () => (desk?.winCommand ? null : { error: 'このコマンドは、Windows 版のアプリでだけ使えます' });
+  const first = (set) => [...set][0];
+  const winIdsOf = (a) => [...(a?.set || [])];
+  switch (p.name) {
+    case 'help': return { html: cmdHelpHtml(p.args[0]?.value) };
+    case 'open': {
+      const tab = TAB_OF[p.args[0]?.value] || null;
+      if (cmdOutside()) { desk.openMain(tab || ''); return { close: true }; }
+      if (tab) location.hash = `#${tab}`;
+      return { close: true };
+    }
+    case 'version': {
+      const cl = desk?.appCommand ? (await desk.appCommand('version')).client : null;
+      return { html: `<div class="cmd-help-row"><code>GeoChecker</code><span>${esc(APP_VERSION)}</span></div><div class="cmd-help-row"><code>クライアント</code><span>${cl ? esc(cl) : 'なし（ブラウザ版）'}</span></div>` };
+    }
+    case 'exit': case 'restart': case 'update': {
+      const e = needDesk(); if (e) return e;
+      const r = await desk.appCommand(p.name);
+      return p.name === 'update' ? { msg: r.text || '更新を確認しています…' } : { msg: p.name === 'exit' ? '終了します…' : '再起動します…' };
+    }
+    case 'win': {
+      const e = needDesk(); if (e) return e;
+      const ids = winIdsOf(p.args[0]);
+      const act = p.args[1]?.value;
+      if (!ids.length) return { error: '対象のウィンドウがありません（外に出たウィンドウだけが対象です）' };
+      if (act === 'rename') { const name = p.args[2]?.value; if (!name) return { error: '新しい名前を指定してください: !win [win] rename [text]' }; }
+      let n = 0;
+      for (const id of ids) { if (await desk.winCommand(id, act, act === 'rename' ? p.args[2].value : undefined)) n++; }
+      cmdWinsCache.at = 0;
+      return { msg: `${n} 個のウィンドウを操作しました（${act}）`, close: true };
+    }
+    case 'card': {
+      if (p.sub === 'create' || (p.segs[0] && cmdUnq(p.segs[0].text).toLowerCase() === 'create')) {
+        const { preset, errs } = await cmdCardPreset(o);
+        if (cmdOutside()) { desk.sendToMain({ type: 'card-create', preset, confirm: !!o.confirm }); return { msg: errs.join(' / ') || 'カードの作成画面を、メインのウィンドウで開きました', close: true }; }
+        const r = await execCardCreate(preset, !!o.confirm);
+        return { msg: errs.join(' / ') || (r === 'created' ? 'カードを作成しました' : ''), close: true };
+      }
+      const ids = [...(p.args[0]?.set || [])];
+      if (!ids.length) return { error: '対象のカードがありません' };
+      const act = p.args[1]?.value;
+      if (act === 'edit') {
+        if (cmdOutside()) desk.sendToMain({ type: 'card-edit', id: ids[0] }); else openMainCardEdit(ids[0]);
+        return { close: true };
+      }
+      // open: 選んだカード（と -with のカード）を 1 つのウィンドウで開き、左右に切り替えられるようにする
+      let list = [...ids];
+      if (o.with) { const wr = parseExpr_(o.with, 'card'); if (wr.error) return { error: wr.error }; for (const id of wr.set) if (!list.includes(id)) list.push(id); }
+      const card = cardById(list[0]);
+      if (!card) return { error: 'カードが見つかりません' };
+      if (o.on) { const e = needDesk(); if (e) return e; const wr = parseExpr_(o.on, 'win', wins); if (wr.error) return { error: wr.error }; const wid = first(wr.set); if (wid == null) return { error: '指定したウィンドウがありません' }; desk.openOnWindow(wid, { kind: 'card', id: card.id, list: list.length > 1 ? list : null }); return { close: true }; }
+      openCardModal(card, null, list.length > 1 ? list : null);
+      return { close: true };
+    }
+    case 'country': {
+      const codes = [...(p.args[0]?.set || [])];
+      if (!codes.length) return { error: '対象の国がありません' };
+      const act = p.args[1]?.value;
+      let on = null;
+      if (o.on) { const e = needDesk(); if (e) return e; const wr = parseExpr_(o.on, 'win', wins); if (wr.error) return { error: wr.error }; on = first(wr.set); if (on == null) return { error: '指定したウィンドウがありません' }; }
+      if (act === 'plonkit' && o.raw) { const url = plonkitUrl(codes[0]); if (!url) return { error: `${countryName(codes[0])} の Plonkit ガイドはありません` }; window.open(url, '_blank'); return { close: true }; }
+      for (const code of codes.slice(0, 5)) {
+        if (act === 'plonkit') {
+          const slug = plonkitUrl(code)?.split('/').pop();
+          if (!slug) { toast(`${countryName(code)} の Plonkit ガイドはありません`, 'error'); continue; }
+          if (on != null) desk.openOnWindow(on, { kind: 'plonkit', slug, code }); else openPlonkitWindow(code);
+        } else if (on != null) desk.openOnWindow(on, { kind: 'country', code, lang: null }); else openCountryInfo(code);
+      }
+      return { close: true };
+    }
+    default: return { error: `「${p.name}」は未対応です` };
+  }
+}
+function parseExpr_(text, type, wins = []) {
+  const r = cmdParse.parseExpr(text, type);
+  if (r.error) return { error: r.error };
+  return { set: cmdParse.evalExpr(r.ast, type, cmdEnv, wins) };
+}
+
 function openSpotlight() {
   if (!state.user) return;
   const sp = $('#spotlight');
@@ -3943,7 +4138,85 @@ function openSpotlight() {
 
   // PC は入力欄の中に候補を薄く表示して Tab で補完（スマホは候補リスト）
   const drawGhost = attachInlineComplete(input);
-  input.addEventListener('input', () => { s.q = input.value; renderSearchResults(); syncChips(); });
+  // ---- 「!」コマンド: 候補・構文のヒント・実行 ----
+  const cmdBox = document.createElement('span');
+  cmdBox.className = 'ghost cmd-ghost';
+  cmdBox.setAttribute('aria-hidden', 'true');
+  input.parentNode.insertBefore(cmdBox, input);
+  let cmdItems = [];
+  let cmdFrom = 0;
+  let cmdSel = -1;
+  let cmdSeq = 0;
+  let cmdOut = null; // コマンドの実行結果（help の説明・エラー）
+  const isCmd = () => input.value.startsWith('!');
+  const drawCmdGhost = (hint) => {
+    if (!isCmd() || input.scrollWidth > input.clientWidth + 1) { cmdBox.innerHTML = ''; return; }
+    const cs = getComputedStyle(input);
+    cmdBox.style.font = cs.font;
+    cmdBox.style.paddingLeft = `${parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth)}px`;
+    cmdBox.innerHTML = `<span class="g-typed">${esc(input.value)}</span><span class="g-rest cmd-hint">${esc(hint || '')}</span>`;
+  };
+  cmdDraw = async () => {
+    const box = $('#search-results', sp);
+    if (!box) return;
+    if (!isCmd()) { cmdBox.innerHTML = ''; return; }
+    const seq = ++cmdSeq;
+    const wins = await cmdWins();
+    if (seq !== cmdSeq) return;
+    const text = input.value;
+    const c = cmdComplete(text, cmdEnv, wins);
+    cmdItems = c.items.slice(0, 40);
+    cmdFrom = c.from;
+    if (cmdSel >= cmdItems.length) cmdSel = -1;
+    const hint = syntaxHint(text, cmdEnv, wins);
+    drawCmdGhost(hint);
+    const parsed = parseCommand(text, cmdEnv, wins);
+    const err = /\s$/.test(text) ? '' : '';
+    void err;
+    const errLine = parsed.def && parsed.errors.length && /\s$/.test(text) ? `<p class="cmd-err">${esc(parsed.errors[0])}</p>` : '';
+    box.innerHTML = `<div class="cmd-panel">
+      ${cmdOut ? `<div class="cmd-out ${cmdOut.error ? 'is-err' : ''}">${cmdOut.error ? `<p class="cmd-err">${esc(cmdOut.error)}</p>` : cmdOut.html || `<p>${esc(cmdOut.msg || '')}</p>`}</div>` : ''}
+      ${errLine}
+      <div class="cmd-list" role="listbox">${cmdItems.length ? cmdItems.map((it, i) => `<button type="button" class="cmd-item ${i === cmdSel ? 'on' : ''}" data-i="${i}" role="option"><b>${esc(it.label)}</b>${it.desc ? `<span class="muted small">${esc(it.desc)}</span>` : ''}</button>`).join('') : '<p class="muted small cmd-none">候補はありません。Enter で実行します（!help でコマンドの一覧）</p>'}</div>
+      <p class="muted small cmd-foot"><kbd class="kbd">Tab</kbd> 補完　<kbd class="kbd">↑↓</kbd> 候補を選ぶ　<kbd class="kbd">Enter</kbd> 実行</p>
+    </div>`;
+    box.querySelectorAll('.cmd-item').forEach((b) => b.addEventListener('mousedown', (ev) => { ev.preventDefault(); acceptCmd(Number(b.dataset.i)); }));
+    box.querySelector('.cmd-item.on')?.scrollIntoView({ block: 'nearest' });
+  };
+  const acceptCmd = (i) => {
+    const it = cmdItems[i];
+    if (!it) return;
+    input.value = input.value.slice(0, cmdFrom) + it.insert;
+    s.q = input.value;
+    cmdSel = -1; cmdOut = null;
+    input.focus();
+    cmdDraw();
+  };
+  const execCmd = async () => {
+    const text = input.value;
+    cmdOut = { msg: '実行しています…' };
+    let r;
+    try { r = await runCommand(text); } catch (ex) { r = { error: `実行できませんでした: ${ex.message}` }; }
+    if (r.close) { cmdOut = null; if (r.msg) toast(r.msg); closeSpotlight(); input.value = ''; s.q = ''; return; }
+    cmdOut = r.error ? { error: r.error } : r.html ? { html: r.html } : { msg: r.msg };
+    if (r.msg && !r.html) toast(r.msg);
+    cmdDraw();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (!isCmd() || e.isComposing) return;
+    if (e.key === 'Tab' && !e.shiftKey) { if (cmdItems.length) { e.preventDefault(); e.stopImmediatePropagation(); acceptCmd(cmdSel >= 0 ? cmdSel : 0); } return; }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && cmdItems.length) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      cmdSel = e.key === 'ArrowDown' ? (cmdSel + 1) % cmdItems.length : (cmdSel <= 0 ? cmdItems.length - 1 : cmdSel - 1);
+      cmdDraw();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (cmdSel >= 0) acceptCmd(cmdSel); else execCmd();
+    }
+  });
+  input.addEventListener('input', () => { s.q = input.value; cmdSel = -1; cmdOut = null; renderSearchResults(); syncChips(); });
   input.addEventListener('keydown', (e) => {
     // 地図と同じ: Ctrl+Enter で Plonkit、Alt+Enter で国の詳細（入力した国名から）
     if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey || e.altKey)) {
@@ -3955,6 +4228,10 @@ function openSpotlight() {
       closeSpotlight();
       openPlonkitWindow(code, input);
       return;
+    }
+    if (e.key === 'Enter' && !e.isComposing && !isCmd()) { // Enter: いちばん上の結果（国の候補、なければ最初のカード）を開いて、検索欄を消す
+      const top = $('.spot-results .tile-country', sp) || $('.spot-results .tile[data-id]', sp);
+      if (top) { e.preventDefault(); top.click(); closeSpotlight(); return; }
     }
     if (e.key === 'ArrowDown' || (e.key === 'Enter' && !e.isComposing)) {
       const first = $('.spot-results .tile', sp);
@@ -4147,7 +4424,9 @@ function closeSpotlight() {
   setTimeout(() => { sp.classList.remove('closing'); sp.close(); }, 150);
 }
 
+let cmdDraw = null; // 検索欄の「!」コマンドの表示を更新する関数（検索を開いている間だけ）
 function renderSearchResults() {
+  if (state.search.q.startsWith('!') && cmdDraw) { cmdDraw(); return; } // 「!」で始まるときは、カードの検索ではなく、コマンド
   const { q, cat } = state.search;
   const list = sortCards(matchCards(q).filter((c) => !cat || catKey(c) === cat));
   const catName = cat ? allCats().find((c) => c.id === cat)?.name : '';
@@ -4405,8 +4684,8 @@ function openEditor(card, preset = {}) {
     countries: new Set(card ? card.countries : preset.countries || []),
     back: null, // 裏面だけの書き込み: null（変更なし）/ Blob（新しく保存）/ 'clear'（消す）
     backPreview: card ? backUrl(card) : '',
-    related: new Set((card?.related || []).filter((id) => state.cards.some((c) => c.id === id))),
-    places: Array.isArray(card?.places) ? card.places.map((p) => ({ ...p })) : [],
+    related: new Set((card ? card.related || [] : preset.related || []).filter((id) => state.cards.some((c) => c.id === id))),
+    places: Array.isArray(card?.places) ? card.places.map((p) => ({ ...p })) : (Array.isArray(preset.places) ? preset.places.map((p) => ({ ...p })) : []),
     svIds: new Set(card ? card.sv_ids || [] : preset.svIds || []), // 関連付けた保存済みストリートビュー
   };
 
@@ -4901,7 +5180,7 @@ function langCountries(l) {
 function popOutEntry(w) {
   const e = w.current;
   if (!e) return null;
-  if (e.kind === 'card' && !String(e.id).startsWith('sv|')) return { kind: 'card', id: e.id };
+  if (e.kind === 'card' && !String(e.id).startsWith('sv|')) return { kind: 'card', id: e.id, list: e.list || null }; // 前後のカードに移れるように、並びも渡す
   if (e.kind === 'country') return { kind: 'country', code: e.code, lang: e.lang || null };
   if (e.kind === 'photo') return { kind: 'photo', topic: e.topic, code: e.code, srcs: e.srcs, i: e.i };
   if (e.kind === 'plonkit') return { kind: 'plonkit', slug: e.slug, code: e.code };
@@ -4990,6 +5269,7 @@ async function popoutIdentity(w) {
   if (!e) return;
   const label = dockLabel(w);
   document.title = label || 'GeoChecker'; // Electron が、ウィンドウのタイトル（タスクバーの表示）に反映する
+  window.desktop?.setWinMeta?.({ kind: e.kind, code: e.code || '', cardId: e.kind === 'card' ? String(e.id) : '' }); // 検索の !win で、ウィンドウを選べるように
   const flag = e.kind === 'country' ? e.code : null;
   const emoji = { card: '🃏', photo: '📷', plonkit: '📖', panel: '🗂' }[e.kind] || '🗂';
   try { window.desktop?.setWinIcon?.(await iconDataUrl(flag, emoji)); } catch { /* 既定のアイコンのまま */ }
@@ -5046,11 +5326,11 @@ function openSearchContent() {
 function openPopoutContent(e) {
   setupPopoutResize();
   if (e.kind === 'search') { openSearchContent(); return; }
-  if (e.kind === 'card') { const c = cardById(e.id); if (c) openCardModal(c); else window.close(); }
+  if (e.kind === 'card') { const c = cardById(e.id); if (c) openCardModal(c, null, e.list); else window.close(); }
   else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
   else if (e.kind === 'photo') openPhotoModal(e.topic, e.code, e.srcs, e.i);
   else if (e.kind === 'plonkit') openPlonkitWindow(e.code, null, e.slug);
-  else if (e.kind === 'sv') { openSvWindow(e.lat, e.lng, { heading: e.heading, pitch: e.pitch, fov: e.fov }); if (POPOUT) { document.title = 'ストリートビュー'; iconDataUrl(null, '🧍').then((u) => window.desktop?.setWinIcon?.(u)).catch(() => {}); } }
+  else if (e.kind === 'sv') { openSvWindow(e.lat, e.lng, { heading: e.heading, pitch: e.pitch, fov: e.fov }); if (POPOUT) { document.title = 'ストリートビュー'; window.desktop?.setWinMeta?.({ kind: 'sv' }); iconDataUrl(null, '🧍').then((u) => window.desktop?.setWinIcon?.(u)).catch(() => {}); } }
 }
 
 // ---- AI・メモを、ウィンドウとして開く（パネルの中身を、そのままウィンドウの中に入れる）----
