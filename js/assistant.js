@@ -37,6 +37,9 @@ const MODELS = [
   ['cloudflare', 'Cloudflare AI（Llama 4 Scout・画像も読める）'],
   ['cloudflare-70b', 'Cloudflare AI（Llama 3.3 70B・高性能・画像は読めない）'],
   ['cloudflare-gemma4', 'Cloudflare AI（Gemma 4 26B A4B・画像も読める）'],
+  ['openrouter-free', 'OpenRouter（無料モデルを自動で選ぶ）'],
+  ['openrouter-gemma31', 'OpenRouter（Gemma 4 31B・無料）'],
+  ['openrouter-gemma26', 'OpenRouter（Gemma 4 26B A4B・無料）'],
   ['cloudflare-mistral', 'Cloudflare AI（Mistral Small 3.1 24B・画像も読める）'],
 ];
 const MODEL_KEY = 'geochecker-ai-model';

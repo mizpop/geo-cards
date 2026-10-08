@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v105',
+    date: '2026-10-09',
+    sections: [
+      {
+        title: 'AI モデル',
+        items: ['OpenRouter に対応。選択欄に「OpenRouter（無料モデルを自動で選ぶ）」「Gemma 4 31B」「Gemma 4 26B A4B」を追加（どれも画像も読める）。使うには、Cloudflare Pages のシークレットに OPENROUTER_API_KEY を追加する。選んだときだけ使い、自動の切り替えには含めない'],
+      },
+    ],
+  },
+  {
     version: 'v104',
     date: '2026-10-09',
     sections: [

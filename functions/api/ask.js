@@ -3,6 +3,7 @@
 // 必要な設定（Cloudflare Pages の「設定 → 変数とシークレット」）:
 //   GEMINI_API_KEY     … Google AI Studio（https://aistudio.google.com/apikey）で作る API キー。「シークレット」として追加（ブラウザには出ない）。無料枠で使える
 //   AI（バインディング）… 任意。Cloudflare の Workers AI を「予備」として使う（Settings → Bindings → Add → Workers AI、変数名は AI）。Gemini が混み合っている・回数の上限・キー未設定のとき、自動でこちらに切り替わる。1 日 10,000 ニューロンまで無料
+//   OPENROUTER_API_KEY … 任意。OpenRouter（https://openrouter.ai/keys）の API キー。「シークレット」として追加。画面の選択欄で「OpenRouter」を選んだときに使う
 //   CHAT_MODEL         … 任意。最初に使うモデル（初期値 gemini-3.8-flash。無料枠で使える）
 //   CHAT_FALLBACK_MODELS … 任意。混み合っている・回数の上限のときに、順に切り替えるモデル（カンマ区切り。初期値は下の FALLBACK_MODELS）
 //   CHAT_EFFORT        … 任意。考える深さ minimal / low / medium / high（Gemini 3 以降のモデル。初期値 low）
@@ -30,6 +31,12 @@ const CF_MODELS = {
   'cloudflare-70b': { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'cloudflare:llama-3.3-70b', vision: false },
   'cloudflare-gemma4': { id: '@cf/google/gemma-4-26b-a4b-it', label: 'cloudflare:gemma-4-26b', vision: true },
   'cloudflare-mistral': { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'cloudflare:mistral-small-3.1', vision: true },
+};
+// 画面から選べる OpenRouter のモデル（OPENROUTER_API_KEY が必要）。無料のモデル（:free）は、混み合うと断られることがある
+const OR_MODELS = {
+  'openrouter-free': { id: 'openrouter/free', label: 'openrouter:free' }, // 無料のモデルから、画像などの条件に合うものを、自動で選ぶ
+  'openrouter-gemma31': { id: 'google/gemma-4-31b-it:free', label: 'openrouter:gemma-4-31b' },
+  'openrouter-gemma26': { id: 'google/gemma-4-26b-a4b-it:free', label: 'openrouter:gemma-4-26b' },
 };
 const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const SWITCH_ON = new Set([429, 500, 502, 503, 504]); // これらのときだけ次のモデルを試す（キーや入力の問題は、どのモデルでも同じなので切り替えない）
@@ -186,7 +193,7 @@ export async function onRequestPost({ request, env }) {
   const origin = new URL(request.url).origin;
   const reqOrigin = request.headers.get('origin');
   if (reqOrigin && reqOrigin !== origin) return json({ error: 'forbidden' }, 403);
-  if (!env.GEMINI_API_KEY && !env.AI) {
+  if (!env.GEMINI_API_KEY && !env.AI && !env.OPENROUTER_API_KEY) {
     // 設定の確認用: 似た名前の変数があるか・空でないか（名前と「空かどうか」だけ。値は出さない）
     const similar = Object.keys(env).filter((k) => /gemini|google|api.?key/i.test(k)).slice(0, 10).map((k) => ({ name: k, empty: !String(env[k] ?? '').trim() }));
     return json({ error: 'not_configured', similar, vars: Object.keys(env).length, ai: !!env.AI }, 503);
@@ -252,6 +259,28 @@ export async function onRequestPost({ request, env }) {
     }
     return r;
   };
+  // OpenRouter: 手動で選ばれたときだけ（OpenAI 互換の API。答えは Cloudflare と同じ形式なので、同じ変換を使う）
+  if (OR_MODELS[body.model]) {
+    if (!env.OPENROUTER_API_KEY) return json({ error: 'not_configured_or', manual: true, message: 'OpenRouter の API キー（OPENROUTER_API_KEY）が設定されていません' }, 503);
+    const spec = OR_MODELS[body.model];
+    const msgs = [{ role: 'system', content: system }, ...messages.map((m) => ({ role: m.role, content: m.text }))];
+    if (img) msgs[msgs.length - 1].content = [{ type: 'text', text: msgs[msgs.length - 1].content }, { type: 'image_url', image_url: { url: `data:${img.media_type};base64,${img.data}` } }];
+    let r = null;
+    try {
+      r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'http-referer': origin, 'x-title': 'GeoChecker' },
+        body: JSON.stringify({ model: spec.id, messages: msgs, stream: true, max_tokens: Math.min(MAX_OUT, 8000) }),
+      });
+    } catch { /* 接続できなかった */ }
+    if (r?.ok && r.body) return new Response(simplifyCf(r.body, spec.label, false), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } });
+    if (!r) return json({ error: 'network', manual: true, message: 'OpenRouter に接続できませんでした' }, 502);
+    let message = '';
+    try { message = (await r.json())?.error?.message || ''; } catch { /* 本文なし */ }
+    if (r.status === 401 || r.status === 403) return json({ error: 'bad_key', message: 'OpenRouter の API キーが無効か、権限がありません' }, 502);
+    if (r.status === 429) return json({ error: 'rate_limited', manual: true, model: spec.label, message: 'OpenRouter の無料枠の上限か、混み合いで断られました。少し待ってからもう一度お試しください' }, 429);
+    return json({ error: 'busy', manual: true, model: spec.label, status: r.status, message: `OpenRouter から答えをもらえませんでした${message ? `（${message.slice(0, 120)}）` : ''}` }, 503);
+  }
   let res = null;
   let used = '';
   if (useGemini) {
@@ -286,7 +315,7 @@ export async function onRequestPost({ request, env }) {
 }
 
 // 設定の確認用: どの AI が使える状態か（真偽だけ。キーなどの中身は出さない）
-export const onRequestGet = ({ env }) => json({ gemini: !!env.GEMINI_API_KEY, cloudflareAI: !!env.AI, editorsOnly: env.CHAT_EDITORS_ONLY === '1' });
+export const onRequestGet = ({ env }) => json({ gemini: !!env.GEMINI_API_KEY, cloudflareAI: !!env.AI, openrouter: !!env.OPENROUTER_API_KEY, editorsOnly: env.CHAT_EDITORS_ONLY === '1' });
 
 // POST 以外（onRequestPost が先に処理される）
 export const onRequest = () => json({ error: 'method_not_allowed' }, 405);
