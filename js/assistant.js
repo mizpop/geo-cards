@@ -35,7 +35,16 @@ const MODELS = [
   ['cloudflare', 'Cloudflare AI（Llama 4 Scout）'],
 ];
 const MODEL_KEY = 'geochecker-ai-model';
+export const AI_MODELS = MODELS; // 画面の選択欄（AI のチャット・カードの提案）で共通
 let model = (() => { try { const v = localStorage.getItem(MODEL_KEY); return MODELS.some(([id]) => id === v) ? v : 'auto'; } catch { return 'auto'; } })();
+export const getAiModel = () => model;
+export function setAiModel(v) { // 使うモデルを変える（チャットの選択欄にも反映。覚えておく）
+  if (!MODELS.some(([id]) => id === v)) return;
+  model = v;
+  try { localStorage.setItem(MODEL_KEY, v); } catch { /* 保存できなくても使える */ }
+  const sel = panel?.querySelector('.ai-model');
+  if (sel) sel.value = v;
+}
 
 const SUGGESTIONS = [
   'ポーランドのボラードの特徴は？',

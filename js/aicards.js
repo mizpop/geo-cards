@@ -1,5 +1,6 @@
 // AI が、Plonkit のガイドを読んで、作るとよいカードを提案する。提案から、選んだものを、そのまま作成する（または、作成画面で編集してから作る）
 // ガイド（日本語訳）の画像つきの項目に [T番号] を付けて AI に渡し、「どの項目を、どんなカードにするか」を JSON で返してもらう
+import { AI_MODELS, getAiModel, setAiModel } from './assistant.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MAX_CONTEXT = 38000;
 const MAX_CARDS = 12;
@@ -25,12 +26,12 @@ export function guideToContext(g) {
 }
 
 // /api/ask に質問して、答えの文章（ストリーミングを、まとめて受け取る）を返す
-async function askText(api, prompt, context) {
+async function askText(api, prompt, context, model = 'auto') {
   const token = await api.getAccessToken();
   const res = await fetch('/api/ask', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], context, model: 'auto' }),
+    body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], context, model }),
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
@@ -87,6 +88,9 @@ export async function proposeCards(deps) {
   d.className = 'modal modal-sm modal-aicards';
   d.innerHTML = `<div class="modal-inner">
     <div class="modal-head"><h2>✨ AI のカード提案 <span class="muted small">${esc(countryName)}</span></h2><button class="icon-btn" data-x aria-label="閉じる">✕</button></div>
+    <div class="aic-model-row"><label class="muted small" for="aic-model">使うモデル</label>
+      <select class="select select-sm" id="aic-model" title="使うモデル（AI のチャットと共通。「自動」は、混み合っているときに別のモデルへ切り替えます）">${AI_MODELS.map(([id, label]) => `<option value="${esc(id)}" ${id === getAiModel() ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
+      <button type="button" class="btn btn-ghost btn-sm" id="aic-again" title="今のモデルで、もう一度提案する">↻ もう一度提案</button></div>
     <div class="aic-body"><p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p></div>
   </div>`;
   (host || document.body).appendChild(d);
@@ -103,9 +107,15 @@ export async function proposeCards(deps) {
 - tip は、[T番号] の数字だけ。同じ番号は 1 回だけ。
 - category は、次の中から 1 つ選ぶ（合うものがなければ空）: ${catNames.join('、')}
 - 国全体に共通して役立つ手がかりや、見分けやすい手がかりを優先する。ガイドにない内容は書かない。`;
-  try {
-    const answer = await askText(api, prompt, text);
-    if (closed) return;
+  const loadingHtml = '<p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p>';
+  let runId = 0;
+  const run = async () => {
+    const mine = ++runId;
+    body.innerHTML = loadingHtml;
+    try {
+    const answer = await askText(api, prompt, text, getAiModel());
+    if (mine !== runId) return;
+    if (closed || mine !== runId) return;
     const list = parseProposals(answer, tips, catNames);
     if (!list.length) throw new Error('カードにできそうな項目が見つかりませんでした');
     body.innerHTML = `
@@ -167,8 +177,13 @@ export async function proposeCards(deps) {
       if (!ng) close(); else { btn.textContent = '選んだカードを作成'; btn.disabled = false; }
     });
   } catch (ex) {
-    if (closed) return;
+    if (closed || mine !== runId) return;
     body.innerHTML = `<p class="aic-err">${esc(ex.message || '提案できませんでした')}</p><div class="modal-foot"><span class="grow"></span><button class="btn" type="button" data-x>閉じる</button></div>`;
     body.querySelector('[data-x]').addEventListener('click', close);
   }
+  };
+  // モデルを変えたら、そのモデルで、もう一度提案する（「もう一度提案」でも）
+  d.querySelector('#aic-model').addEventListener('change', (e) => { setAiModel(e.target.value); run(); });
+  d.querySelector('#aic-again').addEventListener('click', () => run());
+  run();
 }
