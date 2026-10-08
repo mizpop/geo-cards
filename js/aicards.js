@@ -2,6 +2,9 @@
 // ガイド（日本語訳）の画像つきの項目に [T番号] を付けて AI に渡し、「どの項目を、どんなカードにするか」を JSON で返してもらう
 import { AI_MODELS, getAiModel, setAiModel } from './assistant.js';
 import { parseStreetView, isMapImage } from './plonkit.js';
+import { removeMaps } from './mapdetect.js';
+const AUTOMAP_KEY = 'geo-aicards-automap';
+const getAutoMap = () => { try { return localStorage.getItem(AUTOMAP_KEY) !== '0'; } catch { return true; } };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MAX_CONTEXT = 140000; // ガイドは、長くても 2 万文字ほど。全文を渡す（途中で切らない）
 const COUNTS = [10, 15, 20, 30, 50, 80, 100];
@@ -120,6 +123,7 @@ export async function proposeCards(deps) {
       <select class="select select-sm" id="aic-model" title="使うモデル（AI のチャットと共通。「自動」は、混み合っているときに別のモデルへ切り替えます）">${AI_MODELS.map(([id, label]) => `<option value="${esc(id)}" ${id === getAiModel() ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <label class="muted small" for="aic-count-sel">数</label>
       <select class="select select-sm" id="aic-count-sel" title="提案してもらうカードの数（上限）">${COUNTS.map((n) => `<option value="${n}" ${n === getCount() ? 'selected' : ''}>最大 ${n} 件</option>`).join('')}</select>
+      <label class="aic-auto small" title="作るときに、画像に地図（挿入地図・位置図など）が映っていたら、軽量で画像を読める AI（Gemini Flash-Lite → Cloudflare の Llama 4 Scout）が範囲を見つけて、黒で塗りつぶします"><input type="checkbox" id="aic-automap" ${getAutoMap() ? 'checked' : ''}> 🗺 画像に映った地図を、自動で消す</label>
       <button type="button" class="btn btn-ghost btn-sm" id="aic-again" title="今のモデル・数で、もう一度提案する">↻ もう一度提案</button></div>
     <div class="aic-body"><p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p></div>
   </div>`;
@@ -145,7 +149,7 @@ export async function proposeCards(deps) {
       <div class="aic-list">${list.map((p, i) => `
         <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
           <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
-          <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
+          <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
           <div class="aic-fields">
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
             <textarea class="input aic-back" rows="3" placeholder="裏面の解説">${esc(p.back)}</textarea>
@@ -174,6 +178,18 @@ export async function proposeCards(deps) {
     cards.forEach((c) => c.querySelector('.aic-check input').addEventListener('change', count));
     count();
     body.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', close));
+    // 地図を自動で消す（カードごと）。見つからなければ、そのまま
+    body.querySelectorAll('.aic-imgmap').forEach((b) => b.addEventListener('click', async () => {
+      const el = b.closest('.aic-card');
+      const p = list[Number(el.dataset.i)];
+      b.disabled = true; const label = b.textContent; b.textContent = '探しています…';
+      try {
+        const r = await removeMaps(api, p.blob || await deps.fetchImage(p.item));
+        p.mapChecked = true;
+        if (r.found) { p.blob = r.blob; el.querySelector('.aic-img').src = URL.createObjectURL(r.blob); b.textContent = `✔ 地図を消しました（${r.found} か所）`; toast(`地図を ${r.found} か所、消しました`); } else { b.textContent = '地図は見つかりませんでした'; toast('地図は見つかりませんでした'); }
+      } catch (ex) { b.textContent = label; toast(`地図を探せませんでした: ${ex.message}`, 'error'); }
+      b.disabled = false;
+    }));
     // 画像の一部（地図の映り込みなど）を、消す・ぼかす・トリミングする。編集した画像は、このウィンドウを閉じるまで、使われる
     body.querySelectorAll('.aic-imgedit').forEach((b) => b.addEventListener('click', async () => {
       const el = b.closest('.aic-card');
@@ -197,14 +213,20 @@ export async function proposeCards(deps) {
     body.querySelector('#aic-make').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
-      let ok = 0; let ng = 0; let svFail = 0;
+      let ok = 0; let ng = 0; let svFail = 0; let mapsRemoved = 0; let mapFail = 0;
+      const autoMap = body.closest('dialog').querySelector('#aic-automap').checked;
+      try { localStorage.setItem(AUTOMAP_KEY, autoMap ? '1' : '0'); } catch { /* 保存できなくても使える */ }
       for (const el of cards) {
         if (!el.querySelector('.aic-check input').checked) continue;
         const p = list[Number(el.dataset.i)];
         const f = fieldsOf(el);
         btn.textContent = `作成中… ${ok + ng + 1}`;
         try {
-          const blob = p.blob || await deps.fetchImage(p.item);
+          let blob = p.blob || await deps.fetchImage(p.item);
+          if (autoMap && !p.mapChecked) { // 作るときに、地図が映っていたら、自動で消す（軽量な AI。失敗しても、元の画像で作る）
+            btn.textContent = `地図を確認中… ${ok + ng + 1}`;
+            try { const r = await removeMaps(api, blob); p.mapChecked = true; if (r.found) { blob = r.blob; mapsRemoved++; } } catch { mapFail++; }
+          }
           const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; // ストリートビューは、取れなくても、カードは作る
           if (f.sv && p.sv && !svId) svFail++;
           await deps.createCard({ description: f.description, countries: [code], area: f.area, notes: f.notes, category_id: f.categoryId, related: [], sv_ids: svId ? [svId] : [], places: [] }, blob);
@@ -213,7 +235,7 @@ export async function proposeCards(deps) {
           el.classList.add('is-done');
         } catch { ng++; el.classList.add('is-ng'); }
       }
-      toast((ng ? `${ok} 件を作成しました（${ng} 件は、作成できませんでした）` : `${ok} 件のカードを作成しました`) + (svFail ? `（${svFail} 件は、ストリートビューを取り込めませんでした）` : ''), ng ? 'error' : undefined);
+      toast((ng ? `${ok} 件を作成しました（${ng} 件は、作成できませんでした）` : `${ok} 件のカードを作成しました`) + (svFail ? `（${svFail} 件は、ストリートビューを取り込めませんでした）` : '') + (mapsRemoved ? `（${mapsRemoved} 件は、地図を消しました）` : '') + (mapFail ? `（${mapFail} 件は、地図を探せませんでした）` : ''), ng ? 'error' : undefined);
       persist();
       await deps.onCreated?.();
       if (!ng) close(); else { btn.textContent = '選んだカードを作成'; btn.disabled = false; }

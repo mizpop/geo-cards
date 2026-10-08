@@ -53,11 +53,11 @@ const toBlob = (canvas) => new Promise((resolve, reject) => {
   } catch (ex) { reject(ex); }
 });
 
-export async function editImage(src, { backSrc = '', host = document.body, tool: initTool = '', crop: initCrop = null } = {}) {
+export async function editImage(src, { backSrc = '', host = document.body, tool: initTool = '', crop: initCrop = null, autoErase = null } = {}) {
   const image = await loadImage(src);
   if (!image) throw new Error('画像を読み込めませんでした');
   const backImage = backSrc ? await loadImage(backSrc) : null;
-  return new Promise((resolve) => start(image, backImage, host, resolve, { tool: initTool, crop: initCrop }));
+  return new Promise((resolve) => start(image, backImage, host, resolve, { tool: initTool, crop: initCrop, autoErase }));
 }
 
 function start(image, backImage, host, resolve, initial = {}) {
@@ -93,6 +93,7 @@ function start(image, backImage, host, resolve, initial = {}) {
       </label>
       <div class="annot-colors">${COLORS.map(([c, n]) => `<button type="button" class="annot-color ${c === color ? 'on' : ''}" data-color="${c}" style="--c:${c}" title="${n}" aria-label="${n}"></button>`).join('')}</div>
       <button type="button" class="btn btn-sm btn-icon" data-act="del" title="選んでいる図形を消す（Delete キー）" aria-label="選んでいる図形を消す" hidden>${TRASH}</button>
+      <button type="button" class="btn btn-sm" data-act="automap" title="軽量で画像を読める AI が、画像に映った地図を見つけて、黒で塗りつぶします（結果は、戻す・選んで動かす・大きさを変えるで、直せます）" hidden>✨ 地図を自動で消す</button>
       <button type="button" class="btn btn-sm" data-act="undo" title="ひとつ戻す（Ctrl+Z）">↶ 戻す</button>
       <button type="button" class="btn btn-sm btn-ghost" data-act="clear" title="今のレイヤーの書き込みをすべて消す">すべて消す</button>
       <button type="button" class="btn btn-sm btn-ghost" data-act="uncrop" hidden>トリミング解除</button>
@@ -602,6 +603,25 @@ function start(image, backImage, host, resolve, initial = {}) {
     widthBefore = null;
   });
   box.querySelector('[data-act="del"]').addEventListener('click', deleteSelected);
+  const autoBtn = box.querySelector('[data-act="automap"]');
+  if (initial.autoErase) { // 地図を自動で消す: AI が見つけた範囲を、「消す」の図形として足す
+    autoBtn.hidden = false;
+    autoBtn.addEventListener('click', async () => {
+      autoBtn.disabled = true; const label = autoBtn.textContent; autoBtn.textContent = '探しています…';
+      try {
+        const cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.getContext('2d').drawImage(image, 0, 0);
+        const blob = await new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('画像を読み取れませんでした'))), 'image/png'));
+        const regions = await initial.autoErase(blob);
+        for (const [x, y, w, h] of regions) {
+          const sh = { layer: 'front', type: 'erase', color: '#000000', lv: level, x0: x * W, y0: y * H, x1: (x + w) * W, y1: (y + h) * H };
+          shapes.push(sh); history.push({ kind: 'add', shape: sh }); lastDrawn = sh;
+        }
+        redraw(); updateUI();
+        autoBtn.textContent = regions.length ? `✔ ${regions.length} か所を消しました` : '地図は見つかりませんでした';
+      } catch (ex) { autoBtn.textContent = label; hint.textContent = `地図を探せませんでした: ${ex.message}`; }
+      autoBtn.disabled = false;
+    });
+  }
   box.querySelector('[data-act="undo"]').addEventListener('click', undo);
   // 消す: 今のレイヤーの書き込み（「裏面だけ」なら前から保存されていた分も）
   box.querySelector('[data-act="clear"]').addEventListener('click', () => {
