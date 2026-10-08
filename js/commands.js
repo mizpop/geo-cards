@@ -383,7 +383,19 @@ function valueItems(ty, word, env, wins, slot = null, p = null) {
   if (ty === 'country') {
     const t = q.toLowerCase();
     const list = env.countries.all();
-    const hits = t ? list.filter((c) => ci(c.ja, t) || ci(c.en, t) || c.code.toLowerCase() === t || env.countries.search(t).has(c.code)).slice(0, 24) : list.slice(0, 24);
+    // 並び: ① 完全に一致（略称・別名・日本語名・英語名・2 文字のコード）→ ② 先頭が一致 → ③ 名前に含まれる / あいまい一致
+    const exact = t ? env.countries.find(q) : null;
+    const found = t ? env.countries.search(t) : null;
+    const rank = (c) => {
+      if (!t) return 9;
+      if (exact && exact.code === c.code) return 0;
+      if (c.code.toLowerCase() === t || c.ja.toLowerCase() === t || c.en.toLowerCase() === t) return 0;
+      if (c.ja.toLowerCase().startsWith(t) || c.en.toLowerCase().startsWith(t)) return 1;
+      if (found.has(c.code) && found.size <= 3) return 2; // 略称・別名などで、少数に絞れたもの
+      if (ci(c.ja, t) || ci(c.en, t)) return 3;
+      return found.has(c.code) ? 4 : 9;
+    };
+    const hits = (t ? list.map((c) => [rank(c), c]).filter(([r]) => r < 9).sort((a, b) => a[0] - b[0]).map(([, c]) => c) : list).slice(0, 24);
     for (const c of hits) add(`${c.ja}（${c.en}）`, `${/\s/.test(c.ja) ? `"${c.ja}"` : c.ja} `, c.code);
     if (!t || '@'.startsWith(t)) add('@…（セレクター）', '@', '@all / @region… / @available');
     return items;
