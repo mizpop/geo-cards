@@ -2,7 +2,7 @@
 // ガイド（日本語訳）の画像つきの項目に [T番号] を付けて AI に渡し、「どの項目を、どんなカードにするか」を JSON で返してもらう
 import { AI_MODELS, getAiModel, setAiModel } from './assistant.js';
 import { parseStreetView, isMapImage } from './plonkit.js';
-import { removeMaps } from './mapdetect.js';
+import { removeMaps, detectMapRegions, eraseRegions } from './mapdetect.js';
 const AUTOMAP_KEY = 'geo-aicards-automap';
 const getAutoMap = () => { try { return localStorage.getItem(AUTOMAP_KEY) !== '0'; } catch { return true; } };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -167,7 +167,7 @@ export async function proposeCards(deps) {
       <div class="aic-list">${list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() || p.done).map(([p, i]) => `
         <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
           <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
-          <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
+          <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><span class="aic-mapstate small muted"></span><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
           <div class="aic-fields">
             <div class="aic-score small" title="この国だと特定するのに、どれだけ役立つか（AI の判断）">国の特定に役立つ度: <b>${'★'.repeat(p.score)}${'☆'.repeat(5 - p.score)}</b></div>
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
@@ -262,12 +262,46 @@ export async function proposeCards(deps) {
       await deps.onCreated?.();
       if (!ng) close(); else { btn.textContent = '選んだカードを作成'; btn.disabled = false; }
     });
-    const persist = () => saveCache(list.map((p, i) => { const el = body.querySelector(`.aic-card[data-i="${i}"]`); const f = el ? { front: el.querySelector('.aic-front').value, back: el.querySelector('.aic-back').value, categoryId: el.querySelector('.aic-cat').value, area: el.querySelector('.aic-area').value, checked: el.querySelector('.aic-check input').checked, svOn: !!el.querySelector('.aic-sv')?.checked, alsoText: el.querySelector('.aic-countries').value } : {}; return { tip: p.tip, front: p.front, back: p.back, categoryId: p.categoryId, area: p.area, checked: p.checked, svOn: p.svOn, alsoText: p.alsoText, score: p.score, done: !!p.done, ...f }; }), meta);
+    const persist = () => saveCache(list.map((p, i) => { const el = body.querySelector(`.aic-card[data-i="${i}"]`); const f = el ? { front: el.querySelector('.aic-front').value, back: el.querySelector('.aic-back').value, categoryId: el.querySelector('.aic-cat').value, area: el.querySelector('.aic-area').value, checked: el.querySelector('.aic-check input').checked, svOn: !!el.querySelector('.aic-sv')?.checked, alsoText: el.querySelector('.aic-countries').value } : {}; return { tip: p.tip, front: p.front, back: p.back, categoryId: p.categoryId, area: p.area, checked: p.checked, svOn: p.svOn, alsoText: p.alsoText, score: p.score, mapRegions: p.mapRegions, done: !!p.done, ...f }; }), meta);
+    persistNow = persist;
     let pt = null;
     body.querySelector('.aic-list').addEventListener('input', () => { clearTimeout(pt); pt = setTimeout(persist, 400); });
     body.querySelector('.aic-list').addEventListener('change', () => { clearTimeout(pt); pt = setTimeout(persist, 100); });
     persist();
+    startClean(list);
   };
+  // 提案の時点で、地図を、あらかじめ全部消しておく（画面に出ている提案の画像を、軽量な AI で確認して、地図の範囲を黒で塗りつぶす）。
+  // 見つけた範囲は覚えておき、開き直したときは、AI に聞かずに、同じ範囲を消す
+  const startClean = async (list) => {
+    if (!d.querySelector('#aic-automap')?.checked) return;
+    const todo = list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() && !p.done && !p.mapChecked && !p.cleaning && !p.blob);
+    let next = 0;
+    const setState = (i, t) => { const el = body.querySelector(`.aic-card[data-i="${i}"] .aic-mapstate`); if (el) el.textContent = t; };
+    todo.forEach(([, i]) => setState(i, '🗺 地図を確認待ち…'));
+    const worker = async () => {
+      while (next < todo.length && !closed && curList === list) {
+        const [p, i] = todo[next++];
+        p.cleaning = true;
+        setState(i, '🗺 地図を確認中…');
+        try {
+          const base = await deps.fetchImage(p.item);
+          const regions = Array.isArray(p.mapRegions) ? p.mapRegions : await detectMapRegions(api, base);
+          p.mapRegions = regions;
+          p.mapChecked = true;
+          if (regions.length) {
+            p.blob = await eraseRegions(base, regions);
+            const img = body.querySelector(`.aic-card[data-i="${i}"] .aic-img`);
+            if (img) img.src = URL.createObjectURL(p.blob);
+            setState(i, `✔ 地図を消しました（${regions.length} か所）`);
+          } else setState(i, '地図なし');
+        } catch { setState(i, '地図を確認できませんでした'); }
+        p.cleaning = false;
+      }
+      if (curList === list) persistNow?.();
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  };
+  let persistNow = null;
   const loadingHtml = '<p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p>';
   let runId = 0;
   const run = async () => {
@@ -294,9 +328,10 @@ export async function proposeCards(deps) {
   // モデルを変えたら、そのモデルで、もう一度提案する（「もう一度提案」でも）
   d.querySelector('#aic-model').addEventListener('change', (e) => { setAiModel(e.target.value); run(); });
   d.querySelector('#aic-count-sel').addEventListener('change', (e) => { try { localStorage.setItem(COUNT_KEY, e.target.value); } catch { /* 保存できなくても使える */ } run(); });
+  d.querySelector('#aic-automap').addEventListener('change', (e) => { try { localStorage.setItem(AUTOMAP_KEY, e.target.checked ? '1' : '0'); } catch { /* 保存できなくても使える */ } if (curList) startClean(curList); });
   d.querySelector('#aic-minscore').addEventListener('change', (e) => { try { localStorage.setItem(MINSCORE_KEY, e.target.value); } catch { /* 保存できなくても使える */ } if (curList) renderList(curList, curMeta); });
   d.querySelector('#aic-again').addEventListener('click', () => run());
   const cached = loadCache(code, cacheCtx.sig);
-  const cachedList = cached ? cached.items.map((c) => { const item = tips.get(c.tip); const sv = item ? svLinkOf(item) : ''; return { ...c, item, category: '', sv, svOn: sv ? c.svOn !== false : false }; }).filter((p) => p.item) : [];
+  const cachedList = cached ? cached.items.map((c) => { const item = tips.get(c.tip); const sv = item ? svLinkOf(item) : ''; return { ...c, item, category: '', sv, svOn: sv ? c.svOn !== false : false, mapChecked: false }; }).filter((p) => p.item) : [];
   if (cachedList.length) renderList(cachedList, { at: cached.at, model: cached.model, cached: true }); else run();
 }
