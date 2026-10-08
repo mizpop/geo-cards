@@ -16,6 +16,9 @@ const getRect = () => {
   } catch { return null; }
 };
 const setRect = (v) => { try { localStorage.removeItem('geo-aicards-mapline'); if (v == null) localStorage.removeItem(RECT_KEY); else localStorage.setItem(RECT_KEY, JSON.stringify(v)); } catch { /* 保存できなくても使える */ } };
+// 「この画像から下だけ」: Plonkit の地図は、ガイドの後ろのほうの画像にだけ入る。決めた画像（ガイドの中の番号 T）以降の提案だけ、消す。国ごとに覚える
+const getFrom = (code) => { try { const v = localStorage.getItem(`geo-aicards-mapfrom:${code}`); const n = Number(v); return v !== null && Number.isFinite(n) && n > 0 ? n : null; } catch { return null; } };
+const setFrom = (code, v) => { try { if (v == null) localStorage.removeItem(`geo-aicards-mapfrom:${code}`); else localStorage.setItem(`geo-aicards-mapfrom:${code}`, String(v)); } catch { /* 保存できなくても使える */ } };
 const MINSCORE_KEY = 'geo-aicards-minscore';
 const SCORE_OPTS = [[5, '★5 のみ（決め手になるものだけ）'], [4, '★4 以上（初期）'], [3, '★3 以上'], [1, 'すべて']];
 const getMinScore = () => { try { const v = Number(localStorage.getItem(MINSCORE_KEY)); return SCORE_OPTS.some(([n]) => n === v) ? v : 4; } catch { return 4; } };
@@ -253,7 +256,7 @@ export async function proposeCards(deps) {
         btn.textContent = `作成中… ${ok + ng + 1}`;
         try {
           let blob = p.blob || await deps.fetchImage(p.item);
-          if (!p.mapChecked && getRect() != null) { blob = await eraseRegions(blob, lineRegions()); p.mapChecked = true; mapsRemoved++; } // 位置を決めてあるのに、まだ消していない画像
+          if (!p.mapChecked && getRect() != null && eligible(p)) { blob = await eraseRegions(blob, lineRegions()); p.mapChecked = true; mapsRemoved++; } // 位置を決めてあるのに、まだ消していない画像
           const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; // ストリートビューは、取れなくても、カードは作る
           if (f.sv && p.sv && !svId) svFail++;
           const cs = countriesOf(f.alsoText); unknown += cs.unknown.length;
@@ -277,8 +280,9 @@ export async function proposeCards(deps) {
     startClean(list);
   };
   // 地図を消す範囲（人が決める）: 決めた四角を、黒で消す
+  const eligible = (p) => { const f = getFrom(code); return f == null || p.tip >= f; };
   const lineRegions = () => { const r = getRect(); return r ? [r] : []; };
-  const showLine = () => { const r = getRect(); const s = d.querySelector('#aic-linestate'); if (s) s.textContent = r ? '（四角で決めた範囲を消す）' : ''; const c = d.querySelector('#aic-lineclear'); if (c) c.hidden = !r; };
+  const showLine = () => { const r = getRect(); const s = d.querySelector('#aic-linestate'); if (s) s.textContent = r ? `（四角で決めた範囲を消す${getFrom(code) != null ? '・選んだ画像から下の画像だけ' : ''}）` : ''; const c = d.querySelector('#aic-lineclear'); if (c) c.hidden = !r; };
   const applyLine = async (list, i) => {
     const p = list[i]; const regions = lineRegions();
     if (!regions.length) return;
@@ -288,23 +292,29 @@ export async function proposeCards(deps) {
     const el = body.querySelector(`.aic-card[data-i="${i}"]`);
     if (el) { el.querySelector('.aic-img').src = URL.createObjectURL(p.blob); const st = el.querySelector('.aic-mapstate'); if (st) st.textContent = '✔ 決めた範囲を消しました'; }
   };
+  const resetLine = (list, i) => { // 範囲の対象でなくなった画像は、元に戻す
+    const p = list[i]; p.blob = null; p.mapRegions = undefined; p.mapChecked = false;
+    const el = body.querySelector(`.aic-card[data-i="${i}"]`);
+    if (el) { el.querySelector('.aic-img').src = deps.imgSrc(p.item.img); const st = el.querySelector('.aic-mapstate'); if (st) st.textContent = ''; }
+  };
   const applyLineAll = async (list) => {
     const idx = list.map((p, i) => i).filter((i) => list[i].score >= getMinScore() && !list[i].done && !list[i].edit);
-    for (const i of idx) { try { await applyLine(list, i); } catch { /* 取れなかった画像は、そのまま */ } }
+    for (const i of idx) { try { if (eligible(list[i])) await applyLine(list, i); else if (list[i].blob) resetLine(list, i); } catch { /* 取れなかった画像は、そのまま */ } }
     persistNow?.();
   };
   // 画像の上で、消す範囲を、四角で決める（ドラッグで描き直せる。見本の画像を切り替えて、どれにも合うか確かめられる）。start: 最初に見せる提案の番号（押したカードの画像）
-  const pickLine = (start = 0) => new Promise((resolve) => {
-    const cands = (curList || []).map((p, i) => [p, i]).filter(([p]) => p.item?.img);
+  const pickLine = (start = null) => new Promise((resolve) => {
+    const cands = (curList || []).map((p, i) => [p, i]).filter(([p]) => p.item?.img).sort((a, b) => a[0].tip - b[0].tip); // ガイドの順
     if (!cands.length) { resolve(false); return; }
-    let k = Math.max(0, cands.findIndex(([, i]) => i === start));
+    const fromArg = start !== null; let k = Math.max(0, cands.findIndex(([, i]) => i === start));
     let r = getRect() || [0, 0.8, 1, 0.2];
+    const fromBox = () => ov.querySelector('[data-from]');
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:1rem';
     ov.innerHTML = `<div style="background:var(--surface,#fff);color:inherit;border-radius:10px;padding:1rem;max-width:min(96vw,900px);max-height:96vh;display:flex;flex-direction:column;gap:.5rem">
       <p class="small" style="margin:0">消す範囲を、画像の上を<strong>ドラッグして、四角で囲んで</strong>ください（描き直せます）。赤い枠の中が、黒く消えます。<br><span class="muted">「次の画像」で、ほかの画像にも合うか確かめられます。決めた範囲は、すべての提案の画像に使います。</span></p>
       <div class="aic-pick" style="position:relative;align-self:center;touch-action:none;cursor:crosshair;line-height:0"><img style="max-width:100%;max-height:62vh;display:block;user-select:none" draggable="false" alt=""><div class="aic-pickrect" style="position:absolute;background:rgba(0,0,0,.72);border:2px solid #ff3b30;box-sizing:border-box;pointer-events:none"></div></div>
-      <div style="display:flex;gap:.5rem;align-items:center"><button type="button" class="btn btn-ghost btn-sm" data-n>次の画像 ▶</button><span class="small muted" data-info></span><span style="flex:1"></span><button type="button" class="btn btn-ghost" data-c>キャンセル</button><button type="button" class="btn" data-ok>この範囲にする</button></div></div>`;
+      <div style="display:flex;gap:.5rem;align-items:center"><button type="button" class="btn btn-ghost btn-sm" data-n>次の画像 ▶</button><label class="small" style="display:flex;gap:.3rem;align-items:center"><input type="checkbox" data-from> この画像から下の画像だけ消す</label><span class="small muted" data-info></span><span style="flex:1"></span><button type="button" class="btn btn-ghost" data-c>キャンセル</button><button type="button" class="btn" data-ok>この範囲にする</button></div></div>`;
     d.appendChild(ov);
     const wrap = ov.querySelector('.aic-pick'); const img = wrap.querySelector('img'); const box = ov.querySelector('.aic-pickrect');
     const paint = () => { box.style.left = `${r[0] * 100}%`; box.style.top = `${r[1] * 100}%`; box.style.width = `${r[2] * 100}%`; box.style.height = `${r[3] * 100}%`; ov.querySelector('[data-info]').textContent = `${k + 1} / ${cands.length} 枚目`; };
@@ -317,13 +327,15 @@ export async function proposeCards(deps) {
     ov.querySelector('[data-n]').addEventListener('click', () => { k = (k + 1) % cands.length; show(); });
     const end = (ok) => { ov.remove(); resolve(ok); };
     ov.querySelector('[data-c]').addEventListener('click', () => end(false));
-    ov.querySelector('[data-ok]').addEventListener('click', () => { if (r[2] < 0.02 || r[3] < 0.02) { ov.querySelector('[data-info]').textContent = '範囲が小さすぎます。ドラッグして、囲んでください'; return; } setRect(r); showLine(); end(true); });
+    ov.querySelector('[data-ok]').addEventListener('click', () => { if (r[2] < 0.02 || r[3] < 0.02) { ov.querySelector('[data-info]').textContent = '範囲が小さすぎます。ドラッグして、囲んでください'; return; } setRect(r); setFrom(code, fromBox().checked ? cands[k][0].tip : null); showLine(); end(true); });
+    fromBox().checked = fromArg || getFrom(code) != null;
     show();
+    if (getFrom(code) != null && !fromArg) { const f = getFrom(code); const j = cands.findIndex(([p]) => p.tip === f); if (j >= 0) { k = j; show(); } } // 前に決めた「ここから下」の画像を見せる
   });
   // 範囲を決めてあるときは、提案の時点で、画面に出ている提案の画像の、その範囲を消しておく（AI は使わない）
   const startClean = async (list) => {
     if (getRect() == null) return;
-    const todo = list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() && !p.done && !p.mapChecked && !p.cleaning && !p.blob);
+    const todo = list.map((p, i) => [p, i]).filter(([p]) => eligible(p) && p.score >= getMinScore() && !p.done && !p.mapChecked && !p.cleaning && !p.blob);
     let next = 0; let finished = 0;
     const prog = () => { const el = body.querySelector('.aic-cleanprog'); if (el) el.textContent = todo.length && finished < todo.length ? `🗺 決めた範囲を消しています… ${finished} / ${todo.length} 枚` : todo.length ? `🗺 地図を消しました（${todo.length} 枚）` : ''; };
     prog();
@@ -401,7 +413,7 @@ export async function proposeCards(deps) {
   d.querySelector('#aic-count-sel').addEventListener('change', (e) => { try { localStorage.setItem(COUNT_KEY, e.target.value); } catch { /* 保存できなくても使える */ } run(); });
   d.querySelector('#aic-minscore').addEventListener('change', (e) => { try { localStorage.setItem(MINSCORE_KEY, e.target.value); } catch { /* 保存できなくても使える */ } if (curList) renderList(curList, curMeta); });
   d.querySelector('#aic-line').addEventListener('click', async () => { if (await pickLine() && curList) { await applyLineAll(curList); } });
-  d.querySelector('#aic-lineclear').addEventListener('click', () => { setRect(null); showLine(); toast('地図を消す範囲を解除しました（すでに消した画像は、「🖌 画像を編集」で直せます）'); });
+  d.querySelector('#aic-lineclear').addEventListener('click', () => { setRect(null); setFrom(code, null); showLine(); toast('地図を消す範囲を解除しました（すでに消した画像は、「🖌 画像を編集」で直せます）'); });
   showLine();
   d.querySelector('#aic-again').addEventListener('click', () => run());
   const cached = loadCache(code, cacheCtx.sig);
