@@ -257,12 +257,16 @@ export async function proposeCards(deps) {
         const f = fieldsOf(el);
         btn.textContent = `作成中… ${ok + ng + 1}`;
         try {
-          let blob = p.blob || await deps.fetchImage(p.item);
+          const orig = await deps.fetchImage(p.item);
+          let blob = p.blob || orig;
           if (!p.mapChecked && getRect() != null && eligible(p)) { blob = await eraseRegions(blob, lineRegions()); p.mapChecked = true; mapsRemoved++; } // 位置を決めてあるのに、まだ消していない画像
           const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; // ストリートビューは、取れなくても、カードは作る
           if (f.sv && p.sv && !svId) svFail++;
           const cs = countriesOf(f.alsoText); unknown += cs.unknown.length;
-          await deps.createCard({ description: f.description, countries: cs.codes, area: f.area, notes: f.notes, category_id: f.categoryId, related: [], sv_ids: svId ? [svId] : [], places: [] }, blob);
+          // 地図を黒く消したのは、表面だけ。裏面（答え合わせ）では、元の画像を重ねて、地図も見えるようにする（手で書き込みをした画像は、そのまま）
+          const onlyErase = !p.edit || p.edit.shapes.every((s) => s.type === 'erase');
+          const back = blob !== orig && onlyErase && !p.edit?.crop ? orig : null;
+          await deps.createCard({ description: f.description, countries: cs.codes, area: f.area, notes: f.notes, category_id: f.categoryId, related: [], sv_ids: svId ? [svId] : [], places: [] }, blob, back);
           ok++;
           p.done = true;
           el.classList.add('is-done');
