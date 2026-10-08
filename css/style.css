@@ -2727,3 +2727,8 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .aic-imgbox { gap: 4px; }
 
 .aic-also { display: flex; flex-direction: column; gap: 2px; }
+
+.aic-score { color: var(--muted); }
+.aic-score b { color: #e0a800; letter-spacing: 1px; }
+.aic-hidden { margin: 0 0 4px; }
+.aic-hidden:empty { display: none; }

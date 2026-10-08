@@ -8,6 +8,9 @@ const getAutoMap = () => { try { return localStorage.getItem(AUTOMAP_KEY) !== '0
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MAX_CONTEXT = 140000; // ガイドは、長くても 2 万文字ほど。全文を渡す（途中で切らない）
 const COUNTS = [10, 15, 20, 30, 50, 80, 100];
+const MINSCORE_KEY = 'geo-aicards-minscore';
+const SCORE_OPTS = [[5, '★5 のみ（決め手になるものだけ）'], [4, '★4 以上（初期）'], [3, '★3 以上'], [1, 'すべて']];
+const getMinScore = () => { try { const v = Number(localStorage.getItem(MINSCORE_KEY)); return SCORE_OPTS.some(([n]) => n === v) ? v : 4; } catch { return 4; } };
 const COUNT_KEY = 'geo-aicards-count';
 const getCount = () => { try { const v = Number(localStorage.getItem(COUNT_KEY)); return COUNTS.includes(v) ? v : 20; } catch { return 20; } };
 
@@ -104,7 +107,8 @@ export function parseProposals(text, tips, catNames, max = 20) {
     const cat = catNames.find((x) => x === c.category) || catNames.find((x) => String(c.category || '').includes(x) || x.includes(String(c.category || '!'))) || '';
     const sv = svLinkOf(tip);
     const alsoRaw = (Array.isArray(c.also) ? c.also : []).map((x) => cleanText(x)).filter(Boolean).slice(0, 12);
-    list.push({ tip: n, item: tip, alsoRaw, front: cleanText(c.front).slice(0, 200), back: cleanText(c.back).slice(0, 1200), category: cat, area: cleanText(c.area).slice(0, 100), sv, svOn: !!sv });
+    const score = Math.max(1, Math.min(5, Math.round(Number(c.score)) || 3));
+    list.push({ tip: n, item: tip, alsoRaw, score, front: cleanText(c.front).slice(0, 200), back: cleanText(c.back).slice(0, 1200), category: cat, area: cleanText(c.area).slice(0, 100), sv, svOn: !!sv });
     if (list.length >= max) break;
   }
   return list;
@@ -124,6 +128,8 @@ export async function proposeCards(deps) {
       <select class="select select-sm" id="aic-model" title="使うモデル（AI のチャットと共通。「自動」は、混み合っているときに別のモデルへ切り替えます）">${AI_MODELS.map(([id, label]) => `<option value="${esc(id)}" ${id === getAiModel() ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <label class="muted small" for="aic-count-sel">数</label>
       <select class="select select-sm" id="aic-count-sel" title="提案してもらうカードの数（上限）">${COUNTS.map((n) => `<option value="${n}" ${n === getCount() ? 'selected' : ''}>最大 ${n} 件</option>`).join('')}</select>
+      <label class="muted small" for="aic-minscore">絞り込み</label>
+      <select class="select select-sm" id="aic-minscore" title="AI が付けた「この国だと特定するのに役立つ度」で絞り込みます。多くの国で使われている手がかり（シェブロンなど）は、低くなります">${SCORE_OPTS.map(([n, label]) => `<option value="${n}" ${n === getMinScore() ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <label class="aic-auto small" title="作るときに、画像に地図（挿入地図・位置図など）が映っていたら、軽量で画像を読める AI（Gemini Flash-Lite → Cloudflare の Llama 4 Scout）が範囲を見つけて、黒で塗りつぶします"><input type="checkbox" id="aic-automap" ${getAutoMap() ? 'checked' : ''}> 🗺 画像に映った地図を、自動で消す</label>
       <button type="button" class="btn btn-ghost btn-sm" id="aic-again" title="今のモデル・数で、もう一度提案する">↻ もう一度提案</button></div>
     <div class="aic-body"><p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p></div>
@@ -143,22 +149,27 @@ export async function proposeCards(deps) {
     return { codes, unknown };
   };
   const prompt = () => `次は、${countryName}の GeoGuessr の攻略ガイド（Plonk It の日本語訳）の全文です。画像のある項目の先頭に [T番号] が付いています。
-この国を当てるための暗記カード（表面: 画像と短い説明、裏面: 見分け方の解説）にするとよい項目を、ガイドの最初から最後まで、全体を見て、偏りなく選び、最大 ${getCount()} 個、カードの案を、次の形の JSON だけで返してください（前後に説明は書かない）:
-{"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国名は書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）","also":["DE","FR"]}]}
+この国だと特定するのに、大きく役立つ手がかりだけを、暗記カード（表面: 画像と短い説明、裏面: 見分け方の解説）にします。そうした項目を、ガイドの最初から最後まで、全体を見て、偏りなく選び、最大 ${getCount()} 個、カードの案を、次の形の JSON だけで返してください（前後に説明は書かない）:
+{"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国名は書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）","also":["DE","FR"],"score":4}]}
+- score は、その手がかりが、この国だと特定するのに、どれだけ役立つかを、1〜5 の整数で（5: これが見えれば、ほぼ、この国だと決まる / 4: 候補が数か国に絞れる / 3: 地域が絞れる程度 / 2: 多くの国で見られる / 1: ほとんど役に立たない）。多くの国で使われている手がかり（シェブロン・一般的な標識・よくある植生・ありふれた建物など）は、その国だけのものではないので、2 以下にする。本文に「ほかの国でも使われる」とあれば、同様に低くする。
 - also は、その項目の本文に、「全く同じものが、ほかの国にもある」と、はっきり書かれているときだけ、その国の国コード（ISO 3166-1 の 2 文字の大文字。例: ドイツ DE・フランス FR・イギリス GB・アメリカ US。${countryName}は入れない）を並べる。国名では書かない。推測・似ているだけ・「少し違う」ものは入れない。書かれていなければ、空の配列にする。
 - tip は、[T番号] の数字だけ。同じ番号は 1 回だけ。front・back・area の文章には、[T10] のような番号や印は、書かない。
 - category は、次の中から 1 つ選ぶ（合うものがなければ空）: ${catNames.join('、')}
 - [T番号] が付いていない項目（画像なし・地図の画像）は、選ばない。画像が地図（地図・カバレッジ・地域区分・位置図など）だと思われる項目も、選ばない。
 - ガイドの前半だけに偏らず、後半の項目も選ぶ。国全体に共通して役立つ手がかりや、見分けやすい手がかりを優先する。ガイドにない内容は書かない。`;
   // 提案の一覧を描く（AI の答え・前回の保存、どちらからでも）
+  let curList = null; let curMeta = null;
   const renderList = (list, meta) => {
+    curList = list; curMeta = meta;
     body.innerHTML = `
+      <p class="muted small aic-hidden">${(() => { const hid = list.filter((p) => p.score < getMinScore() && !p.done).length; return hid ? `AI の提案 ${list.length} 件のうち、国の特定に役立つ度が低い ${hid} 件は、絞り込みで隠しています（「絞り込み」で変えられます）。` : ''; })()}</p>
       <p class="muted small aic-note">${meta.cached ? `前回の提案（${esc(new Date(meta.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}・${esc((AI_MODELS.find(([id]) => id === meta.model) || [0, meta.model])[1])}）を、そのまま表示しています。` : 'AI の提案です。'}間違いや言い過ぎがないか、確認してから作成してください。チェックしたものが作成されます。内容は、閉じても、覚えておきます（「もう一度提案」で、作り直せます）。</p>
-      <div class="aic-list">${list.map((p, i) => `
+      <div class="aic-list">${list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() || p.done).map(([p, i]) => `
         <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
           <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
           <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
           <div class="aic-fields">
+            <div class="aic-score small" title="この国だと特定するのに、どれだけ役立つか（AI の判断）">国の特定に役立つ度: <b>${'★'.repeat(p.score)}${'☆'.repeat(5 - p.score)}</b></div>
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
             <label class="aic-also small"><span class="muted">他の国（ガイドに「同じものがある」とある国。カードの国に足します）</span><input class="input aic-countries" value="${esc(p.alsoText || '')}" placeholder="例: ドイツ、フランス（なければ空）"></label>
             <textarea class="input aic-back" rows="3" placeholder="裏面の解説">${esc(p.back)}</textarea>
@@ -251,7 +262,7 @@ export async function proposeCards(deps) {
       await deps.onCreated?.();
       if (!ng) close(); else { btn.textContent = '選んだカードを作成'; btn.disabled = false; }
     });
-    const persist = () => saveCache(list.map((p, i) => { const el = body.querySelectorAll('.aic-card')[i]; const f = el ? { front: el.querySelector('.aic-front').value, back: el.querySelector('.aic-back').value, categoryId: el.querySelector('.aic-cat').value, area: el.querySelector('.aic-area').value, checked: el.querySelector('.aic-check input').checked, svOn: !!el.querySelector('.aic-sv')?.checked, alsoText: el.querySelector('.aic-countries').value } : {}; return { tip: p.tip, front: p.front, back: p.back, categoryId: p.categoryId, area: p.area, checked: p.checked, svOn: p.svOn, alsoText: p.alsoText, done: !!p.done, ...f }; }), meta);
+    const persist = () => saveCache(list.map((p, i) => { const el = body.querySelector(`.aic-card[data-i="${i}"]`); const f = el ? { front: el.querySelector('.aic-front').value, back: el.querySelector('.aic-back').value, categoryId: el.querySelector('.aic-cat').value, area: el.querySelector('.aic-area').value, checked: el.querySelector('.aic-check input').checked, svOn: !!el.querySelector('.aic-sv')?.checked, alsoText: el.querySelector('.aic-countries').value } : {}; return { tip: p.tip, front: p.front, back: p.back, categoryId: p.categoryId, area: p.area, checked: p.checked, svOn: p.svOn, alsoText: p.alsoText, score: p.score, done: !!p.done, ...f }; }), meta);
     let pt = null;
     body.querySelector('.aic-list').addEventListener('input', () => { clearTimeout(pt); pt = setTimeout(persist, 400); });
     body.querySelector('.aic-list').addEventListener('change', () => { clearTimeout(pt); pt = setTimeout(persist, 100); });
@@ -283,6 +294,7 @@ export async function proposeCards(deps) {
   // モデルを変えたら、そのモデルで、もう一度提案する（「もう一度提案」でも）
   d.querySelector('#aic-model').addEventListener('change', (e) => { setAiModel(e.target.value); run(); });
   d.querySelector('#aic-count-sel').addEventListener('change', (e) => { try { localStorage.setItem(COUNT_KEY, e.target.value); } catch { /* 保存できなくても使える */ } run(); });
+  d.querySelector('#aic-minscore').addEventListener('change', (e) => { try { localStorage.setItem(MINSCORE_KEY, e.target.value); } catch { /* 保存できなくても使える */ } if (curList) renderList(curList, curMeta); });
   d.querySelector('#aic-again').addEventListener('click', () => run());
   const cached = loadCache(code, cacheCtx.sig);
   const cachedList = cached ? cached.items.map((c) => { const item = tips.get(c.tip); const sv = item ? svLinkOf(item) : ''; return { ...c, item, category: '', sv, svOn: sv ? c.svOn !== false : false }; }).filter((p) => p.item) : [];
