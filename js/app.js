@@ -4192,12 +4192,38 @@ function openSpotlight() {
     input.focus();
     cmdDraw();
   };
+  // ---- 入力の履歴（↑↓で遡る）。コマンドの候補を選んでいるときは、候補の移動が優先 ----
+  let histIdx = -1;
+  let histDraft = '';
+  const goHist = (dir) => {
+    const h = loadHistory();
+    if (!h.length) return false;
+    if (histIdx < 0 && dir > 0) return false; // 履歴を見ていないときの ↓ は、何もしない（元の動作）
+    if (histIdx < 0) histDraft = input.value;
+    let n = histIdx - dir; // ↑（dir=-1）で、古いほうへ
+    if (histIdx < 0 && dir < 0 && h[0] === input.value) n = 1; // 入力欄の文字が、直前の履歴と同じなら、その 1 つ前から
+    if (n < -1 || n >= h.length) return true;
+    histIdx = n;
+    input.dataset.hist = String(histIdx);
+    input.value = histIdx < 0 ? histDraft : h[histIdx];
+    s.q = input.value; cmdSel = -1; cmdOut = null;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.setSelectionRange(input.value.length, input.value.length);
+    return true;
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+    const allSel = input.value && input.selectionStart === 0 && input.selectionEnd === input.value.length; // 開いたときの、全部選ばれた状態
+    if (e.key === 'ArrowUp' && (histIdx >= 0 || !input.value || allSel || (isCmd() && cmdSel < 0) || !$('.spot-results .tile', sp))) { if (goHist(-1)) { e.preventDefault(); e.stopImmediatePropagation(); } }
+    else if (e.key === 'ArrowDown' && histIdx >= 0) { if (goHist(1)) { e.preventDefault(); e.stopImmediatePropagation(); } }
+    else if (e.key !== 'Shift' && e.key !== 'Tab' && !e.key.startsWith('Arrow')) histIdx = -1; // 打ち始めたら、履歴の途中ではなくなる
+  }, true);
   const execCmd = async () => {
     const text = input.value;
     cmdOut = { msg: '実行しています…' };
     let r;
     try { r = await runCommand(text); } catch (ex) { r = { error: `実行できませんでした: ${ex.message}` }; }
-    if (r.close) { cmdOut = null; if (r.msg) toast(r.msg); closeSpotlight(); input.value = ''; s.q = ''; return; }
+    if (r.close) { cmdOut = null; if (r.msg) toast(r.msg); pushHistory(text); input.value = ''; s.q = ''; cmdBox.innerHTML = ''; cmdItems = []; closeSpotlight(); return; }
     cmdOut = r.error ? { error: r.error } : r.html ? { html: r.html } : { msg: r.msg };
     if (r.msg && !r.html) toast(r.msg);
     cmdDraw();
@@ -4216,7 +4242,7 @@ function openSpotlight() {
       if (cmdSel >= 0) acceptCmd(cmdSel); else execCmd();
     }
   });
-  input.addEventListener('input', () => { s.q = input.value; cmdSel = -1; cmdOut = null; renderSearchResults(); syncChips(); });
+  input.addEventListener('input', () => { s.q = input.value; cmdSel = -1; cmdOut = null; if (!isCmd()) { cmdBox.innerHTML = ''; cmdItems = []; } renderSearchResults(); syncChips(); }); // 「!」を消したときは、コマンドの薄い文字も消す
   input.addEventListener('keydown', (e) => {
     // 地図と同じ: Ctrl+Enter で Plonkit、Alt+Enter で国の詳細（入力した国名から）
     if (e.key === 'Enter' && !e.isComposing && (e.ctrlKey || e.metaKey || e.altKey)) {
@@ -4231,7 +4257,7 @@ function openSpotlight() {
     }
     if (e.key === 'Enter' && !e.isComposing && !isCmd()) { // Enter: いちばん上の結果（国の候補、なければ最初のカード）を開いて、検索欄を消す
       const top = $('.spot-results .tile-country', sp) || $('.spot-results .tile[data-id]', sp);
-      if (top) { e.preventDefault(); top.click(); closeSpotlight(); return; }
+      if (top) { e.preventDefault(); pushHistory(input.value); top.click(); closeSpotlight(); return; }
     }
     if (e.key === 'ArrowDown' || (e.key === 'Enter' && !e.isComposing)) {
       const first = $('.spot-results .tile', sp);
@@ -4424,6 +4450,15 @@ function closeSpotlight() {
   setTimeout(() => { sp.classList.remove('closing'); sp.close(); }, 150);
 }
 
+const SEARCH_HIST_KEY = 'geo-cards-search-history-v1';
+const loadHistory = () => { try { return JSON.parse(localStorage.getItem(SEARCH_HIST_KEY)) || []; } catch { return []; } };
+function pushHistory(text) {
+  const t = String(text || '').trim();
+  if (!t) return;
+  const h = loadHistory().filter((x) => x !== t);
+  h.unshift(t);
+  try { localStorage.setItem(SEARCH_HIST_KEY, JSON.stringify(h.slice(0, 50))); } catch { /* 保存できなくても使える */ }
+}
 let cmdDraw = null; // 検索欄の「!」コマンドの表示を更新する関数（検索を開いている間だけ）
 function renderSearchResults() {
   if (state.search.q.startsWith('!') && cmdDraw) { cmdDraw(); return; } // 「!」で始まるときは、カードの検索ではなく、コマンド

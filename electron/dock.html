@@ -3,6 +3,11 @@
 <style>
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font: 13px 'Segoe UI', 'Yu Gothic UI', sans-serif; user-select: none; color: #e6edf3; }
   #fan { position: absolute; left: 14px; bottom: 14px; width: 380px; height: 250px; }
+  #fan.enter { animation: dock-in .2s cubic-bezier(.2, .9, .25, 1) both; }
+  #fan.leave { animation: dock-out .16s ease-in both; }
+  @keyframes dock-in { from { transform: translateY(110%); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes dock-out { to { transform: translateY(110%); opacity: 0; } }
+  img { -webkit-user-drag: none; user-select: none; pointer-events: none; } /* 画像そのものをドラッグしてしまわないように（カードをドラッグする） */
   .card { position: absolute; left: 0; bottom: 0; width: 150px; height: 112px; border-radius: 10px; border: 1px solid #2d3a44; background: #172027; box-shadow: 0 6px 18px rgba(0, 0, 0, .55); transform-origin: 0% 100%; cursor: pointer; transition: transform .22s cubic-bezier(.2, .8, .25, 1.1), box-shadow .15s; overflow: hidden; display: flex; flex-direction: column; animation: pop .22s ease both; }
   @keyframes pop { from { opacity: 0; transform: scale(.6) rotate(0); } }
   .card:hover { box-shadow: 0 10px 26px rgba(0, 0, 0, .7), 0 0 0 2px #38b57d; z-index: 99 !important; }
@@ -75,10 +80,12 @@
   };
   window.dock.list().then((r) => draw(r.items, r.justStored));
   window.dock.onList(draw);
+  document.addEventListener('dragstart', (e) => e.preventDefault());
+  window.dock.onAnim((k) => { fan.classList.remove('enter', 'leave'); void fan.offsetWidth; fan.classList.add(k); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { window.dock.drag(false); window.dock.hide(); } });
   // カーソルが一覧のウィンドウから出て、しばらくそのままなら、閉じる（ドラッグ中は閉じない）
   let leaveTimer = null;
-  document.addEventListener('mouseleave', () => { clearTimeout(leaveTimer); leaveTimer = setTimeout(() => { if (!document.querySelector('.dragging')) window.dock.hide(); }, 700); });
+  document.addEventListener('mouseleave', () => { /* 本体（main.js）が、カーソルの位置を見て、閉じる */ });
   document.addEventListener('mouseenter', () => clearTimeout(leaveTimer));
   document.addEventListener('mousedown', (e) => { if (e.target === document.body || e.target === document.documentElement) window.dock.hide(); });
 </script>

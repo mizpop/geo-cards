@@ -256,7 +256,13 @@ function createWindow() {
   const popIcons = new Map(); // ウィンドウ → アイコン（data URL。一覧に出す用）
   const dockItems = () => [...stored].filter((w) => !w.isDestroyed()).map((w) => ({ id: w.id, title: w.getTitle(), icon: popIcons.get(w) || null }));
   const sendDock = () => { if (dockWin && !dockWin.isDestroyed()) dockWin.webContents.send('dock-list', dockItems(), justStored); };
-  const hideDock = () => { if (dockWin && !dockWin.isDestroyed()) dockWin.hide(); };
+  let dockFull = false; // ドラッグ中（画面いっぱいに広げている間）
+  let hideTimer = null;
+  const hideDock = () => { // 下へ引っ込むアニメーションのあとで、隠す
+    if (!dockWin || dockWin.isDestroyed() || !dockWin.isVisible() || hideTimer) return;
+    dockWin.webContents.send('dock-anim', 'leave');
+    hideTimer = setTimeout(() => { hideTimer = null; if (dockWin && !dockWin.isDestroyed()) dockWin.hide(); }, 170);
+  };
   const showDock = () => {
     if (!dockWin || dockWin.isDestroyed()) {
       dockWin = new BrowserWindow({ width: 440, height: 300, frame: false, transparent: true, hasShadow: false, resizable: false, skipTaskbar: true, show: false, alwaysOnTop: true, backgroundColor: '#00000000', webPreferences: { preload: path.join(__dirname, 'dock-preload.js') } });
@@ -267,9 +273,11 @@ function createWindow() {
     const wa = d.workArea;
     dockWin.setBounds({ x: wa.x, y: wa.y + wa.height - 300, width: 440, height: 300 });
     dockWin.setAlwaysOnTop(true, 'screen-saver');
+    clearTimeout(hideTimer); hideTimer = null;
     sendDock();
     dockWin.show();
     dockWin.focus();
+    dockWin.webContents.send('dock-anim', 'enter'); // 下から出てくる
   };
   const toggleDock = () => { if (dockWin && !dockWin.isDestroyed() && dockWin.isVisible()) hideDock(); else showDock(); };
   ipcMain.handle('dock-list', (e) => (dockWin && e.sender === dockWin.webContents ? { items: dockItems(), justStored } : { items: [], justStored: '' }));
@@ -328,6 +336,7 @@ function createWindow() {
     storedBounds.set(w, beforeDrag.get(w) || w.getBounds());
     beforeDrag.delete(w); dragging.delete(w);
     justStored = w.getTitle();
+    dockKeepUntil = Date.now() + 2600;
     stored.add(w); w.hide(); showDock();
     setTimeout(() => { justStored = ''; sendDock(); if (dockWin && !dockWin.isDestroyed() && !dockWin.isFocused()) hideDock(); }, 2600);
   };
@@ -367,6 +376,17 @@ function createWindow() {
   // 左下の角にカーソルを合わせて、止めると、しまってあるウィンドウの一覧を開く（しまってあるものがあるときだけ見張る）
   let cornerSince = 0;
   let cornerArmed = true; // 角から一度離れるまで、続けて開かない
+  let outSince = 0;
+  let dockKeepUntil = 0; // しまった直後は、カーソルが離れていても、少しの間、一覧を見せる（しまったことが分かるように）
+  setInterval(() => { // 一覧が出ているとき、カーソルが一覧のウィンドウから離れたら、すぐ閉じる（ドラッグ中は閉じない）
+    if (!dockWin || dockWin.isDestroyed() || !dockWin.isVisible() || dockFull || Date.now() < dockKeepUntil) { outSince = 0; return; }
+    const p = screen.getCursorScreenPoint();
+    const b = dockWin.getBounds();
+    const inside = p.x >= b.x - 8 && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height + 8;
+    if (inside) { outSince = 0; return; }
+    if (!outSince) outSince = Date.now();
+    else if (Date.now() - outSince >= 220) { outSince = 0; hideDock(); }
+  }, 80);
   setInterval(() => {
     if (!stored.size) { cornerSince = 0; return; }
     const p = screen.getCursorScreenPoint();
@@ -374,18 +394,20 @@ function createWindow() {
     if (!hit) { cornerSince = 0; cornerArmed = true; return; }
     if (!cornerArmed || (dockWin && !dockWin.isDestroyed() && dockWin.isVisible())) return;
     if (!cornerSince) cornerSince = Date.now();
-    else if (Date.now() - cornerSince >= 350) { cornerArmed = false; cornerSince = 0; showDock(); }
+    else if (Date.now() - cornerSince >= 120) { cornerArmed = false; cornerSince = 0; showDock(); } // 止める時間は、短く
   }, 120);
   ipcMain.handle('dock-drag', (e, on) => { // ドラッグの間だけ、一覧のウィンドウを、画面いっぱいに（透明）。画面の左上の位置を返す（カードを、カーソルの位置に、ずれなく置くため）
     if (!dockWin || e.sender !== dockWin.webContents) return null;
     const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    dockFull = !!on;
     if (on) dockWin.setBounds(d.bounds); else { const wa = d.workArea; dockWin.setBounds({ x: wa.x, y: wa.y + wa.height - 300, width: 440, height: 300 }); }
     return { x: dockWin.getBounds().x, y: dockWin.getBounds().y };
   });
   ipcMain.on('dock-restore', (e, id, pos) => {
     if (!dockWin || e.sender !== dockWin.webContents) return;
     const w = [...stored].find((x) => x.id === id);
-    hideDock();
+    dockFull = false;
+    if (dockWin && !dockWin.isDestroyed()) dockWin.hide();
     if (w && !w.isDestroyed()) {
       stored.delete(w);
       if (!pos) { const sb = storedBounds.get(w); if (sb) w.setBounds(sb); } // クリックで取り出すときは、しまう前の場所に戻す
