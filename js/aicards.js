@@ -369,6 +369,7 @@ export async function proposeCards(deps) {
   let runId = 0;
   const run = async () => {
     const mine = ++runId;
+    setRect(null); setFrom(code, null); showLine(); // 作り直すときは、地図を消す範囲の設定も、リセットする
     // 提案している間の経過を表示する（どの段階か・経過時間・見つかった候補の数と、最新の候補）
     const t0 = Date.now();
     let stage = 1; let got = ''; let timer = null;
