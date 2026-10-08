@@ -318,6 +318,11 @@ function start(image, backImage, host, resolve, initial = {}) {
     }
   };
   const updateUI = () => {
+    // 「裏面だけ」の書き込みには、地図の消去（消す・ぼかし・地図を自動で消す）を入れない（これらは、画像そのものに焼き込む操作なので、表面だけ）
+    const noMap = layer === 'back';
+    if (noMap && (tool === 'erase' || tool === 'mosaic')) tool = 'ellipse';
+    box.querySelectorAll('[data-tool="erase"], [data-tool="mosaic"]').forEach((x) => { x.disabled = noMap; x.title = noMap ? '「裏面だけ」の書き込みでは使えません（画像そのものを変える操作なので、「表面に書き込む」に切り替えて使います）' : (x.dataset.tool === 'erase' ? '消す（範囲を、今の色で塗りつぶす。地図などが映り込んだ部分を、消すとき）' : 'ぼかし（範囲を、モザイクにする）'); });
+    const am = box.querySelector('[data-act="automap"]'); if (am) am.disabled = noMap;
     box.querySelectorAll('[data-layer]').forEach((x) => x.classList.toggle('on', x.dataset.layer === layer));
     box.querySelectorAll('[data-tool]').forEach((x) => x.classList.toggle('on', x.dataset.tool === tool));
     box.querySelector('[data-act="uncrop"]').hidden = !crop;
@@ -460,7 +465,8 @@ function start(image, backImage, host, resolve, initial = {}) {
       return;
     }
     if (selected) select(null);
-    draft = tool === 'pen' ? { layer, type: 'pen', color, lv: level, pts: [[x, y]] } : { layer, type: tool, color, lv: level, x0: x, y0: y, x1: x, y1: y };
+    const dl = tool === 'erase' || tool === 'mosaic' ? 'front' : layer; // 地図の消去は、いつも、表面（画像そのもの）
+    draft = tool === 'pen' ? { layer, type: 'pen', color, lv: level, pts: [[x, y]] } : { layer: dl, type: tool, color, lv: level, x0: x, y0: y, x1: x, y1: y };
   });
   stage.addEventListener('pointermove', (e) => {
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
