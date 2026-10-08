@@ -10,6 +10,7 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { COMMANDS, parseCommand, complete as cmdComplete, syntaxHint, optionMap, unq as cmdUnq, commandNames } from './commands.js';
+import { proposeCards } from './aicards.js';
 import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
@@ -5464,6 +5465,7 @@ function renderPlonkitModal(entry) {
     <div class="modal-head">
       ${backBtnHtml()}
       <h2 class="pk-title">${code ? flagImg(code) : '📖'}${esc(name)} <span class="muted small">Plonkit ガイド</span></h2>
+      ${state.user?.isEditor && code ? '<button class="icon-btn pk-ai-btn" type="button" disabled aria-label="AI でカードを提案" title="AI が、このガイドを読んで、作るとよいカードを提案します（編集者のみ）">✨</button>' : ''}
       <button class="icon-btn pk-toc-btn" type="button" aria-label="目次" aria-expanded="false" title="目次を開く・閉じる">☰</button>
       <a class="icon-btn" href="${orig}" target="_blank" rel="noopener" title="原文（Plonkit）を開く" aria-label="原文を開く">${EXT_ICON_SVG}</a>
       <button class="icon-btn" data-close aria-label="閉じる">✕</button>
@@ -5496,6 +5498,22 @@ function renderPlonkitModal(entry) {
       <p class="pk-credit muted small">出典: <a href="${orig}" target="_blank" rel="noopener">Plonk It（${esc(g.title || slug)}）</a>の内容を日本語に翻訳したものです（機械翻訳）。</p>`;
     tocEl.innerHTML = tocHtml(toc);
     loadImages(body);
+    const aiBtn = el.querySelector('.pk-ai-btn'); // AI が、ガイドを読んで、カードを提案する
+    if (aiBtn) {
+      aiBtn.disabled = false;
+      aiBtn.addEventListener('click', () => proposeCards({
+        api, toast, host: el, guide: g, code, countryName: name,
+        cats: allCats().filter((k) => k.id !== 'none'),
+        imgSrc: heroSrc,
+        fetchImage: async (item) => { // 画像を取り込む（まず、画像の置き場（CDN）から。だめなら、このサイトの中継から）
+          for (const u of [heroSrc(item.img), `/api/plonkit?img=${encodeURIComponent(item.img)}`]) { try { const r = await fetch(u); if (r.ok) return await r.blob(); } catch { /* 次へ */ } }
+          throw new Error('画像を取得できません');
+        },
+        createCard: (fields, blob) => api.createCard(fields, blob, null),
+        openEditor: (preset) => openEditor(null, preset),
+        onCreated: async () => { await reloadCards(); if (state.view !== 'map') render(); },
+      }));
+    }
     bindGuide(body, {
       api: api,
       toast,

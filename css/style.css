@@ -2693,3 +2693,23 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 #po-bar .icon-btn.is-on { background: var(--accent-soft); color: var(--accent); }
 .is-tabwin #view { margin-top: 38px; flex: 1; min-height: 0; overflow: auto; }
 .is-tabwin #app.app-fit { height: 100%; }
+
+/* Plonkit の AI のカード提案 */
+.pk-ai-btn:disabled { opacity: .4; }
+.modal-aicards { width: min(820px, calc(100vw - 16px)); }
+.aic-state { display: flex; align-items: center; gap: 10px; padding: 18px 4px; }
+.aic-err { color: var(--ng); font-weight: 600; padding: 12px 4px; }
+.aic-note { margin: 0 0 8px; }
+.aic-list { display: flex; flex-direction: column; gap: 10px; max-height: 62vh; overflow-y: auto; padding-right: 4px; }
+.aic-card { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.aic-card.is-done { opacity: .5; border-color: var(--accent); }
+.aic-card.is-ng { border-color: var(--ng); }
+.aic-check { padding-top: 4px; }
+.aic-img { width: 150px; max-height: 110px; object-fit: contain; background: #0b0f12; border-radius: 6px; flex: none; }
+.aic-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.aic-fields .input { width: 100%; box-sizing: border-box; }
+.aic-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.aic-row .aic-area { flex: 1; min-width: 120px; width: auto; }
+.aic-foot { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.aic-foot .grow { flex: 1; }
+@media (max-width: 640px) { .aic-card { flex-wrap: wrap; } .aic-img { width: 100%; } }
