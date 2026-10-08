@@ -2732,3 +2732,13 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .aic-score b { color: #e0a800; letter-spacing: 1px; }
 .aic-hidden { margin: 0 0 4px; }
 .aic-hidden:empty { display: none; }
+
+/* 地図を一括で消す */
+.bmr-opts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.bmr-list { display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow-y: auto; }
+.bmr-row { display: flex; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; }
+.bmr-row.is-done { opacity: .5; border-color: var(--accent); }
+.bmr-thumb { position: relative; flex: none; display: inline-block; line-height: 0; }
+.bmr-thumb img { height: 96px; max-width: 200px; object-fit: contain; display: block; background: #0b0f12; }
+.bmr-box { position: absolute; box-sizing: border-box; border: 2px solid #ff3b30; background: rgba(255, 59, 48, .18); }
+.bmr-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
