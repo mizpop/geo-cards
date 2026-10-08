@@ -2725,3 +2725,5 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 
 .aic-auto { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; }
 .aic-imgbox { gap: 4px; }
+
+.aic-also { display: flex; flex-direction: column; gap: 2px; }

@@ -5510,6 +5510,7 @@ function renderPlonkitModal(entry) {
           for (const u of [heroSrc(item.img), `/api/plonkit?img=${encodeURIComponent(item.img)}`]) { try { const r = await fetch(u); if (r.ok) return await r.blob(); } catch { /* 次へ */ } }
           throw new Error('画像を取得できません');
         },
+        resolveCountry: (name) => findCountry(name)?.code || null, // 国名（日本語・英語・略称）→ 国コード（完全に一致するものだけ）
         editImage: (url, host) => editImage(url, { host, tool: 'erase', autoErase: (blob) => detectMapRegions(api, blob) }), // 画像の一部を消す・ぼかす（画像編集の「消す」から始める）
         createCard: (fields, blob) => api.createCard(fields, blob, null),
         addSv: async (url) => { // ガイドのストリートビューのリンクを、保存したストリートビューにして、その id を返す（短縮リンクは、元のリンクに戻す）

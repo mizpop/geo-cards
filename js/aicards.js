@@ -103,7 +103,8 @@ export function parseProposals(text, tips, catNames, max = 20) {
     used.add(n);
     const cat = catNames.find((x) => x === c.category) || catNames.find((x) => String(c.category || '').includes(x) || x.includes(String(c.category || '!'))) || '';
     const sv = svLinkOf(tip);
-    list.push({ tip: n, item: tip, front: cleanText(c.front).slice(0, 200), back: cleanText(c.back).slice(0, 1200), category: cat, area: cleanText(c.area).slice(0, 100), sv, svOn: !!sv });
+    const alsoText = (Array.isArray(c.also) ? c.also : []).map((x) => cleanText(x)).filter(Boolean).slice(0, 12).join('、');
+    list.push({ tip: n, item: tip, alsoText, front: cleanText(c.front).slice(0, 200), back: cleanText(c.back).slice(0, 1200), category: cat, area: cleanText(c.area).slice(0, 100), sv, svOn: !!sv });
     if (list.length >= max) break;
   }
   return list;
@@ -135,9 +136,16 @@ export async function proposeCards(deps) {
   d.showModal();
   const body = d.querySelector('.aic-body');
   const catNames = cats.map((c) => c.name);
+  // 「他の国」の欄の国名（、や , で区切る）を、国コードにする。この国は、いつも、先頭に入れる。読めなかった名前は、unknown に
+  const countriesOf = (text) => {
+    const codes = [code]; const unknown = [];
+    for (const n of String(text || '').split(/[、,，\n]/).map((x) => x.trim()).filter(Boolean)) { const c = deps.resolveCountry?.(n); if (c && !codes.includes(c)) codes.push(c); else if (!c) unknown.push(n); }
+    return { codes, unknown };
+  };
   const prompt = () => `次は、${countryName}の GeoGuessr の攻略ガイド（Plonk It の日本語訳）の全文です。画像のある項目の先頭に [T番号] が付いています。
 この国を当てるための暗記カード（表面: 画像と短い説明、裏面: 見分け方の解説）にするとよい項目を、ガイドの最初から最後まで、全体を見て、偏りなく選び、最大 ${getCount()} 個、カードの案を、次の形の JSON だけで返してください（前後に説明は書かない）:
-{"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国名は書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）"}]}
+{"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国名は書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）","also":["国名"]}]}
+- also は、その項目の本文に、「全く同じものが、ほかの国にもある」と、はっきり書かれているときだけ、その国の名前（日本語。${countryName}は入れない）を並べる。推測・似ているだけ・「少し違う」ものは入れない。書かれていなければ、空の配列にする。
 - tip は、[T番号] の数字だけ。同じ番号は 1 回だけ。front・back・area の文章には、[T10] のような番号や印は、書かない。
 - category は、次の中から 1 つ選ぶ（合うものがなければ空）: ${catNames.join('、')}
 - [T番号] が付いていない項目（画像なし・地図の画像）は、選ばない。画像が地図（地図・カバレッジ・地域区分・位置図など）だと思われる項目も、選ばない。
@@ -152,6 +160,7 @@ export async function proposeCards(deps) {
           <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
           <div class="aic-fields">
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
+            <label class="aic-also small"><span class="muted">他の国（ガイドに「同じものがある」とある国。カードの国に足します）</span><input class="input aic-countries" value="${esc(p.alsoText || '')}" placeholder="例: ドイツ、フランス（なければ空）"></label>
             <textarea class="input aic-back" rows="3" placeholder="裏面の解説">${esc(p.back)}</textarea>
             <div class="aic-row">
               <select class="select select-sm aic-cat"><option value="">カテゴリーなし</option>${cats.map((c) => `<option value="${esc(c.id)}" ${c.id === p.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
@@ -173,6 +182,7 @@ export async function proposeCards(deps) {
       categoryId: el.querySelector('.aic-cat').value || null,
       area: el.querySelector('.aic-area').value.trim(),
       sv: !!el.querySelector('.aic-sv')?.checked,
+      alsoText: el.querySelector('.aic-countries').value.trim(),
     });
     const count = () => { const n = cards.filter((c) => c.querySelector('.aic-check input').checked).length; body.querySelector('#aic-count').textContent = `${n} 件を作成`; body.querySelector('#aic-make').disabled = !n; };
     cards.forEach((c) => c.querySelector('.aic-check input').addEventListener('change', count));
@@ -208,12 +218,12 @@ export async function proposeCards(deps) {
       const el = b.closest('.aic-card');
       const p = list[Number(el.dataset.i)];
       b.disabled = true;
-      try { const f = fieldsOf(el); const blob = p.blob || await deps.fetchImage(p.item); const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; close(); deps.openEditor({ countries: [code], blob, ...f, svIds: svId ? [svId] : [] }); } catch (ex) { toast(`画像を取り込めませんでした: ${ex.message}`, 'error'); b.disabled = false; }
+      try { const f = fieldsOf(el); const blob = p.blob || await deps.fetchImage(p.item); const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; close(); deps.openEditor({ countries: countriesOf(f.alsoText).codes, blob, ...f, svIds: svId ? [svId] : [] }); } catch (ex) { toast(`画像を取り込めませんでした: ${ex.message}`, 'error'); b.disabled = false; }
     }));
     body.querySelector('#aic-make').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
-      let ok = 0; let ng = 0; let svFail = 0; let mapsRemoved = 0; let mapFail = 0;
+      let ok = 0; let ng = 0; let svFail = 0; let mapsRemoved = 0; let mapFail = 0; let unknown = 0;
       const autoMap = body.closest('dialog').querySelector('#aic-automap').checked;
       try { localStorage.setItem(AUTOMAP_KEY, autoMap ? '1' : '0'); } catch { /* 保存できなくても使える */ }
       for (const el of cards) {
@@ -229,18 +239,19 @@ export async function proposeCards(deps) {
           }
           const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; // ストリートビューは、取れなくても、カードは作る
           if (f.sv && p.sv && !svId) svFail++;
-          await deps.createCard({ description: f.description, countries: [code], area: f.area, notes: f.notes, category_id: f.categoryId, related: [], sv_ids: svId ? [svId] : [], places: [] }, blob);
+          const cs = countriesOf(f.alsoText); unknown += cs.unknown.length;
+          await deps.createCard({ description: f.description, countries: cs.codes, area: f.area, notes: f.notes, category_id: f.categoryId, related: [], sv_ids: svId ? [svId] : [], places: [] }, blob);
           ok++;
           p.done = true;
           el.classList.add('is-done');
         } catch { ng++; el.classList.add('is-ng'); }
       }
-      toast((ng ? `${ok} 件を作成しました（${ng} 件は、作成できませんでした）` : `${ok} 件のカードを作成しました`) + (svFail ? `（${svFail} 件は、ストリートビューを取り込めませんでした）` : '') + (mapsRemoved ? `（${mapsRemoved} 件は、地図を消しました）` : '') + (mapFail ? `（${mapFail} 件は、地図を探せませんでした）` : ''), ng ? 'error' : undefined);
+      toast((ng ? `${ok} 件を作成しました（${ng} 件は、作成できませんでした）` : `${ok} 件のカードを作成しました`) + (svFail ? `（${svFail} 件は、ストリートビューを取り込めませんでした）` : '') + (mapsRemoved ? `（${mapsRemoved} 件は、地図を消しました）` : '') + (mapFail ? `（${mapFail} 件は、地図を探せませんでした）` : '') + (unknown ? `（国名として読めなかった ${unknown} か所は、除きました）` : ''), ng ? 'error' : undefined);
       persist();
       await deps.onCreated?.();
       if (!ng) close(); else { btn.textContent = '選んだカードを作成'; btn.disabled = false; }
     });
-    const persist = () => saveCache(list.map((p, i) => { const el = body.querySelectorAll('.aic-card')[i]; const f = el ? { front: el.querySelector('.aic-front').value, back: el.querySelector('.aic-back').value, categoryId: el.querySelector('.aic-cat').value, area: el.querySelector('.aic-area').value, checked: el.querySelector('.aic-check input').checked, svOn: !!el.querySelector('.aic-sv')?.checked } : {}; return { tip: p.tip, front: p.front, back: p.back, categoryId: p.categoryId, area: p.area, checked: p.checked, svOn: p.svOn, done: !!p.done, ...f }; }), meta);
+    const persist = () => saveCache(list.map((p, i) => { const el = body.querySelectorAll('.aic-card')[i]; const f = el ? { front: el.querySelector('.aic-front').value, back: el.querySelector('.aic-back').value, categoryId: el.querySelector('.aic-cat').value, area: el.querySelector('.aic-area').value, checked: el.querySelector('.aic-check input').checked, svOn: !!el.querySelector('.aic-sv')?.checked, alsoText: el.querySelector('.aic-countries').value } : {}; return { tip: p.tip, front: p.front, back: p.back, categoryId: p.categoryId, area: p.area, checked: p.checked, svOn: p.svOn, alsoText: p.alsoText, done: !!p.done, ...f }; }), meta);
     let pt = null;
     body.querySelector('.aic-list').addEventListener('input', () => { clearTimeout(pt); pt = setTimeout(persist, 400); });
     body.querySelector('.aic-list').addEventListener('change', () => { clearTimeout(pt); pt = setTimeout(persist, 100); });
