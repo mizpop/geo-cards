@@ -46,7 +46,7 @@ export function guideToContext(g) {
 }
 
 // /api/ask に質問して、答えの文章（ストリーミングを、まとめて受け取る）を返す
-async function askText(api, prompt, context, model = 'auto', maxTokens = 12000) { // 答えの長さの上限。カード 1 件に、約 300 トークン
+async function askText(api, prompt, context, model = 'auto', maxTokens = 12000, onProgress = null) { // 答えの長さの上限。カード 1 件に、約 300 トークン
   const token = await api.getAccessToken();
   const res = await fetch('/api/ask', {
     method: 'POST',
@@ -73,7 +73,7 @@ async function askText(api, prompt, context, model = 'auto', maxTokens = 12000) 
       if (!line) continue;
       let j;
       try { j = JSON.parse(line.slice(5)); } catch { continue; }
-      if (typeof j.text === 'string') text += j.text;
+      if (typeof j.text === 'string') { text += j.text; onProgress?.(text); }
       if (j.error) throw new Error(j.error);
     }
   }
@@ -164,6 +164,7 @@ export async function proposeCards(deps) {
     body.innerHTML = `
       <p class="muted small aic-hidden">${(() => { const hid = list.filter((p) => p.score < getMinScore() && !p.done).length; return hid ? `AI の提案 ${list.length} 件のうち、国の特定に役立つ度が低い ${hid} 件は、絞り込みで隠しています（「絞り込み」で変えられます）。` : ''; })()}</p>
       <p class="muted small aic-note">${meta.cached ? `前回の提案（${esc(new Date(meta.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}・${esc((AI_MODELS.find(([id]) => id === meta.model) || [0, meta.model])[1])}）を、そのまま表示しています。` : 'AI の提案です。'}間違いや言い過ぎがないか、確認してから作成してください。チェックしたものが作成されます。内容は、閉じても、覚えておきます（「もう一度提案」で、作り直せます）。</p>
+      <p class="small muted aic-cleanprog"></p>
       <div class="aic-list">${list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() || p.done).map(([p, i]) => `
         <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
           <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
@@ -283,7 +284,9 @@ export async function proposeCards(deps) {
   const startClean = async (list) => {
     if (!d.querySelector('#aic-automap')?.checked) return;
     const todo = list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() && !p.done && !p.mapChecked && !p.cleaning && !p.blob);
-    let next = 0;
+    let next = 0; let finished = 0;
+    const prog = () => { const el = body.querySelector('.aic-cleanprog'); if (el) el.textContent = todo.length && finished < todo.length ? `🗺 画像に映った地図を確認しています… ${finished} / ${todo.length} 枚` : todo.length ? `🗺 地図の確認が終わりました（${todo.length} 枚）` : ''; };
+    prog();
     const setState = (i, t) => { const el = body.querySelector(`.aic-card[data-i="${i}"] .aic-mapstate`); if (el) el.textContent = t; };
     todo.forEach(([, i]) => setState(i, '🗺 地図を確認待ち…'));
     const worker = async () => {
@@ -303,7 +306,7 @@ export async function proposeCards(deps) {
             setState(i, `✔ 地図を消しました（${regions.length} か所）`);
           } else setState(i, '地図なし');
         } catch { setState(i, '地図を確認できませんでした'); }
-        p.cleaning = false;
+        p.cleaning = false; finished++; prog();
       }
       if (curList === list) persistNow?.();
     };
@@ -314,9 +317,28 @@ export async function proposeCards(deps) {
   let runId = 0;
   const run = async () => {
     const mine = ++runId;
-    body.innerHTML = loadingHtml;
+    // 提案している間の経過を表示する（どの段階か・経過時間・見つかった候補の数と、最新の候補）
+    const t0 = Date.now();
+    let stage = 1; let got = ''; let timer = null;
+    const modelName = (AI_MODELS.find(([id]) => id === getAiModel()) || [0, getAiModel()])[1];
+    const paint = () => {
+      if (closed || mine !== runId) { clearInterval(timer); return; }
+      const n = (got.match(/"tip"\s*:/g) || []).length;
+      const last = [...got.matchAll(/"front"\s*:\s*"([^"]{1,60})/g)].pop()?.[1] || '';
+      const step = (k, label) => `<li class="${stage > k ? 'is-done' : stage === k ? 'is-now' : ''}">${stage > k ? '✔' : stage === k ? '<span class="spinner"></span>' : '・'} ${label}</li>`;
+      body.innerHTML = `<div class="aic-state muted"><ul class="aic-steps" style="list-style:none;padding:0;margin:0 0 .5rem">
+        ${step(1, 'Plonkit のガイドを整理しています')}
+        ${step(2, `AI（${esc(modelName)}）に送って、返事を待っています`)}
+        ${step(3, `AI が提案を書いています${n ? `（${n} 件）` : ''}`)}
+        ${step(4, '提案を整理しています')}
+      </ul>
+      <p class="small">${last ? `最新: 「${esc(last)}」 ／ ` : ''}経過 ${Math.round((Date.now() - t0) / 1000)} 秒（全体で 20〜60 秒ほど。長いガイドは、もう少しかかります）${got ? ` ／ 受信 ${got.length.toLocaleString()} 文字` : ''}</p></div>`;
+    };
+    paint(); timer = setInterval(paint, 500);
     try {
-    const answer = await askText(api, prompt(), text, getAiModel(), Math.min(30000, 2000 + getCount() * 320));
+    stage = 2;
+    const answer = await askText(api, prompt(), text, getAiModel(), Math.min(30000, 2000 + getCount() * 320), (s) => { got = s; stage = 3; });
+    stage = 4; paint(); clearInterval(timer);
     if (mine !== runId) return;
     if (closed || mine !== runId) return;
     const list = parseProposals(answer, tips, catNames, getCount());
@@ -328,6 +350,7 @@ export async function proposeCards(deps) {
     });
     renderList(list, { at: Date.now(), model: getAiModel() });
   } catch (ex) {
+    clearInterval(timer);
     if (closed || mine !== runId) return;
     body.innerHTML = `<p class="aic-err">${esc(ex.message || '提案できませんでした')}</p><div class="modal-foot"><span class="grow"></span><button class="btn" type="button" data-x>閉じる</button></div>`;
     body.querySelector('[data-x]').addEventListener('click', close);
