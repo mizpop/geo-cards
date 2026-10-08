@@ -167,7 +167,7 @@ export async function proposeCards(deps) {
       <div class="aic-list">${list.map((p, i) => [p, i]).filter(([p]) => p.score >= getMinScore() || p.done).map(([p, i]) => `
         <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
           <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
-          <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><span class="aic-mapstate small muted"></span><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
+          <div class="aic-imgbox"><img class="aic-img" src="${esc(p.blob ? URL.createObjectURL(p.blob) : deps.imgSrc(p.item.img))}" alt="" loading="lazy"><span class="aic-mapstate small muted"></span><button type="button" class="btn btn-ghost btn-sm aic-imgmap" title="軽量な AI が、画像に映った地図を見つけて、消します">✨ 地図を消す</button><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
           <div class="aic-fields">
             <div class="aic-score small" title="この国だと特定するのに、どれだけ役立つか（AI の判断）">国の特定に役立つ度: <b>${'★'.repeat(p.score)}${'☆'.repeat(5 - p.score)}</b></div>
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
@@ -217,11 +217,19 @@ export async function proposeCards(deps) {
       const p = list[Number(el.dataset.i)];
       b.disabled = true;
       try {
-        const base = p.blob || await deps.fetchImage(p.item);
+        const base = await deps.fetchImage(p.item); // 元の画像から編集する（AI が塗りつぶした範囲も、図形として、動かしたり消したりできる）
         const url = URL.createObjectURL(base);
-        const out = await deps.editImage(url, d);
+        const extra = p.edit ? { shapes: p.edit.shapes, crop: p.edit.crop } : { regions: Array.isArray(p.mapRegions) ? p.mapRegions : null };
+        const out = await deps.editImage(url, d, extra);
         URL.revokeObjectURL(url);
-        if (out?.image) { p.blob = out.image; el.querySelector('.aic-img').src = URL.createObjectURL(out.image); b.textContent = '🖌 編集済み'; }
+        if (out) {
+          p.edit = { shapes: out.shapes, crop: out.crop }; p.mapChecked = true; p.mapRegions = out.erased;
+          p.blob = out.image || null;
+          el.querySelector('.aic-img').src = p.blob ? URL.createObjectURL(p.blob) : deps.imgSrc(p.item.img);
+          b.textContent = p.blob ? '🖌 編集済み' : '🖌 画像を編集';
+          const st = el.querySelector('.aic-mapstate'); if (st) st.textContent = p.blob ? (p.mapRegions?.length ? `✔ 地図を消しました（${p.mapRegions.length} か所）` : '') : '';
+          persistNow?.();
+        }
       } catch (ex) { toast(`画像を編集できませんでした: ${ex.message}`, 'error'); }
       b.disabled = false;
     }));

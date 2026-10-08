@@ -53,11 +53,11 @@ const toBlob = (canvas) => new Promise((resolve, reject) => {
   } catch (ex) { reject(ex); }
 });
 
-export async function editImage(src, { backSrc = '', host = document.body, tool: initTool = '', crop: initCrop = null, autoErase = null } = {}) {
+export async function editImage(src, { backSrc = '', host = document.body, tool: initTool = '', crop: initCrop = null, autoErase = null, regions = null, shapes: initShapes = null } = {}) {
   const image = await loadImage(src);
   if (!image) throw new Error('画像を読み込めませんでした');
   const backImage = backSrc ? await loadImage(backSrc) : null;
-  return new Promise((resolve) => start(image, backImage, host, resolve, { tool: initTool, crop: initCrop, autoErase }));
+  return new Promise((resolve) => start(image, backImage, host, resolve, { tool: initTool, crop: initCrop, autoErase, regions, shapes: initShapes }));
 }
 
 function start(image, backImage, host, resolve, initial = {}) {
@@ -609,6 +609,10 @@ function start(image, backImage, host, resolve, initial = {}) {
     widthBefore = null;
   });
   box.querySelector('[data-act="del"]').addEventListener('click', deleteSelected);
+  // 最初から置いておく図形（AI が見つけた地図の範囲・前回の編集）。ふつうの図形と同じように、動かしたり、消したりできる
+  if (initial.shapes) for (const s of initial.shapes) shapes.push({ ...s });
+  else if (initial.regions) for (const [x, y, w, h] of initial.regions) shapes.push({ layer: 'front', type: 'erase', color: '#000000', lv: level, x0: x * W, y0: y * H, x1: (x + w) * W, y1: (y + h) * H });
+  redraw(); updateUI();
   const autoBtn = box.querySelector('[data-act="automap"]');
   if (initial.autoErase) { // 地図を自動で消す: AI が見つけた範囲を、「消す」の図形として足す
     autoBtn.hidden = false;
@@ -643,12 +647,18 @@ function start(image, backImage, host, resolve, initial = {}) {
   });
   box.querySelector('[data-act="uncrop"]').addEventListener('click', () => { history.push({ kind: 'crop', prev: crop }); crop = null; redraw(); updateUI(); });
   box.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
+  // 呼び出し側が、あとで続きを編集したり、範囲を覚えたりできるように、前面の図形・トリミング・「消す」の範囲（割合）も返す
+  const exportInfo = (front) => ({
+    shapes: front.map((s) => ({ ...s })),
+    crop: crop ? { ...crop } : null,
+    erased: front.filter((s) => s.type === 'erase').map((s) => { const x = Math.min(s.x0, s.x1); const y = Math.min(s.y0, s.y1); return [x / W, y / H, Math.abs(s.x1 - s.x0) / W, Math.abs(s.y1 - s.y0) / H]; }),
+  });
   const doneBtn = box.querySelector('[data-act="done"]');
   doneBtn.addEventListener('click', async () => {
     const front = shapes.filter((s) => s.layer === 'front');
     const back = shapes.filter((s) => s.layer === 'back');
     const c = crop ? { x: Math.round(crop.x), y: Math.round(crop.y), w: Math.round(crop.w), h: Math.round(crop.h) } : { x: 0, y: 0, w: W, h: H };
-    if (!front.length && !back.length && !crop && !backCleared) { close({ image: null, back: null }); return; }
+    if (!front.length && !back.length && !crop && !backCleared) { close({ image: null, back: null, ...exportInfo(front) }); return; }
     doneBtn.disabled = true;
     doneBtn.textContent = '書き出し中…';
     try {
@@ -670,7 +680,7 @@ function start(image, backImage, host, resolve, initial = {}) {
       if (back.length || (crop && keepOld)) {
         backOut = await toBlob(out((ctx) => { if (keepOld) ctx.drawImage(backImage, 0, 0, W, H); for (const s of back) drawShape(ctx, s); }));
       } else if (backCleared) backOut = 'clear';
-      close({ image: imageBlob, back: backOut });
+      close({ image: imageBlob, back: backOut, ...exportInfo(front) });
     } catch (ex) {
       doneBtn.disabled = false;
       doneBtn.textContent = '完了';

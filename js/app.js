@@ -5514,7 +5514,7 @@ function renderPlonkitModal(entry) {
         },
         codeName: (code) => COUNTRY_BY_CODE.get(code)?.ja || null, // 2 文字の国コード → 日本語の国名（なければ null）
         resolveCountry: (name) => findCountry(name)?.code || null, // 国名（日本語・英語・略称）→ 国コード（完全に一致するものだけ）
-        editImage: (url, host) => editImage(url, { host, tool: 'erase', autoErase: (blob) => detectMapRegions(api, blob) }), // 画像の一部を消す・ぼかす（画像編集の「消す」から始める）
+        editImage: (url, host, extra = {}) => editImage(url, { host, tool: 'erase', autoErase: (blob) => detectMapRegions(api, blob), ...extra }), // 画像の一部を消す・ぼかす（画像編集の「消す」から始める）
         createCard: (fields, blob) => api.createCard(fields, blob, null),
         addSv: async (url) => { // ガイドのストリートビューのリンクを、保存したストリートビューにして、その id を返す（短縮リンクは、元のリンクに戻す）
           let p = parseStreetView(url);
