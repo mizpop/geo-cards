@@ -12,6 +12,8 @@ let deps = null;
 let list = null; // 読み込み前は null
 let loading = null;
 const search = { q: '' };
+const sel = new Set(); // 選択中の保存したストリートビューの id（編集者だけ）
+let anchor = null;
 
 /** アプリから、必要な機能を渡す: { api(), isEditor(), toast, esc, flagImg, countryName, countryAt, createCard, openSv, confirmDialog? } */
 export function initSavedSv(d) { deps = d; list = null; loading = null; }
@@ -114,7 +116,8 @@ function rowHtml(r) {
     ? [country, r.name, r.admin && r.admin !== r.name ? r.admin : '', ...alts].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).map(esc).join(' · ')
     : [r.admin && r.admin !== r.name ? esc(r.admin) : '', ...alts.map(esc)].filter(Boolean).join(' · ');
   const cards = (deps.cardsFor?.(r.id) || []);
-  return `<article class="sv-item" data-id="${esc(r.id)}">
+  return `<article class="sv-item${sel.has(r.id) ? ' is-selected' : ''}" data-id="${esc(r.id)}">
+    ${deps.isEditor() ? `<label class="sv-check" title="選択（Shift で範囲・Ctrl でひとつずつ）"><input type="checkbox" aria-label="この場所を選択" ${sel.has(r.id) ? 'checked' : ''}></label>` : ''}
     <button type="button" class="sv-item-main" data-open="${esc(r.id)}" title="ストリートビューをウィンドウで開く">
       <span class="sv-item-flag">${r.code ? deps.flagImg(r.code) : '📍'}</span>
       <span class="sv-item-text">
@@ -166,18 +169,65 @@ export function renderSavedSvView(view, setFit) {
         <input type="search" id="sv-q" class="input grow" placeholder="国・地名で絞り込み（例: フランス / Paris / 京都）" value="${esc(search.q)}" autocomplete="off">
         <span class="counter" id="sv-count"></span>
       </div>
+      <div class="sel-bar sv-selbar" id="sv-selbar" hidden>
+        <span id="sv-sel-count"></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="sv-sel-all">☑ 全選択</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="sv-sel-none">☐ 選択解除</button>
+        <span class="grow"></span>
+        <button type="button" class="btn btn-danger btn-sm" id="sv-sel-del">選択を削除</button>
+      </div>
       <p class="muted small sv-hint">ストリートビューのウィンドウの <b>保存</b> ボタンで、ここに場所が増えます。国と大まかな地名は自動で付きます。</p>
       <div id="sv-list" class="sv-list"><div class="empty page-loading"><span class="spinner"></span>読み込み中…</div></div>
     </div>`;
   const q = view.querySelector('#sv-q');
   let composing = false;
+  sel.clear(); anchor = null;
+  const shownIds = () => (list || []).filter((r) => matches(r, search.q)).map((r) => r.id);
+  const updateSel = () => { // 選択の見た目と上の操作バーを、描き直さずに更新
+    for (const id of [...sel]) if (!list?.some((r) => r.id === id)) sel.delete(id);
+    view.querySelectorAll('.sv-item[data-id]').forEach((el) => { const on = sel.has(el.dataset.id); el.classList.toggle('is-selected', on); const cb = el.querySelector('.sv-check input'); if (cb) cb.checked = on; });
+    const bar = view.querySelector('#sv-selbar'); if (!bar) return;
+    bar.hidden = !sel.size;
+    view.querySelector('#sv-sel-count').textContent = `${sel.size} 件を選択中`;
+  };
   const draw = () => {
     const box = view.querySelector('#sv-list');
     if (!box) return;
     const rows = (list || []).filter((r) => matches(r, search.q));
     view.querySelector('#sv-count').textContent = list ? `${rows.length} / ${list.length} 件` : '';
     box.innerHTML = rows.length ? rows.map(rowHtml).join('') : `<div class="empty">${list?.length ? '一致する場所がありません' : '保存したストリートビューはまだありません。<br>地図の ストリートビュー ボタン → 道路をクリック → ウィンドウの 保存 ボタンで追加できます。'}</div>`;
+    updateSel();
   };
+  view.querySelector('#sv-sel-all').addEventListener('click', () => { shownIds().forEach((id) => sel.add(id)); updateSel(); });
+  view.querySelector('#sv-sel-none').addEventListener('click', () => { sel.clear(); anchor = null; updateSel(); });
+  view.querySelector('#sv-sel-del').addEventListener('click', async () => {
+    const ids = [...sel].filter((id) => list?.some((r) => r.id === id));
+    if (!ids.length || !(await deps.confirmDialog(`選択した ${ids.length} 件の保存を削除しますか？（元に戻せません）`))) return;
+    let ok = 0; let ng = 0;
+    for (const id of ids) { try { await deleteSv(id); ok++; sel.delete(id); } catch { ng++; } }
+    deps.toast(ng ? `${ok} 件を削除しました（${ng} 件は、できませんでした）` : `${ok} 件を削除しました`, ng ? 'error' : undefined);
+    draw(); refreshSvWindow();
+  });
+  // 選択: チェック / Shift+クリックで範囲 / Ctrl(⌘)+クリックでひとつずつ。選択中は、行を押すだけでも切り替わる
+  view.querySelector('#sv-list').addEventListener('mousedown', (e) => { if (e.shiftKey && e.target.closest('.sv-item')) e.preventDefault(); });
+  view.querySelector('#sv-list').addEventListener('click', (e) => {
+    if (!deps.isEditor() || e.target.closest('.sv-rename')) return;
+    const item = e.target.closest('.sv-item[data-id]');
+    if (!item) return;
+    const check = e.target.closest('.sv-check');
+    const selecting = check || e.shiftKey || e.ctrlKey || e.metaKey || (sel.size > 0 && e.target.closest('.sv-item-main'));
+    if (!selecting) return;
+    if (!check && e.target.closest('.sv-item-actions, .sv-item-cards')) return;
+    e.stopImmediatePropagation(); // 同じ要素の、ほかのクリック処理（開く・削除など）は動かさない
+    const id = item.dataset.id;
+    if (e.shiftKey && anchor && anchor !== id) {
+      const ids = shownIds(); const [a, b] = [ids.indexOf(anchor), ids.indexOf(id)].sort((x, y) => x - y);
+      if (a >= 0) { ids.slice(a, b + 1).forEach((x) => sel.add(x)); anchor = id; updateSel(); e.preventDefault(); return; }
+    }
+    if (!check) e.preventDefault();
+    if (sel.has(id)) sel.delete(id); else sel.add(id);
+    anchor = id; updateSel();
+  }, true);
   q.addEventListener('compositionstart', () => { composing = true; });
   q.addEventListener('compositionend', () => { composing = false; search.q = q.value; draw(); });
   q.addEventListener('input', (e) => { if (composing || e.isComposing) return; search.q = q.value; draw(); });
