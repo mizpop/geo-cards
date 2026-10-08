@@ -32,8 +32,11 @@ const MODELS = [
   ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
   ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite（軽い）'],
   ['gemini-3.1-flash-lite', 'Gemini 3.1 Flash-Lite（軽い）'],
+  ['gemma-4-31b-it', 'Gemma 4 31B（Gemini API・高性能・画像も読める）'],
+  ['gemma-4-26b-a4b-it', 'Gemma 4 26B A4B（Gemini API・軽い・画像も読める）'],
   ['cloudflare', 'Cloudflare AI（Llama 4 Scout・画像も読める）'],
   ['cloudflare-70b', 'Cloudflare AI（Llama 3.3 70B・高性能・画像は読めない）'],
+  ['cloudflare-gemma4', 'Cloudflare AI（Gemma 4 26B A4B・画像も読める）'],
   ['cloudflare-mistral', 'Cloudflare AI（Mistral Small 3.1 24B・画像も読める）'],
 ];
 const MODEL_KEY = 'geochecker-ai-model';

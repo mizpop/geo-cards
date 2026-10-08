@@ -19,7 +19,7 @@ const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 // 新しいモデルは混み合って 503（high demand）になりやすいので、そのときは、無料枠で使える別のモデルに順に切り替える
 // 手動で選べるモデル（無料枠で使える文章のモデル。画面の選択欄 js/assistant.js の MODELS と合わせる）。これ以外の指定は受け付けない
-const FREE_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview'];
+const FREE_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemma-4-31b-it', 'gemma-4-26b-a4b-it'];
 // 予備（と、手動で選べる）Cloudflare Workers AI のモデル。画像も読める
 const CF_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 const CF_LABEL = 'cloudflare:llama-4-scout';
@@ -28,6 +28,7 @@ const CF_LABEL = 'cloudflare:llama-4-scout';
 const CF_MODELS = {
   cloudflare: { id: CF_MODEL, label: CF_LABEL, vision: true },
   'cloudflare-70b': { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'cloudflare:llama-3.3-70b', vision: false },
+  'cloudflare-gemma4': { id: '@cf/google/gemma-4-26b-a4b-it', label: 'cloudflare:gemma-4-26b', vision: true },
   'cloudflare-mistral': { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'cloudflare:mistral-small-3.1', vision: true },
 };
 const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];

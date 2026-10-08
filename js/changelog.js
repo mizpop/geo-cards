@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v104',
+    date: '2026-10-09',
+    sections: [
+      {
+        title: 'AI モデル',
+        items: ['モデルの選択欄に、Gemma 4 を追加（Gemini API 経由の 31B と 26B A4B、Cloudflare AI 経由の 26B A4B。どれも画像も読める）。AI のチャットと、カードの提案で、共通'],
+      },
+    ],
+  },
+  {
     version: 'v103',
     date: '2026-10-09',
     sections: [
