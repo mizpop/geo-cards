@@ -15,10 +15,12 @@ const TOOLS = [
   ['arrow', '矢印', svg('<path d="M5 19L19 5M9 5h10v10"/>')],
   ['line', '直線（Shift で水平・垂直・45°）', svg('<path d="M5 19L19 5"/>')],
   ['rect', '四角', svg('<rect x="3.5" y="6" width="17" height="12" rx="1"/>')],
+  ['erase', '消す（範囲を、今の色で塗りつぶす。地図などが映り込んだ部分を、消すとき）', svg('<rect x="3.5" y="6" width="17" height="12" rx="1" fill="currentColor"/>')],
+  ['mosaic', 'ぼかし（範囲を、モザイクにする）', svg('<path d="M4 4h6v6H4zM14 4h6v6h-6zM9 14h6v6H9zM4 14h2v2H4zM18 14h2v2h-2z" fill="currentColor"/>')],
   ['pen', 'ペン', svg('<path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>')],
 ];
 const TRASH = svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>');
-const DRAW_TOOLS = new Set(['ellipse', 'arrow', 'line', 'rect', 'pen']);
+const DRAW_TOOLS = new Set(['ellipse', 'arrow', 'line', 'rect', 'erase', 'mosaic', 'pen']);
 const LV_DEFAULT = 3;
 const LV_MAX = 10;
 const ZMAX = 8;
@@ -126,7 +128,21 @@ function start(image, backImage, host, resolve, initial = {}) {
     // 暗い背景でも見えるように、細い影をつける
     ctx.shadowColor = s.color === '#000000' ? 'rgba(255,255,255,.7)' : 'rgba(0,0,0,.6)';
     ctx.shadowBlur = Math.min(w, lw * 1.5);
-    if (s.type === 'pen') {
+    if (s.type === 'erase' || s.type === 'mosaic') { // 範囲を、塗りつぶす / モザイクにする（画像に焼き込む。影はつけない）
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
+      const rx = Math.min(s.x0, s.x1); const ry = Math.min(s.y0, s.y1); const rw = Math.abs(s.x1 - s.x0); const rh = Math.abs(s.y1 - s.y0);
+      if (s.type === 'erase') ctx.fillRect(rx, ry, rw, rh);
+      else if (rw >= 2 && rh >= 2) {
+        const cell = Math.max(6, Math.round(Math.max(rw, rh) / 14)); // 範囲の大きさに合わせた粗さ
+        const t = document.createElement('canvas');
+        t.width = Math.max(1, Math.round(rw / cell)); t.height = Math.max(1, Math.round(rh / cell));
+        t.getContext('2d').drawImage(image, rx, ry, rw, rh, 0, 0, t.width, t.height);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(t, 0, 0, t.width, t.height, rx, ry, rw, rh);
+        ctx.imageSmoothingEnabled = true;
+      }
+    } else if (s.type === 'pen') {
       ctx.beginPath();
       s.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.stroke();
@@ -216,6 +232,7 @@ function start(image, backImage, host, resolve, initial = {}) {
       return s.pts.length === 1 && Math.hypot(x - s.pts[0][0], y - s.pts[0][1]) <= tol;
     }
     const b = bboxOf(s);
+    if (s.type === 'erase' || s.type === 'mosaic') return x >= b.x0 - tol && x <= b.x1 + tol && y >= b.y0 - tol && y <= b.y1 + tol;
     if (s.type === 'rect') {
       const inside = x >= b.x0 - tol && x <= b.x1 + tol && y >= b.y0 - tol && y <= b.y1 + tol;
       const innerOnly = x > b.x0 + tol && x < b.x1 - tol && y > b.y0 + tol && y < b.y1 - tol;
@@ -306,7 +323,11 @@ function start(image, backImage, host, resolve, initial = {}) {
     box.classList.toggle('is-back-layer', layer === 'back');
     stage.classList.toggle('is-pan', tool === 'pan');
     stage.classList.toggle('is-select', tool === 'select');
-    hint.textContent = tool === 'select'
+    hint.textContent = tool === 'erase'
+      ? 'ドラッグして、消したい範囲（地図などが映り込んだ部分）を、塗りつぶします。色は、右の色から選べます（黒・白など）。やり直しは、戻す（Ctrl+Z）で'
+      : tool === 'mosaic'
+      ? 'ドラッグして、モザイクにする範囲を選びます'
+      : tool === 'select'
       ? '図形をクリックして選びます。ドラッグで動かし、四角い取っ手で大きさを変えます。色・太さもそのまま変更でき、Delete で消せます'
       : tool === 'pan'
       ? 'ドラッグで画像を動かします。ホイール / ピンチで拡大・縮小（どのツールでも、スペースキーを押しながら / 右ドラッグで移動できます）'
@@ -552,6 +573,7 @@ function start(image, backImage, host, resolve, initial = {}) {
   }));
   box.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => {
     tool = b.dataset.tool;
+    if (tool === 'erase' && color !== '#000000' && color !== '#ffffff') box.querySelector('[data-color="#000000"]')?.click(); // 消すときは、黒（または白）で塗る
     if (tool === 'select' && !selected && lastDrawn && shapes.includes(lastDrawn) && lastDrawn.layer === layer) select(lastDrawn); // 描いたばかりの図形をすぐ調整できるように
     else if (tool !== 'select' && selected) select(null);
     canvas.style.cursor = '';
@@ -564,6 +586,7 @@ function start(image, backImage, host, resolve, initial = {}) {
     } else color = b.dataset.color;
     syncControls();
   }));
+  if (tool === 'erase') box.querySelector('[data-color="#000000"]')?.click(); // 消すツールで始めるときは、黒で塗る
   // 線の太さ: 選んでいる図形があればその図形、なければこれから描く線
   const wInput = box.querySelector('.annot-width input');
   wInput.addEventListener('input', () => {

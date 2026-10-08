@@ -145,7 +145,7 @@ export async function proposeCards(deps) {
       <div class="aic-list">${list.map((p, i) => `
         <div class="aic-card ${p.done ? 'is-done' : ''}" data-i="${i}">
           <label class="aic-check"><input type="checkbox" ${p.checked && !p.done ? 'checked' : ''} ${p.done ? 'disabled' : ''}></label>
-          <img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy">
+          <div class="aic-imgbox"><img class="aic-img" src="${esc(deps.imgSrc(p.item.img))}" alt="" loading="lazy"><button type="button" class="btn btn-ghost btn-sm aic-imgedit" title="画像を編集する（地図が映り込んだ部分を消す・ぼかす・トリミングなど）">🖌 画像を編集</button></div>
           <div class="aic-fields">
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
             <textarea class="input aic-back" rows="3" placeholder="裏面の解説">${esc(p.back)}</textarea>
@@ -174,11 +174,25 @@ export async function proposeCards(deps) {
     cards.forEach((c) => c.querySelector('.aic-check input').addEventListener('change', count));
     count();
     body.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', close));
+    // 画像の一部（地図の映り込みなど）を、消す・ぼかす・トリミングする。編集した画像は、このウィンドウを閉じるまで、使われる
+    body.querySelectorAll('.aic-imgedit').forEach((b) => b.addEventListener('click', async () => {
+      const el = b.closest('.aic-card');
+      const p = list[Number(el.dataset.i)];
+      b.disabled = true;
+      try {
+        const base = p.blob || await deps.fetchImage(p.item);
+        const url = URL.createObjectURL(base);
+        const out = await deps.editImage(url, d);
+        URL.revokeObjectURL(url);
+        if (out?.image) { p.blob = out.image; el.querySelector('.aic-img').src = URL.createObjectURL(out.image); b.textContent = '🖌 編集済み'; }
+      } catch (ex) { toast(`画像を編集できませんでした: ${ex.message}`, 'error'); }
+      b.disabled = false;
+    }));
     body.querySelectorAll('.aic-edit').forEach((b) => b.addEventListener('click', async () => {
       const el = b.closest('.aic-card');
       const p = list[Number(el.dataset.i)];
       b.disabled = true;
-      try { const f = fieldsOf(el); const blob = await deps.fetchImage(p.item); const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; close(); deps.openEditor({ countries: [code], blob, ...f, svIds: svId ? [svId] : [] }); } catch (ex) { toast(`画像を取り込めませんでした: ${ex.message}`, 'error'); b.disabled = false; }
+      try { const f = fieldsOf(el); const blob = p.blob || await deps.fetchImage(p.item); const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; close(); deps.openEditor({ countries: [code], blob, ...f, svIds: svId ? [svId] : [] }); } catch (ex) { toast(`画像を取り込めませんでした: ${ex.message}`, 'error'); b.disabled = false; }
     }));
     body.querySelector('#aic-make').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
@@ -190,7 +204,7 @@ export async function proposeCards(deps) {
         const f = fieldsOf(el);
         btn.textContent = `作成中… ${ok + ng + 1}`;
         try {
-          const blob = await deps.fetchImage(p.item);
+          const blob = p.blob || await deps.fetchImage(p.item);
           const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; // ストリートビューは、取れなくても、カードは作る
           if (f.sv && p.sv && !svId) svFail++;
           await deps.createCard({ description: f.description, countries: [code], area: f.area, notes: f.notes, category_id: f.categoryId, related: [], sv_ids: svId ? [svId] : [], places: [] }, blob);
