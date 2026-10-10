@@ -96,12 +96,12 @@ function inline(text, env) {
 /** 画像の説明の最後に「|50%」「|300」（px）と書くと、表示の大きさになる（例: ![説明|50%](img:…)） */
 const IMG_SIZE = /^(.*?)\s*\|\s*(\d{1,4})\s*(%|px)?\s*$/;
 export const parseImgAlt = (alt) => { const m = IMG_SIZE.exec(alt || ''); return m ? { alt: m[1], size: m[3] === '%' ? `${Math.min(100, +m[2])}%` : `${+m[2]}px` } : { alt: alt || '', size: '' }; };
-function imageHtml(src, rawAlt, env) {
+function imageHtml(src, rawAlt, env, inRow = false) {
   const { alt, size } = parseImgAlt(rawAlt);
   const idx = env.imgN = (env.imgN || 0) + 1;
   const url = env.urls.get(src) || '';
   if (!url) return `<span class="art-img-missing" title="${deps.esc(src)}">🖼（画像が見つかりません）</span>`;
-  return `<span class="art-zoom front-img" data-art-img data-img-i="${idx - 1}"${size ? ` style="width:${size};max-width:100%"` : ''}><img src="${deps.esc(url)}" alt="${deps.esc(alt)}" loading="lazy"></span>`;
+  return `<span class="art-zoom front-img" data-art-img data-img-i="${idx - 1}"${size && !inRow ? ` style="width:${size};max-width:100%"` : ''}><img src="${deps.esc(url)}" alt="${deps.esc(alt)}" loading="lazy"></span>`;
 }
 function linkChip(kind, id, label, env) {
   if (kind === 'card') { const c = deps.cardById(id); return c ? deps.cardChipHtml(c) : '<span class="art-link-gone">（削除されたカード）</span>'; }
@@ -203,7 +203,7 @@ export function renderMarkdown(src, urls = new Map(), opts = {}) {
     }
     if (IMGS_LINE.test(line)) { // 同じ行の複数の画像は、1 行に収まるように、並べる（幅は、自動で調節）
       flushPara();
-      const imgs = [...line.matchAll(/!\[([^\]]*)\]\(([^)\s]+)\)/g)].map((x) => imageHtml(x[2], x[1], env));
+      const imgs = [...line.matchAll(/!\[([^\]]*)\]\(([^)\s]+)\)/g)].map((x) => { const { alt, size } = parseImgAlt(x[1]); return `<figure class="art-fig"${size ? ` style="flex:0 1 ${size}"` : ''}>${imageHtml(x[2], x[1], env, true)}${alt ? `<figcaption>${deps.esc(alt)}</figcaption>` : ''}</figure>`; });
       out.push(`<div class="art-imgrow">${imgs.join('')}</div>`); i++; continue;
     }
     const im = IMG_LINE.exec(line);
