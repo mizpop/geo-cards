@@ -1733,7 +1733,7 @@ function renderPhotoModal(entry) {
     </div>
     <div class="detail ${entry.enter ? `enter-${entry.enter}` : ''}">
       <div class="detail-front">
-        <div class="front-img"><img src="${esc(srcs[i])}"${topic === 'plate' ? ' data-plate="1"' : ''} alt="${esc(countryName(code))}の${esc(m.name)}の参考写真"></div>
+        <div class="front-img"><img src="${esc(srcs[i])}" alt="${esc(countryName(code))}の${esc(m.name)}の参考写真"></div>
         <p class="muted small photo-credit">${ex ? `画像: <a href="${esc(ex.items?.[i]?.page || 'https://commons.wikimedia.org/')}" target="_blank" rel="noopener">${ex.items?.[i]?.source === 'geohints' ? 'GeoHints' : 'Wikimedia Commons'}</a>（カード未作成の候補）` : `写真: <a href="${REF_PAGES[topic] || 'https://geohints.com/'}" target="_blank" rel="noopener">GeoHints</a>`}</p>
       </div>
       <div class="detail-back">
