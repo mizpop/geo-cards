@@ -3005,3 +3005,8 @@ p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); 
 .art-imgrow > .art-fig[style] { max-width: 100%; }
 .art-imgrow .art-zoom { display: block; width: 100%; max-width: none; }
 .art-imgrow .art-zoom img { width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
+/* 画像の大きさを、ウィンドウ・機種（記事の幅）に合わせる */
+.art-content, .gd-preview { container-type: inline-size; }
+.art-fig > .art-zoom:not([style]) { width: min(100%, 760px); margin-left: auto; margin-right: auto; }
+.art-zoom img { max-height: 78vh; max-height: min(78vh, 78dvh); }
+p .art-zoom, li .art-zoom { max-width: min(100%, 420px); max-width: min(100%, clamp(140px, 50cqw, 420px)); }
