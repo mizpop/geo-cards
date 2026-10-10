@@ -116,6 +116,7 @@ function svEmbed(r, env) {
   return `<div class="art-sv"><iframe class="art-sv-frame" title="${label}" src="${esc(deps.svEmbedUrl(r))}" loading="lazy" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="art-sv-cap">${deps.svChipHtml(r)}</div></div>`;
 }
 const ONLY_CHIPS = /^(\s*\[\[(card|sv|article):[\w-]+\]\]\s*)+$/;
+const IMGS_LINE = /^\s*(?:!\[[^\]]*\]\([^)\s]+\)\s*){2,}$/; // 画像だけが、同じ行に、2 枚以上
 const IMG_LINE = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
 
 /** マークダウン → { html, toc: [{ id, title, level }], refs: 使っている画像の参照 } */
@@ -199,6 +200,11 @@ export function renderMarkdown(src, urls = new Map(), opts = {}) {
       while (stack.length) html += `</li></${stack.pop().tag}>`;
       out.push(html);
       continue;
+    }
+    if (IMGS_LINE.test(line)) { // 同じ行の複数の画像は、1 行に収まるように、並べる（幅は、自動で調節）
+      flushPara();
+      const imgs = [...line.matchAll(/!\[([^\]]*)\]\(([^)\s]+)\)/g)].map((x) => imageHtml(x[2], x[1], env));
+      out.push(`<div class="art-imgrow">${imgs.join('')}</div>`); i++; continue;
     }
     const im = IMG_LINE.exec(line);
     if (im) { flushPara(); out.push(`<figure class="art-fig">${imageHtml(im[2], im[1], env)}${parseImgAlt(im[1]).alt ? `<figcaption>${deps.esc(parseImgAlt(im[1]).alt)}</figcaption>` : ''}</figure>`); i++; continue; }

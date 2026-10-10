@@ -2999,3 +2999,9 @@ p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); 
 .art-sv-frame { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; border: 0; background: #0b0f12; }
 .art-sv-cap { padding: 6px 8px; }
 .art-sv-ph { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+/* 同じ行に入れた複数の画像: 1 行に収まるように、余白をあけて、幅を自動で調節する（大きさを指定した画像は、その幅を目安に、収まらなければ縮む） */
+.art-imgrow { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 14px; }
+.art-imgrow .art-zoom { flex: 1 1 0; min-width: 0; max-width: none; display: block; }
+.art-imgrow .art-zoom[style] { flex: 0 1 auto; max-width: 100%; }
+.art-imgrow .art-img-missing { flex: 1 1 0; }
+.art-imgrow .art-zoom img { width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
