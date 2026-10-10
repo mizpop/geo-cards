@@ -808,7 +808,7 @@ async function enterApp() {
   });
   initGuides({
     api, esc, toast, isEditor: () => !!state.user?.isEditor, attachZoom,
-    cards: () => state.cards, cardById, cardImg: (id) => { const c = cardById(id); return c ? imgUrl(c) : ''; }, cardThumb: (c) => thumbUrl(c) || imgUrl(c),
+    cards: () => state.cards, cardCat: (c) => { const k = catOf(c); return { id: k.id, name: k.name }; }, countryName, cardById, cardImg: (id) => { const c = cardById(id); return c ? imgUrl(c) : ''; }, cardThumb: (c) => thumbUrl(c) || imgUrl(c),
     cardLabel: (c) => `${c.countries[0] ? countryName(c.countries[0]) : ''} ${c.description || catOf(c).name}`.trim(),
     cardSearch: (text) => matchCards(text.toLowerCase()),
     cardChipHtml: (c) => relatedItemHtml(c),

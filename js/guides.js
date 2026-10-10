@@ -220,45 +220,73 @@ export function bindArticle(root) {
 }
 
 // ================= 選ぶ画面（カード・ストリートビュー・記事） =================
-function pickDialog({ title, search = true, render }) {
+function pickDialog({ title, search = true, filters = '', render }) {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.className = 'modal modal-sm gd-pick';
     d.innerHTML = `<div class="modal-inner"><div class="modal-head"><h2>${deps.esc(title)}</h2><button class="icon-btn" type="button" data-x aria-label="閉じる">✕</button></div>
-      ${search ? '<input type="search" class="input gd-pick-q" placeholder="絞り込み" autocomplete="off">' : ''}<div class="gd-pick-list"></div></div>`;
+      ${search ? '<input type="search" class="input gd-pick-q" placeholder="絞り込み（文字）" autocomplete="off">' : ''}${filters ? `<div class="gd-pick-filters">${filters}</div>` : ''}<div class="gd-pick-count muted small"></div><div class="gd-pick-list"></div></div>`;
     document.body.appendChild(d);
     const list = d.querySelector('.gd-pick-list');
     const q = d.querySelector('.gd-pick-q');
-    const done = (v) => { d.close(); d.remove(); resolve(v); };
-    const paint = () => { list.innerHTML = render(q?.value.trim() || ''); };
+    const done = (v) => {
+      document.activeElement?.blur?.();
+      d.close(); d.remove(); resolve(v);
+      setTimeout(() => { window.blur(); window.focus(); }, 0); // ダイアログを閉じたあと、入力欄に入力できなくなることがあるので、フォーカスを取り直す
+    };
+    const paint = () => {
+      const vals = {};
+      d.querySelectorAll('[data-f]').forEach((el) => { vals[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value; });
+      const r = render(q?.value.trim() || '', vals);
+      list.innerHTML = r.html;
+      d.querySelector('.gd-pick-count').textContent = r.count != null ? `${r.count} 件${r.count > r.shown ? `（先頭の ${r.shown} 件を表示。絞り込んでください）` : ''}` : '';
+    };
     list.addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (b) done(b.dataset.pick); });
     d.querySelector('[data-x]').addEventListener('click', () => done(null));
     d.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
     q?.addEventListener('input', paint);
+    d.querySelectorAll('[data-f]').forEach((el) => el.addEventListener('change', paint));
     paint();
     d.showModal();
     q?.focus();
   });
 }
-const cardPick = (title) => pickDialog({
-  title,
-  render: (qt) => {
-    const cards = (qt ? deps.cardSearch(qt) : deps.cards()).slice(0, 60);
-    return cards.length ? cards.map((c) => `<button type="button" class="gd-pick-row" data-pick="${deps.esc(c.id)}"><span class="gd-pick-thumb">${deps.cardThumb(c) ? `<img src="${deps.esc(deps.cardThumb(c))}" alt="" loading="lazy">` : ''}</span><span class="gd-pick-text">${deps.esc(deps.cardLabel(c))}</span></button>`).join('') : '<p class="muted small">見つかりません</p>';
-  },
-});
-const svPick = (title) => pickDialog({
-  title,
-  render: (qt) => {
-    const rows = deps.svList().filter((r) => !qt || deps.svLabel(r).toLowerCase().includes(qt.toLowerCase())).slice(0, 80);
-    return rows.length ? rows.map((r) => `<button type="button" class="gd-pick-row" data-pick="${deps.esc(r.id)}"><span class="gd-pick-thumb">🧍</span><span class="gd-pick-text">${deps.esc(deps.svLabel(r))}</span></button>`).join('') : '<p class="muted small">保存したストリートビューが、まだありません</p>';
-  },
-});
+const optHtml = (pairs, all) => `<option value="">${all}</option>${pairs.map(([v, l]) => `<option value="${deps.esc(v)}">${deps.esc(l)}</option>`).join('')}`;
+const emptyHtml = '<p class="muted small" style="padding:12px">見つかりません</p>';
+const cardPick = (title, { imagesOnly = false } = {}) => {
+  const all = deps.cards().filter((c) => !imagesOnly || deps.cardThumb(c));
+  const cats = new Map(); const countries = new Set();
+  for (const c of all) { const k = deps.cardCat(c); cats.set(k.id, k.name); (c.countries || []).forEach((x) => countries.add(x)); }
+  const filters = `<select class="select select-sm" data-f="cat" aria-label="種類">${optHtml([...cats], 'すべての種類')}</select><select class="select select-sm" data-f="country" aria-label="国">${optHtml([...countries].map((x) => [x, deps.countryName(x)]).sort((a, b) => a[1].localeCompare(b[1], 'ja')), 'すべての国')}</select>`;
+  return pickDialog({
+    title,
+    filters,
+    render: (qt, f) => {
+      const base = qt ? deps.cardSearch(qt) : deps.cards();
+      const hit = base.filter((c) => (!imagesOnly || deps.cardThumb(c)) && (!f.cat || deps.cardCat(c).id === f.cat) && (!f.country || (c.countries || []).includes(f.country)));
+      const cards = hit.slice(0, 60);
+      return { count: hit.length, shown: cards.length, html: cards.length ? cards.map((c) => `<button type="button" class="gd-pick-row" data-pick="${deps.esc(c.id)}"><span class="gd-pick-thumb">${deps.cardThumb(c) ? `<img src="${deps.esc(deps.cardThumb(c))}" alt="" loading="lazy">` : ''}</span><span class="gd-pick-text">${deps.esc(deps.cardLabel(c))}</span></button>`).join('') : emptyHtml };
+    },
+  });
+};
+const svPick = (title) => {
+  const rows0 = deps.svList();
+  const countries = [...new Set(rows0.map((r) => r.code).filter(Boolean))].map((x) => [x, deps.countryName(x)]).sort((a, b) => a[1].localeCompare(b[1], 'ja'));
+  return pickDialog({
+    title,
+    filters: `<select class="select select-sm" data-f="country" aria-label="国">${optHtml(countries, 'すべての国')}</select>`,
+    render: (qt, f) => {
+      const hit = deps.svList().filter((r) => (!qt || deps.svLabel(r).toLowerCase().includes(qt.toLowerCase())) && (!f.country || r.code === f.country));
+      const rows = hit.slice(0, 80);
+      return { count: hit.length, shown: rows.length, html: rows.length ? rows.map((r) => `<button type="button" class="gd-pick-row" data-pick="${deps.esc(r.id)}"><span class="gd-pick-thumb">🧍</span><span class="gd-pick-text">${deps.esc(deps.svLabel(r))}</span></button>`).join('') : emptyHtml };
+    },
+  });
+};
 const articlePick = (title, exclude = new Set()) => pickDialog({
   title,
   render: (qt) => {
     const rows = articles.filter((a) => !exclude.has(a.id) && (!qt || (a.title || '').toLowerCase().includes(qt.toLowerCase()))).slice(0, 80);
-    return rows.length ? rows.map((a) => `<button type="button" class="gd-pick-row" data-pick="${deps.esc(a.id)}"><span class="gd-pick-thumb">${folderIconHtml(folderOf(a), '📝')}</span><span class="gd-pick-text">${deps.esc(a.title || '無題')}</span></button>`).join('') : '<p class="muted small">記事がありません</p>';
+    return { html: rows.length ? rows.map((a) => `<button type="button" class="gd-pick-row" data-pick="${deps.esc(a.id)}"><span class="gd-pick-thumb">${folderIconHtml(folderOf(a), '📝')}</span><span class="gd-pick-text">${deps.esc(a.title || '無題')}</span></button>`).join('') : emptyHtml };
   },
 });
 
@@ -386,9 +414,9 @@ export async function buildArticleEditor(article = null, opts = {}) {
         upload(blobs);
       } catch { deps.toast('クリップボードを読めませんでした（ブラウザの許可が必要です。Ctrl+V でも貼り付けられます）', 'error'); }
     } else if (k === 'img-card') {
-      const id = await cardPick('画像を使うカードを選ぶ');
+      const id = await cardPick('画像を使うカードを選ぶ', { imagesOnly: true });
       const c = id && deps.cardById(id);
-      if (c) insert(`${needBreak()}![${deps.cardLabel(c).replace(/[\]\n]/g, ' ')}](card:${c.id})\n\n`);
+      if (c) insert(`${needBreak()}![${deps.cardLabel(c).replace(/[\]\n|]/g, ' ')}](card:${c.id})\n\n`);
     } else if (k === 'l-card') { const id = await cardPick('リンクするカードを選ぶ'); if (id) insert(`[[card:${id}]]`); }
     else if (k === 'l-sv') { const id = await svPick('リンクするストリートビューを選ぶ'); if (id) insert(`[[sv:${id}]]`); }
     else if (k === 'l-art') { const id = await articlePick('リンクする記事を選ぶ', new Set(a.id ? [a.id] : [])); if (id) insert(`[[article:${id}]]`); }

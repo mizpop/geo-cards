@@ -2973,3 +2973,6 @@ p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); 
 .modal-guide-ed { position: relative; }
 .gd-sizepop { position: absolute; z-index: 20; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); max-width: 420px; }
 .gd-sizepop input { width: 72px; }
+.gd-pick-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.gd-pick-filters select { flex: 1 1 140px; min-width: 0; }
+.gd-pick-count { margin-bottom: 4px; }
