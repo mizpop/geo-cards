@@ -2993,3 +2993,8 @@ p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); 
 .gd-ai-apply { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .gd-ai-warn { color: var(--warn, #e8a33d); }
 @media (max-width: 760px) { .gd-ai-review { grid-template-columns: 1fr; } }
+/* 行に単独で入れたストリートビューは、記事の中に埋め込む */
+.art-sv { margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2, var(--surface)); }
+.art-sv-frame { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; border: 0; background: #0b0f12; }
+.art-sv-cap { padding: 6px 8px; }
+.art-sv-ph { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }

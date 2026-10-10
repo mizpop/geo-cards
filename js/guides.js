@@ -109,12 +109,18 @@ function linkChip(kind, id, label, env) {
   const a = articleById(id);
   return a ? `<a href="#" class="art-inlink" data-article-open="${deps.esc(a.id)}">${label ? label : `📝 ${deps.esc(a.title || '無題')}`}</a>` : '<span class="art-link-gone">（削除された記事）</span>';
 }
+function svEmbed(r, env) {
+  const esc = deps.esc;
+  const label = esc(deps.svLabel(r));
+  if (env.svPlaceholder) return `<div class="art-sv art-sv-ph"><span class="muted small">🧍 記事では、ここにストリートビューが埋め込まれます</span>${deps.svChipHtml(r)}</div>`;
+  return `<div class="art-sv"><iframe class="art-sv-frame" title="${label}" src="${esc(deps.svEmbedUrl(r))}" loading="lazy" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="art-sv-cap">${deps.svChipHtml(r)}</div></div>`;
+}
 const ONLY_CHIPS = /^(\s*\[\[(card|sv|article):[\w-]+\]\]\s*)+$/;
 const IMG_LINE = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
 
 /** マークダウン → { html, toc: [{ id, title, level }], refs: 使っている画像の参照 } */
-export function renderMarkdown(src, urls = new Map()) {
-  const env = { urls };
+export function renderMarkdown(src, urls = new Map(), opts = {}) {
+  const env = { urls, svPlaceholder: !!opts.svPlaceholder }; // svPlaceholder: 書く画面のプレビューでは、ストリートビューを埋め込まず、場所だけ出す（入力のたびに読み込み直さないため）
   const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
   const toc = [];
   const out = [];
@@ -123,9 +129,20 @@ export function renderMarkdown(src, urls = new Map()) {
   const para = [];
   const flushPara = () => {
     if (!para.length) return;
-    const t = para.join('\n');
-    out.push(ONLY_CHIPS.test(t.replace(/\n/g, ' ')) ? `<div class="art-links related-list">${inline(t, env)}</div>` : `<p>${inline(t, env).replace(/\n/g, '<br>')}</p>`);
-    para.length = 0;
+    // ストリートビューだけの行は、リンクではなく、ストリートビューを、その場に埋め込む
+    const lines2 = [...para]; para.length = 0;
+    let buf = [];
+    const emit = () => {
+      if (!buf.length) return;
+      const t = buf.join('\n'); buf = [];
+      out.push(ONLY_CHIPS.test(t.replace(/\n/g, ' ')) ? `<div class="art-links related-list">${inline(t, env)}</div>` : `<p>${inline(t, env).replace(/\n/g, '<br>')}</p>`);
+    };
+    for (const l of lines2) {
+      const m = /^\s*\[\[sv:([\w-]+)\]\]\s*$/.exec(l);
+      const r = m && deps.svById(m[1]);
+      if (r) { emit(); out.push(svEmbed(r, env)); } else buf.push(l);
+    }
+    emit();
   };
   while (i < lines.length) {
     const line = lines[i];
@@ -362,9 +379,9 @@ export async function buildArticleEditor(article = null, opts = {}) {
   // プレビュー
   let pv = null;
   const preview = async () => {
-    const r = renderMarkdown(ta.value, imgUrls);
+    const r = renderMarkdown(ta.value, imgUrls, { svPlaceholder: true });
     if (r.refs.some((x) => !imgUrls.get(x))) { await resolveImages(r.refs); }
-    const r2 = renderMarkdown(ta.value, imgUrls);
+    const r2 = renderMarkdown(ta.value, imgUrls, { svPlaceholder: true });
     const box = $('#gd-preview');
     if (!box) return; // 閉じたあと
     box.innerHTML = r2.html || '<p class="muted small">プレビューが、ここに出ます</p>';
@@ -407,7 +424,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
       api: deps.api, esc: deps.esc, toast: deps.toast, confirm: deps.confirm, articles: () => articles, currentId: a.id, ai: deps.ai,
       getForm: () => ({ title: form.title, body: form.body, folder_id: form.folder_id }),
       exists: { card: (id) => !!deps.cardById(id), sv: (id) => !!deps.svById(id), article: (id) => !!articleById(id) },
-      preview: async (md) => { const r = renderMarkdown(md, imgUrls); if (r.refs.some((x) => !imgUrls.get(x))) await resolveImages(r.refs); return renderMarkdown(md, imgUrls).html; },
+      preview: async (md) => { const r = renderMarkdown(md, imgUrls, { svPlaceholder: true }); if (r.refs.some((x) => !imgUrls.get(x))) await resolveImages(r.refs); return renderMarkdown(md, imgUrls, { svPlaceholder: true }).html; },
       saveAsDraft: (f) => { const ok = saveDraft(`new-${Date.now()}`, { title: f.title, body: f.body, folder_id: f.folder_id, related: [], id: null }); refreshGuideView(); return ok; },
       apply: ({ mode, title, body }) => {
         aiUndo = { title: form.title, body: form.body, caret: ta.selectionStart };

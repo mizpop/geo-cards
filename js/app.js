@@ -811,6 +811,7 @@ async function enterApp() {
     api, esc, toast, isEditor: () => !!state.user?.isEditor, attachZoom,
     cards: () => state.cards, cardCat: (c) => { const k = catOf(c); return { id: k.id, name: k.name }; }, countryName, cardById, cardImg: (id) => { const c = cardById(id); return c ? imgUrl(c) : ''; }, cardThumb: (c) => thumbUrl(c) || imgUrl(c),
     cardLabel: (c) => `${c.countries[0] ? countryName(c.countries[0]) : ''} ${c.description || catOf(c).name}`.trim(),
+    svEmbedUrl: (r) => { const v = rowView(r); return svEmbedUrl(Number(r.lat), Number(r.lng), v.heading, v.pitch, v.fov); },
     ai: { // AI に記事を書いてもらうときに渡す、アプリのデータ
       cards: () => state.cards,
       cardLabel: (c) => `${catOf(c).name}・${c.countries.map(countryName).join('・')}`,
