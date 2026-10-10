@@ -232,7 +232,7 @@ export async function renderRegionMap(view, ctx) {
         <div class="map-top">
           <div class="map-search">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-            <input type="search" id="rm-search" placeholder="${esc(countries.length === 1 ? countryName(countries[0]) : '選んだ国')}の地名・地域を検索" autocomplete="off" enterkeyhint="go" aria-label="地名・地域を検索">
+            <input type="search" id="map-search" placeholder="${esc(countries.length === 1 ? countryName(countries[0]) : '選んだ国')}の地名・地域を検索" autocomplete="off" enterkeyhint="go" aria-label="地名・地域を検索">
             <div class="map-suggest" id="rm-suggest" role="listbox" aria-label="候補" hidden></div>
           </div>
           <button class="map-sv-btn ${svOn ? 'is-on' : ''}" id="rm-sv" type="button" aria-pressed="${svOn}" aria-label="ストリートビュー" title="ストリートビュー: 押してから、青い線で表示される道路の近くをクリックすると、その場所のストリートビューが開きます">${SV_ICON}</button>
@@ -285,12 +285,14 @@ export async function renderRegionMap(view, ctx) {
           S.byCode.set(rc, l);
           S.geo.set(rc, indexRegion(f));
           // 世界モードの国と同じ、旗 + 名前 + ひとこと（カード枚数・選んでいる情報）の吹き出し。ひとつだけを使い回す
-          l.on('mouseover', (e) => { if (svOn) return; l.setStyle({ weight: 2.5 }); bubble.show(`${flagImg(code)}<b>${esc(f.properties.name)}</b>${hintHtml(rc)}`, e); });
-          l.on('mouseout', () => { l.setStyle({ weight: S.selected === rc ? 3 : 1 }); bubble.hide(); });
-          l.on('click', () => { if (!svOn) toggleFocus(rc); });
+          l.on('mouseover', (e) => { if (svOn) return; S.hover = rc; l.setStyle(styleOf(rc)); refreshThumbs(); bubble.show(`${flagImg(code)}<b>${esc(f.properties.name)}</b>${hintHtml(rc)}`, e); });
+          l.on('mouseout', () => { if (S.hover === rc) S.hover = null; l.setStyle(styleOf(rc)); refreshThumbs(); bubble.hide(); });
+          l.on('click', () => { if (!svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); toggleFocus(rc); } });
         },
       });
       group.addLayer(layer);
+      // 境界線は、世界モードの国境線と同じ色・太さの、別の層（クリックは受けない）
+      L.geoJSON(fc, { style: () => ({ color: isDark() ? '#7d8b96' : '#8f9aa3', weight: 0.8, opacity: 0.7, fill: false }), interactive: false, smoothFactor: 1.5 }).addTo(map);
       loaded++;
       loadRegionFlags(code, fc.features.map((f) => f.properties.code)).then(() => { if (S?.seq === seq) { drawMarks(); if (S.selected) renderInfo(); } }); // 旗は、あとから届く
     } catch { failed++; }
@@ -305,17 +307,19 @@ export async function renderRegionMap(view, ctx) {
   setupSearch();
   setupSv();
   setupFlagCards();
+  // 地域のないところ（海・ほかの国など）をクリックしたら、選択を解除（世界モードと同じ）
+  map.on('click', () => { if (S.clicked) { S.clicked = false; return; } if (!svOn) clearFocus(); });
   mapEl.addEventListener('click', (e) => { // 地図の上のサムネイル・数字・旗
     const th = e.target.closest('.map-thumb[data-card]');
     if (th) { const c = ctx.cards.find((x) => x.id === th.dataset.card); if (c) ctx.openCard(c, th, (S.byRegion.get(th.closest('[data-rc]')?.dataset.rc) || [c]).map((x) => x.id)); return; }
     const hd = e.target.closest('[data-rc]');
-    if (hd && !svOn) toggleFocus(hd.dataset.rc);
+    if (hd && !svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); toggleFocus(hd.dataset.rc); }
   }, true); // Leaflet の印は、クリックを上に伝えないので、先に（キャプチャで）受ける
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S?.view === view && S.selected && !svOn && !document.querySelector('dialog[open]') && !/^(input|textarea|select)$/i.test(e.target.tagName)) clearFocus(); });
 
   // ---- 地名・地域の検索（選んだ国の中だけ）----
   function setupSearch() {
-    const input = view.querySelector('#rm-search');
+    const input = view.querySelector('#map-search');
     const sug = view.querySelector('#rm-suggest');
     let rows = []; let hi = -1; let timer = null; let ctl = null; let mySeq = 0;
     const close = () => { sug.hidden = true; hi = -1; };
@@ -447,16 +451,24 @@ async function createFlagCard(rc) {
   await ctx.createRegionFlagCard({ blob, parent, name: regionName(rc), lat: c?.[0], lng: c?.[1] });
 }
 
+// 世界モードの国と同じ配色: 塗りだけ（輪郭は別の境界線の層）。カード数が多いほど濃く / 選んでいる地域は黄色の輪郭と薄い塗り / マウスを乗せると輪郭
 function styleOf(rc) {
-  const dark = isDark();
-  const sel = S?.selected === rc;
-  const base = { color: sel ? '#f08c00' : dark ? '#9fb2bf' : '#4b5b66', weight: sel ? 3 : 1, opacity: 1 };
-  if (mode === 'none' || mode === 'flag') return { ...base, fillColor: '#888', fillOpacity: 0.05 };
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1c7f55';
+  const focused = S?.selected === rc;
+  const hover = S?.hover === rc;
+  let st;
   if (mode === 'cards') {
     const n = (S.byRegion.get(rc) || []).length;
-    return n ? { ...base, fillColor: '#1c7f55', fillOpacity: Math.min(0.75, 0.3 + n * 0.12) } : { ...base, fillColor: '#888', fillOpacity: 0.06 };
+    st = { stroke: false, color: accent, weight: 2, fillColor: accent, fillOpacity: n ? 0.16 + 0.4 * (n / (S.maxCount || 1)) : 0 };
+    if (focused) return { ...st, stroke: true, color: '#f5c400', weight: 2.5, fillColor: '#f5c400', fillOpacity: 0.22 };
+  } else if (mode === 'none' || mode === 'flag') {
+    st = { stroke: false, color: accent, weight: 2, fillColor: '#888', fillOpacity: 0 };
+    if (focused) return { ...st, stroke: true, color: '#f5c400', weight: 2.5, fillColor: '#f5c400', fillOpacity: 0.18 };
+  } else {
+    st = { stroke: false, color: accent, weight: 2, ...infoStyle(mode, rc) };
+    if (focused) return { ...st, stroke: true, color: '#f5c400', weight: 3.5 };
   }
-  return { ...base, ...infoStyle(mode, rc) };
+  return hover ? { ...st, stroke: true, fillOpacity: Math.max(0.12, st.fillOpacity || 0) } : st;
 }
 
 // 地図の上の印: カード表示 = 地域ごとのサムネイル（拡大すると画像、引くと枚数）、旗の表示 = 地域の旗、精密な場所（地名・ストリートビュー）の点
@@ -480,7 +492,7 @@ function drawMarks() {
       else {
         const show = list.slice(0, 4); const more = list.length - show.length; const cols = show.length === 1 ? 1 : 2; const w = cols === 1 ? 120 : 172;
         icon = L.divIcon({ className: 'map-thumbs-icon', iconSize: [w, 0], iconAnchor: [w / 2, 20], html: `
-          <div class="map-thumbs" data-rc="${esc(rc)}" style="transform:scale(${active ? 0.58 : 0.45})">
+          <div class="map-thumbs${active || rc === S.hover ? '' : ' is-dim'}" data-rc="${esc(rc)}" style="transform:scale(${active || rc === S.hover ? 0.58 : 0.45})">
             <div class="map-thumbs-head" data-rc="${esc(rc)}">${flagImg(parent)}<span>${esc(regionName(rc))}</span><span class="map-thumbs-n">${list.length}</span></div>
             <div class="map-thumbs-grid" style="grid-template-columns:repeat(${cols},1fr)">${show.map((c2) => `<div class="map-thumb" data-card="${esc(c2.id)}" style="${S.ctx.catVars(S.ctx.catOf(c2))}" title="${esc(S.ctx.catOf(c2).name)}">${S.ctx.thumbUrl(c2) ? `<img src="${esc(S.ctx.thumbUrl(c2))}" alt="">` : ''}</div>`).join('')}</div>
             ${more > 0 ? `<div class="map-thumbs-more" data-rc="${esc(rc)}">ほか ${more} 枚</div>` : ''}
@@ -512,7 +524,22 @@ function drawMarks() {
   }
 }
 
-function toggleFocus(rc) { if (S.selected === rc) clearFocus(); else focusRegion(rc); }
+// サムネイルの見え方: 選んでいる・マウスが乗っている地域ははっきり、それ以外は半透明で小さめ（世界モードと同じ）
+function refreshThumbs() {
+  for (const [rc, m] of S.thumbs) {
+    const el = m.getElement()?.querySelector('.map-thumbs');
+    if (!el) continue;
+    const active = rc === S.selected || rc === S.hover;
+    el.style.transform = `scale(${active ? 0.58 : 0.45})`;
+    el.classList.toggle('is-dim', !active);
+    m.setZIndexOffset(active ? 1000 : 0);
+  }
+}
+// 地域のクリック: 選んでいる地域を、その地域が見えている状態でもう一度押したら選択解除、それ以外はその地域を選ぶ
+function toggleFocus(rc) {
+  const c = S.geo.get(rc)?.center;
+  if (S.selected === rc && (!c || S.map.getBounds().contains(c))) clearFocus(); else focusRegion(rc);
+}
 function focusRegion(rc) {
   const prev = S.selected;
   S.selected = rc;
@@ -520,6 +547,7 @@ function focusRegion(rc) {
   S.byCode.get(rc)?.bringToFront();
   const l = S.byCode.get(rc);
   renderPanel();
+  refreshThumbs();
   if (l) { try { S.map.flyToBounds(l.getBounds(), { padding: [40, 40], maxZoom: 8, duration: 0.6 }); } catch { /* 無視 */ } }
 }
 function clearFocus() {
@@ -535,6 +563,7 @@ function restyle() {
   const svgOf = () => S.map.getPane('overlayPane').querySelector('svg');
   const codes = [...S.byCode.keys()];
   S.byRegion = byRegionMap();
+  S.maxCount = Math.max(1, ...[...S.byRegion.values()].map((l) => l.length));
   if (EDITABLE.includes(mode)) ensurePatterns(svgOf(), mode, codes);
   for (const [rc, l] of S.byCode) l.setStyle(styleOf(rc));
   scalePatterns(svgOf(), S.map.getZoom());
@@ -607,8 +636,8 @@ function renderList() {
   el.querySelectorAll('[data-go]').forEach((x) => x.addEventListener('click', () => focusRegion(x.dataset.go)));
   el.querySelectorAll('[data-card]').forEach((x) => x.addEventListener('click', () => { const c = S.ctx.cards.find((y) => y.id === x.dataset.card); if (c) S.ctx.openCard(c, x, (S.byRegion.get(x.dataset.r) || [c]).map((y) => y.id)); }));
   el.querySelectorAll('[data-hover]').forEach((r) => {
-    r.addEventListener('mouseenter', () => S.byCode.get(r.dataset.hover)?.setStyle({ weight: 3, color: '#f08c00' }));
-    r.addEventListener('mouseleave', () => { const rc2 = r.dataset.hover; S.byCode.get(rc2)?.setStyle(styleOf(rc2)); });
+    r.addEventListener('mouseenter', () => { S.hover = r.dataset.hover; S.byCode.get(S.hover)?.setStyle(styleOf(S.hover)); refreshThumbs(); });
+    r.addEventListener('mouseleave', () => { const rc2 = r.dataset.hover; if (S.hover === rc2) S.hover = null; S.byCode.get(rc2)?.setStyle(styleOf(rc2)); refreshThumbs(); });
   });
 }
 
