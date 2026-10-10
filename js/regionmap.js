@@ -2,7 +2,7 @@
 // 地域の境界は geoBoundaries（ADM1: 州・県・省など。名前は英語）を、国ごとに、必要になったとき取得する。
 // 地域は「国コード:地域コード」（例: JP:JP-13）で区別し、国ごとの情報（シェブロン・ガードレールなど）と同じ仕組みで、値を保存・表示する。
 import { createHoverBubble } from './hoverbubble.js';
-import { loadLibs, addBaseTiles, isDark, svFind } from './map.js';
+import { loadLibs, addBaseTiles, isDark, svFind, mapIsLite } from './map.js';
 import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
 import { openSvWindow, SV_ICON } from './svwin.js';
 import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, factChipHtml, factPanelHtml } from './infomap.js';
@@ -320,7 +320,35 @@ export async function renderRegionMap(view, ctx) {
   if (S.seq !== seq || !view.isConnected) return;
   const L = window.L;
   const mapEl = view.querySelector('#rm-map');
-  const map = L.map(mapEl, { zoomSnap: 0.25, minZoom: 1, maxZoom: 19, worldCopyJump: false, keyboard: false }).setView([20, 10], 2);
+  // 世界モードの地図と同じ仕組み: 塗りは軽い canvas（シェブロンなどの模様で塗るときだけ SVG）・低スペックの端末や、アニメーションをオフにしているときは、動きを省く
+  const lite = mapIsLite();
+  const anim = ctx.animations() && !lite;
+  const patternMode = !!modeDef(mode).pattern;
+  S.lite = lite;
+  const map = L.map(mapEl, {
+    zoomSnap: 0.25, minZoom: 1, maxZoom: 19, worldCopyJump: false, keyboard: false, preferCanvas: true,
+    renderer: patternMode ? window.L.svg({ padding: lite ? 0.25 : 0.6 }) : window.L.canvas({ padding: lite ? 0.3 : 0.8 }),
+    zoomAnimation: anim, fadeAnimation: anim, markerZoomAnimation: anim,
+  }).setView([20, 10], 2);
+  // 移動のアニメーション中は、塗りは見た目だけ引き伸ばされ、クリックの判定は移動前の位置のまま。移動中に押されたら、その場で止めて、判定を今の位置に合わせる
+  let flying = false;
+  S.fly = (target, zoom) => { if (anim) { flying = true; map.flyTo(target, zoom, { duration: 0.8 }); } else map.setView(target, zoom, { animate: false }); };
+  S.flyBounds = (b, opts) => { if (anim) { flying = true; map.flyToBounds(b, { ...opts, duration: 0.8 }); } else map.fitBounds(b, { ...opts, animate: false }); };
+  map.on('moveend', () => { flying = false; });
+  map.getContainer().addEventListener('pointerdown', () => {
+    if (!flying) return;
+    flying = false;
+    map.stop();
+    map.setView(map.getCenter(), map.getZoom(), { animate: false, reset: true });
+  }, { capture: true });
+  // 移動が途中で打ち切られると、塗りを描く canvas の位置が古いまま残ることがある。終わるたびに、食い違っているときだけ、計算し直す
+  const resync = () => requestAnimationFrame(() => {
+    const r = S?.map && S.map._renderer;
+    if (!r || !r._reset || S.map._animatingZoom) return;
+    const stale = r._zoom !== S.map.getZoom() || !r._center || S.map.getCenter().distanceTo(r._center) > 1 || /scale\((?!1\))/.test(r._container?.style.transform || '');
+    if (stale) r._reset();
+  });
+  map.on('zoomend moveend viewreset resize', resync);
   S.map = map;
   mapEl.classList.toggle('map-dark', isDark()); // ダークモード: 背景の地図の色を反転（地図タブと同じ）
   addBaseTiles(map, { updateWhenZooming: false });
@@ -338,7 +366,7 @@ export async function renderRegionMap(view, ctx) {
     view.querySelector('#map-legend').classList.toggle('is-open', legendOpen);
     e.currentTarget.setAttribute('aria-expanded', String(legendOpen));
   });
-  view.querySelector('#rm-all').addEventListener('click', () => { clearFocus(); try { map.flyToBounds(S.group.getBounds(), { padding: [20, 20], maxZoom: 7, duration: 0.8 }); } catch { /* 無視 */ } });
+  view.querySelector('#rm-all').addEventListener('click', () => { clearFocus(); try { S.flyBounds(S.group.getBounds(), { padding: [20, 20], maxZoom: 7 }); } catch { /* 無視 */ } });
   const bubble = createHoverBubble();
   S.bubble = bubble;
   const hintHtml = (rc) => {
@@ -356,20 +384,21 @@ export async function renderRegionMap(view, ctx) {
       const fc = await loadRegions(code, ctx.iso3Of(code));
       if (S.seq !== seq) return;
       const layer = L.geoJSON(fc, {
+        smoothFactor: S.lite ? 4 : 1.5, // 細かすぎる点は省いて描く（見た目はほぼ同じで軽くなる）
         style: (f) => styleOf(f.properties.code),
         onEachFeature: (f, l) => {
           const rc = f.properties.code;
           S.byCode.set(rc, l);
           S.geo.set(rc, indexRegion(f));
           // 世界モードの国と同じ、旗 + 名前 + ひとこと（カード枚数・選んでいる情報）の吹き出し。ひとつだけを使い回す
-          l.on('mouseover', (e) => { if (svOn) return; S.hover = rc; l.setStyle(styleOf(rc)); refreshThumbs(); bubble.show(`${flagImg(code)}<b>${esc(f.properties.name)}</b>${hintHtml(rc)}`, e); });
-          l.on('mouseout', () => { if (S.hover === rc) S.hover = null; l.setStyle(styleOf(rc)); refreshThumbs(); bubble.hide(); });
+          l.on('mouseover', (e) => { if (svOn) return; S.hover = rc; if (!S.lite) l.setStyle(styleOf(rc)); refreshThumbs(); bubble.show(`${flagImg(code)}<b>${esc(f.properties.name)}</b>${hintHtml(rc)}`, e); });
+          l.on('mouseout', () => { if (S.hover === rc) S.hover = null; if (!S.lite) l.setStyle(styleOf(rc)); refreshThumbs(); bubble.hide(); });
           l.on('click', () => { if (!svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); toggleFocus(rc); } });
         },
       });
       group.addLayer(layer);
       // 境界線は、世界モードの国境線と同じ色・太さの、別の層（クリックは受けない）
-      L.geoJSON(fc, { style: () => ({ color: isDark() ? '#7d8b96' : '#8f9aa3', weight: 0.8, opacity: 0.7, fill: false }), interactive: false, smoothFactor: 1.5 }).addTo(map);
+      L.geoJSON(fc, { style: () => ({ color: isDark() ? '#7d8b96' : '#8f9aa3', weight: 0.8, opacity: 0.7, fill: false }), interactive: false, smoothFactor: S.lite ? 4 : 1.5 }).addTo(map);
       loaded++;
       loadRegionFlags(code, fc.features.map((f) => f.properties.code)).then(() => { if (S?.seq === seq) { drawMarks(); if (S.selected) renderInfo(); } }); // 旗は、あとから届く
     } catch { failed++; }
@@ -462,7 +491,7 @@ export async function renderRegionMap(view, ctx) {
       const bindX = () => S.cityMarker?.getElement()?.querySelector('.city-x')?.addEventListener('click', (e) => { e.stopPropagation(); clearCity(); });
       bindX();
       if (!c.filled) fillNames(c).then(() => { if (S.city === c && S.cityMarker) { S.cityMarker.setIcon(cityIcon(c)); bindX(); } }).catch(() => {});
-      map.flyTo([c.lat, c.lng], c.zoom || 11, { duration: 0.8 });
+      S.fly([c.lat, c.lng], c.zoom || 11);
       const rc = regionAt(c.lat, c.lng);
       if (rc && rc !== S.selected) { const prev = S.selected; S.selected = rc; for (const x of [prev, rc]) { const l = x && S.byCode.get(x); if (l) l.setStyle(styleOf(x)); } renderPanel(); }
     }
@@ -672,7 +701,7 @@ function ensurePlates(rcs, front = false) {
     const i = S.plateQueue.indexOf(rc);
     if (i >= 0) { if (front) { S.plateQueue.splice(i, 1); S.plateQueue.unshift(rc); } } else if (front) S.plateQueue.unshift(rc); else S.plateQueue.push(rc);
   }
-  if (S.plateRun) return;
+  if (S.plateRun || !S.plateQueue.length) return; // 探すものがないときは、何もしない（呼び出し元が、終わりに描き直すので、空のまま始めると、描き直しと探す処理が、互いに呼び合って止まらなくなる）
   S.plateRun = true;
   const seq = S.seq;
   (async () => {
@@ -689,7 +718,7 @@ function ensurePlates(rcs, front = false) {
       if (list.length && (mode === 'plate' || S.selected === rc) && (done % 3 === 0 || !S.plateQueue.length)) drawMarks();
     }
     S.plateRun = false;
-    if (S.seq === seq) { drawMarks(); if (S.selected) renderInfo(); }
+    if (S.seq === seq && done) { drawMarks(); if (S.selected) renderInfo(); }
   })();
 }
 
@@ -782,7 +811,7 @@ function focusRegion(rc) {
   const l = S.byCode.get(rc);
   renderPanel();
   refreshThumbs();
-  if (l) { try { S.map.flyToBounds(l.getBounds(), { padding: [40, 40], maxZoom: 11, duration: 0.6 }); } catch { /* 無視 */ } }
+  if (l) { try { S.flyBounds(l.getBounds(), { padding: [40, 40], maxZoom: 11 }); } catch { /* 無視 */ } }
 }
 function clearFocus() {
   const prev = S.selected;
@@ -837,7 +866,7 @@ function renderInfo() {
   el.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => S.ctx.editFact(b.dataset.edit, rc)));
   el.querySelector('.pinfo-close')?.addEventListener('click', clearFocus);
   el.querySelectorAll('.pphoto[data-kind]').forEach((b) => b.addEventListener('click', () => openPseudo(rc, b.dataset.kind, Number(b.dataset.idx), b)));
-  ensurePlates([rc], true); // ナンバープレートの画像は、地域を選んだとき自動で探す（先に）
+  if (!S.plates.has(rc)) ensurePlates([rc], true); // ナンバープレートの画像は、地域を選んだとき自動で探す（先に）
 }
 // 参考写真と同じ並び: カードにしていない旗・ナンバープレート（その種類のカードが、この地域にまだないとき）
 function photoBlocks(rc) {

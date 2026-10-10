@@ -6051,6 +6051,7 @@ const regionCtx = {
   countryEn: (c) => (ALIASES[c] || []).find((a) => /^[A-Z][a-z]/.test(a)) || '',
   editFact: (m, code) => openFactEditor(m, code),
   isEditor: () => !!state.user?.isEditor,
+  animations: () => settings.animations,
   toast: (msg, kind) => toast(msg, kind),
   // カードの場所（座標）: 登録した地名と、関連付けた保存済みストリートビュー
   cardPoints: (card) => [
