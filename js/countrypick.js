@@ -59,6 +59,7 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
         const box = d.querySelector('.cp-map');
         map = L.map(box, { minZoom: 1, maxZoom: 8, worldCopyJump: true, zoomControl: true, attributionControl: false, keyboard: false }).setView([20, 10], 2);
         box.classList.toggle('map-dark', isDark());
+        const tip = L.tooltip({ direction: 'top', offset: [0, -4], opacity: 0.95 });
         L.geoJSON(fc, {
           style: (f) => style(f.properties.code),
           onEachFeature: (f, layer) => {
@@ -66,7 +67,10 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
             if (!code) return;
             if (!layerByCode.has(code)) layerByCode.set(code, []);
             layerByCode.get(code).push(layer);
-            layer.bindTooltip(countryName(code), { sticky: true });
+            // 地名の表示は、ひとつだけを使い回す（同時に複数出ないように）
+            layer.on('mouseover', (e) => { tip.setContent(esc(countryName(code))).setLatLng(e.latlng); if (!map.hasLayer(tip)) tip.addTo(map); });
+            layer.on('mousemove', (e) => tip.setLatLng(e.latlng));
+            layer.on('mouseout', () => map.removeLayer(tip));
             layer.on('click', () => toggle(code));
           },
         }).addTo(map);

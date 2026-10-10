@@ -9,6 +9,53 @@ export const isRegionCode = (c) => typeof c === 'string' && c.includes(':');
 export const regionName = (c) => registry.get(c)?.name || String(c).split(':')[1] || c;
 export const regionParent = (c) => registry.get(c)?.parent || String(c).split(':')[0];
 
+// 軽くするための間引き（Douglas–Peucker）。境界の点が多すぎると、地図の描画と操作が重くなる
+function simplifyRing(pts, tol) {
+  const n = pts.length;
+  if (n <= 8) return pts;
+  const keep = new Uint8Array(n);
+  keep[0] = 1; keep[n - 1] = 1;
+  const stack = [[0, n - 1]];
+  const t2 = tol * tol;
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    let max = 0; let idx = -1;
+    const [ax, ay] = pts[a]; const [bx, by] = pts[b];
+    const dx = bx - ax; const dy = by - ay; const len2 = dx * dx + dy * dy;
+    for (let i = a + 1; i < b; i++) {
+      let d;
+      if (len2 === 0) { d = (pts[i][0] - ax) ** 2 + (pts[i][1] - ay) ** 2; } else {
+        const k = Math.max(0, Math.min(1, ((pts[i][0] - ax) * dx + (pts[i][1] - ay) * dy) / len2));
+        d = (pts[i][0] - (ax + k * dx)) ** 2 + (pts[i][1] - (ay + k * dy)) ** 2;
+      }
+      if (d > max) { max = d; idx = i; }
+    }
+    if (idx >= 0 && max > t2) { keep[idx] = 1; stack.push([a, idx], [idx, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+function simplifyGeometry(g) {
+  if (!g) return g;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : null;
+  if (!polys) return g;
+  // 全体の大きさに合わせた許容値（小さい地域は細かく、大きい地域は粗く）
+  let w = Infinity; let e = -Infinity; let s = Infinity; let n = -Infinity;
+  for (const poly of polys) for (const [x, y] of poly[0]) { if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }
+  const span = Math.max(e - w, n - s);
+  const tol = Math.max(0.0008, Math.min(0.02, span * 0.002));
+  const out = [];
+  for (const poly of polys) {
+    const outer = poly[0];
+    let pw = Infinity; let pe = -Infinity; let ps = Infinity; let pn = -Infinity;
+    for (const [x, y] of outer) { if (x < pw) pw = x; if (x > pe) pe = x; if (y < ps) ps = y; if (y > pn) pn = y; }
+    if (polys.length > 1 && Math.max(pe - pw, pn - ps) < tol * 4) continue; // ごく小さい島は、省く
+    const rings = poly.map((r) => simplifyRing(r, tol)).filter((r) => r.length >= 4);
+    if (rings.length) out.push(rings);
+  }
+  if (!out.length) return g;
+  return out.length === 1 ? { type: 'Polygon', coordinates: out[0] } : { type: 'MultiPolygon', coordinates: out };
+}
+
 const cache = new Map(); // 国コード → Promise<FeatureCollection>
 export function loadRegions(code, iso3) {
   if (!cache.has(code)) {
@@ -29,6 +76,7 @@ export function loadRegions(code, iso3) {
         let id = `${code}:${p.shapeISO || p.shapeID || p.shapeName}`;
         while (seen.has(id)) id += '_';
         seen.add(id);
+        f.geometry = simplifyGeometry(f.geometry);
         f.properties = { code: id, name: p.shapeName || id, parent: code };
         registry.set(id, { name: f.properties.name, parent: code });
       }
@@ -83,13 +131,14 @@ export async function renderRegionMap(view, ctx) {
   const map = L.map(view.querySelector('#rm-map'), { zoomSnap: 0.25, minZoom: 1, maxZoom: 14, worldCopyJump: false, keyboard: false }).setView([20, 10], 2);
   S.map = map;
   view.querySelector('#rm-map').classList.toggle('map-dark', isDark()); // ダークモード: 背景の地図の色を反転（地図タブと同じ）
-  addBaseTiles(map);
+  addBaseTiles(map, { updateWhenZooming: false });
   map.attributionControl.addAttribution('地域の境界 &copy; <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a>');
   map.on('zoomend', () => scalePatterns(map.getPane('overlayPane').querySelector('svg'), map.getZoom()));
   view.querySelector('#rm-mode').addEventListener('change', (e) => { mode = e.target.value; try { localStorage.setItem(MODE_KEY, mode); } catch { /* 無視 */ } restyle(); });
   paintSide();
   let loaded = 0; let failed = 0;
   const status = () => { const el = view.querySelector('#rm-status'); if (el) el.textContent = loaded + failed < countries.length ? `地域の境界を読み込んでいます… ${loaded + failed} / ${countries.length}` : failed ? `${failed} か国は、地域の境界を読み込めませんでした（データがない国もあります）` : `地域をクリックすると、情報が出ます（${[...S.byCode.keys()].length} 地域）`; };
+  const tip = L.tooltip({ direction: 'top', offset: [0, -4], opacity: 0.95, className: 'rm-tip' });
   const group = L.featureGroup().addTo(map);
   await Promise.all(countries.map(async (code) => {
     try {
@@ -100,10 +149,11 @@ export async function renderRegionMap(view, ctx) {
         onEachFeature: (f, l) => {
           const rc = f.properties.code;
           S.byCode.set(rc, l);
-          l.bindTooltip(f.properties.name, { sticky: true });
-          l.on('click', () => { S.selected = rc; paintSide(); restyle(); });
-          l.on('mouseover', () => l.setStyle({ weight: 2.5 }));
-          l.on('mouseout', () => l.setStyle({ weight: S.selected === rc ? 3 : 1 }));
+          // 地名の表示は、ひとつだけを使い回す（同時に複数出ないように）
+          l.on('mouseover', (e) => { l.setStyle({ weight: 2.5 }); tip.setContent(esc(f.properties.name)).setLatLng(e.latlng); if (!map.hasLayer(tip)) tip.addTo(map); });
+          l.on('mousemove', (e) => tip.setLatLng(e.latlng));
+          l.on('mouseout', () => { l.setStyle({ weight: S.selected === rc ? 3 : 1 }); map.removeLayer(tip); });
+          l.on('click', () => selectRegion(rc));
         },
       });
       group.addLayer(layer);
@@ -127,6 +177,14 @@ function styleOf(rc) {
     return n ? { ...base, fillColor: '#1c7f55', fillOpacity: Math.min(0.75, 0.3 + n * 0.12) } : { ...base, fillColor: '#888', fillOpacity: 0.06 };
   }
   return { ...base, ...infoStyle(mode, rc) };
+}
+
+function selectRegion(rc) {
+  const prev = S.selected;
+  S.selected = rc;
+  paintSide();
+  for (const c of [prev, rc]) { const l = c && S.byCode.get(c); if (l) l.setStyle(styleOf(c)); } // 色を替えるのは、前に選んだ地域と、いま選んだ地域だけ
+  S.byCode.get(rc)?.bringToFront();
 }
 
 function restyle() {
