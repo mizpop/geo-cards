@@ -157,7 +157,7 @@ async function svFind(lat, lng, zoom) {
 }
 // 見つけた地点を、細かい縮尺で道路の真ん中に寄せ直す（寄せられなければ元の地点）
 async function svFinish(p) {
-  let cur = (await svSnap(p.lat, p.lng, 17, { R: 16, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 45, zFix: 17 }));
+  let cur = (await svSnap(p.lat, p.lng, 17, { R: 16, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 45, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 110, zFix: 17 })); // 青く見えている所の近くなら、少し遠くの道路でも開く
   if (!cur) return null; // 細かい縮尺で道路が見つからない所（道路から遠い）では開かない
   cur = (await svSnap(cur.lat, cur.lng, 19, { R: 12, zFix: 19 })) || cur;
   return cur;

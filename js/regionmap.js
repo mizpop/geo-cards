@@ -606,18 +606,12 @@ export async function renderRegionMap(view, ctx) {
     let down = null;
     mapEl.addEventListener('mousedown', (e) => { down = [e.clientX, e.clientY]; }, true);
     mapEl.addEventListener('click', async (e) => {
-      if (!svOn || e.target.closest('.leaflet-control, .leaflet-interactive, [data-rc]')) return;
+      if (!svOn || e.target.closest('.leaflet-control, [data-rc]')) return;
       if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
       const ll = map.mouseEventToLatLng(e).wrap();
       const hit = await svFind(ll.lat, ll.lng, map.getZoom());
       if (hit) openSvWindow(hit.lat, hit.lng); else ctx.toast('この付近にはストリートビューがありません', 'error');
-    }, true);
-    // 地域の上でもクリックできるように（地域のクリックは、ストリートビューのモードでは使わない）
-    group.on('click', async (e) => {
-      if (!svOn) return;
-      const hit = await svFind(e.latlng.lat, e.latlng.lng, map.getZoom());
-      if (hit) openSvWindow(hit.lat, hit.lng); else ctx.toast('この付近にはストリートビューがありません', 'error');
-    });
+    }, true); // 地域の上のクリックも、ここで受ける（地域のクリックは、ストリートビューのモードでは使わない。二重に探さないよう、地域の側では受けない）
     if (svOn) set(true);
     S.setSv = set;
     // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る。世界モードの地図と同じ）
