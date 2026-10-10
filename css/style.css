@@ -2943,11 +2943,15 @@ p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); 
 .art-chip-ico .fold-ico-img, .art-chip-ico img { width: 28px; height: 28px; }
 .art-related, .art-backlinks { margin-top: 18px; }
 
-/* 書く画面の拡大: 画面いっぱい（書く欄・プレビューを、縦に大きく。関連記事は、下へスクロール。保存ボタンは、下に付いてくる） */
-.modal-guide-ed.gd-max { width: 100vw !important; max-width: 100vw !important; height: 100vh; height: 100dvh; max-height: 100dvh !important; border-radius: 0; overflow-y: auto; }
-.modal-guide-ed.gd-max .modal-inner { min-height: 100%; display: flex; flex-direction: column; padding-bottom: 0; }
-.modal-guide-ed.gd-max .gd-ed { flex: 1; }
-.modal-guide-ed.gd-max .gd-split { min-height: 0; }
-.modal-guide-ed.gd-max .gd-body, .modal-guide-ed.gd-max .gd-preview { height: calc(100vh - 230px); height: calc(100dvh - 230px); min-height: 400px; resize: none; }
-.modal-guide-ed.gd-max .modal-foot { position: sticky; bottom: 0; z-index: 2; margin-top: 8px; padding: 10px 0; background: var(--surface); }
+/* 書く画面の「入力欄だけ」: 枠の中で、タイトル・ツールバー・プレビュー・関連記事を隠して、入力欄を広く */
+.modal-guide-ed.gd-focus .gd-ed-top, .modal-guide-ed.gd-focus .gd-tools, .modal-guide-ed.gd-focus .gd-preview, .modal-guide-ed.gd-focus .gd-rel { display: none; }
+.modal-guide-ed.gd-focus .gd-split { grid-template-columns: 1fr; flex: 1; min-height: 0; }
+.modal-guide-ed.gd-focus .gd-ed { flex: 1; min-height: 0; }
+.modal-guide-ed.gd-focus .gd-body { height: 100%; min-height: 0; resize: none; }
 .modal-guide-ed .modal-head .icon-btn { display: inline-grid; place-items: center; }
+/* 編集画面は、ウィンドウの中では、枠いっぱいに */
+.modal.is-window.modal-guide-ed .modal-inner { display: flex; flex-direction: column; }
+.modal.is-window.modal-guide-ed .gd-ed { flex: 1; min-height: 0; }
+.modal.is-window.modal-guide-ed .gd-split { flex: 1; min-height: 0; }
+.modal.is-window.modal-guide-ed .gd-body, .modal.is-window.modal-guide-ed .gd-preview { height: 100%; min-height: 200px; resize: none; }
+.modal.is-window.modal-guide-ed .gd-ed { overflow-y: auto; }

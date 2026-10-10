@@ -1,6 +1,6 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
-import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, articlesLinking } from './guides.js';
+import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, articlesLinking } from './guides.js';
 import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
@@ -815,6 +815,8 @@ async function enterApp() {
     svList: () => savedSvList(), svById: savedSvById, svLabel, svChipHtml: (r) => svLinkBtnHtml(r),
     openArticle: (id, src) => openArticleWindow(id, src), openCard: (c, src) => openCardModal(c, src),
     openModal: (html, cls) => { openModal(html, cls); return { el: W.el }; }, closeModal: () => closeModal(),
+    openWindow: (html, cls) => { openModal(html, cls, true); return { el: W.el }; }, // 記事の編集画面: PC は、浮かぶウィンドウ
+    openEditorWindow: (a, opts) => { claimNewWin(); navModal({ kind: 'article-edit', id: a?.id || null, a, opts }); },
     confirm: async (m) => confirm(m),
   });
   loadGuides().then(() => { if (state.view === 'guide') renderGuideView($('#view'), setFit); }).catch(() => {});
@@ -1533,6 +1535,8 @@ function showNav(entry) {
     renderCardModal(card, entry);
   } else if (entry.kind === 'photo') {
     renderPhotoModal(entry);
+  } else if (entry.kind === 'article-edit') {
+    buildArticleEditor(entry.a || articleById(entry.id), entry.opts || {});
   } else if (entry.kind === 'article') {
     renderArticleModal(entry);
   } else if (entry.kind === 'plonkit') {
@@ -2474,6 +2478,7 @@ function dockLabel(w) {
   if (e?.kind === 'panel') return e.which === 'ai' ? 'AI' : 'メモ';
   if (e?.kind === 'plonkit') return `Plonkit: ${e.code ? countryName(e.code) : e.slug}`;
   if (e?.kind === 'article') return `記事: ${articleById(e.id)?.title || ''}`;
+  if (e?.kind === 'article-edit') return `記事を編集: ${articleById(e.id)?.title || '新しい記事'}`;
   return 'ウィンドウ';
 }
 function dockThumb(w) {
@@ -2484,6 +2489,7 @@ function dockThumb(w) {
   if (e?.kind === 'panel') return { emoji: e.which === 'ai' ? '✨' : '📝' };
   if (e?.kind === 'plonkit') return e.code ? { src: flagUrl(e.code) } : { emoji: '📖' };
   if (e?.kind === 'article') return { emoji: '📝' };
+  if (e?.kind === 'article-edit') return { emoji: '✏' };
   return { emoji: '🗂' };
 }
 

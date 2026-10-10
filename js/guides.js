@@ -13,6 +13,15 @@ const info = { missing: '' }; // 表がまだないときの案内
 const state = { q: '', sel: new Set(), openFolders: null };
 
 export function initGuides(d) { deps = d; }
+
+// ---- 下書き: 書いている途中で、自動で、このブラウザに保存する（あとから、一覧から再開できる）----
+const DRAFTS_KEY = 'geo-guide-drafts-v1';
+const loadDrafts = () => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY)) || {}; } catch { return {}; } };
+const writeDrafts = (o) => { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(o)); return true; } catch { return false; } };
+const saveDraft = (key, d) => { const o = loadDrafts(); o[key] = { ...d, at: Date.now() }; return writeDrafts(o); };
+const deleteDraft = (key) => { const o = loadDrafts(); if (key in o) { delete o[key]; writeDrafts(o); } };
+export const draftList = () => Object.entries(loadDrafts()).map(([key, d]) => ({ key, ...d })).sort((a, b) => (b.at || 0) - (a.at || 0));
+const timeText = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 export const onGuidesChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 const changed = () => { buildIndex(); listeners.forEach((fn) => { try { fn(); } catch { /* 無視 */ } }); };
 export const guideArticles = () => articles;
@@ -249,12 +258,28 @@ const articlePick = (title, exclude = new Set()) => pickDialog({
 });
 
 // ================= 記事の編集 =================
+/** 記事の編集画面を開く（PC は、浮かぶウィンドウ。app.js が、ウィンドウで開く） */
 export function openArticleEditor(article = null, opts = {}) {
   if (!deps.isEditor()) { deps.toast('記事を書けるのは、編集者のみです', 'error'); return; }
+  if (deps.openEditorWindow) deps.openEditorWindow(article, opts); else buildArticleEditor(article, opts);
+}
+/** 記事の編集画面を作る（今のウィンドウ・モーダルの中に） */
+export async function buildArticleEditor(article = null, opts = {}) {
+  if (!deps.isEditor()) { deps.toast('記事を書けるのは、編集者のみです', 'error'); return; }
   const a = article || { id: null, title: '', body: opts.body || '', folder_id: opts.folder_id || null, related: [] };
-  const draft = { title: a.title || '', body: a.body || '', folder_id: a.folder_id || '', related: new Set(a.related || []) };
-  const m = deps.openModal(`
-    <div class="modal-head"><h2>${a.id ? '記事を編集' : '新しい記事'}</h2><button class="icon-btn" id="gd-max" type="button" aria-label="書く画面を拡大・元に戻す" title="書く画面を、画面いっぱいに拡大する・元に戻す（F11 のように）">⤢</button><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+  // 下書き: 一覧から再開したとき・この記事に、保存していない下書きがあるとき（続きから書くか、聞く）
+  let seed = opts.draft || null;
+  if (!seed && a.id) {
+    const d = loadDrafts()[a.id];
+    if (d && (d.body !== (a.body || '') || d.title !== (a.title || ''))) {
+      if (await deps.confirm(`この記事の、保存していない下書きがあります（${timeText(d.at)}）。続きから書きますか？\n（キャンセルすると、保存済みの内容から書きます。下書きは、破棄されます）`)) seed = d; else deleteDraft(a.id);
+    }
+  }
+  const draftKey = opts.draftKey || a.id || `new-${Date.now()}`;
+  const draft = { title: seed?.title ?? (a.title || ''), body: seed?.body ?? (a.body || ''), folder_id: (seed ? seed.folder_id : a.folder_id) || '', related: new Set(seed ? seed.related || [] : a.related || []) };
+  const original = { title: a.title || '', body: a.body || '' };
+  const m = deps.openWindow(`
+    <div class="modal-head"><h2>${a.id ? '記事を編集' : '新しい記事'}</h2><button class="icon-btn" id="gd-max" type="button" aria-label="入力欄だけにする・元に戻す" title="枠の中を、入力欄だけにする（タイトル・ツールバー・プレビュー・関連記事を隠す）・元に戻す">⤢</button><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
     <div class="gd-ed">
       <div class="gd-ed-top">
         <input type="text" id="gd-title" class="input gd-title" maxlength="200" placeholder="タイトル" value="${deps.esc(draft.title)}">
@@ -280,10 +305,22 @@ export function openArticleEditor(article = null, opts = {}) {
   const $ = (s) => m.el.querySelector(s);
   const ta = $('#gd-body');
   // 書く画面の拡大（PC）: 画面いっぱいに。選んだ状態は、覚えておく
-  const setMax = (on) => { m.el.classList.toggle('gd-max', on); $('#gd-max').setAttribute('aria-pressed', String(on)); $('#gd-max').textContent = on ? '⤡' : '⤢'; try { localStorage.setItem('geo-guide-ed-max', on ? '1' : '0'); } catch { /* 無視 */ } };
-  $('#gd-max').addEventListener('click', () => setMax(!m.el.classList.contains('gd-max')));
-  try { if (localStorage.getItem('geo-guide-ed-max') === '1') setMax(true); } catch { /* 無視 */ }
-  const status = (t) => { $('#gd-status').textContent = t; };
+  const setMax = (on) => { m.el.classList.toggle('gd-focus', on); $('#gd-max').setAttribute('aria-pressed', String(on)); $('#gd-max').textContent = on ? '⤡' : '⤢'; if (on) ta.focus(); try { localStorage.setItem('geo-guide-ed-focus', on ? '1' : '0'); } catch { /* 無視 */ } };
+  $('#gd-max').addEventListener('click', () => setMax(!m.el.classList.contains('gd-focus')));
+  try { if (localStorage.getItem('geo-guide-ed-focus') === '1') setMax(true); } catch { /* 無視 */ }
+  const status = (t) => { const s = $('#gd-status'); if (s) s.textContent = t; };
+  // 自動保存（下書き）: 入力が止まって 1 秒で、このブラウザに保存する。何も書いていない・保存済みと同じなら、保存しない
+  let autoTimer = null;
+  let saved = false; // 記事として保存した（下書きは、もう要らない）
+  const form = { title: draft.title, body: draft.body, folder_id: draft.folder_id || null }; // 入力欄の今の内容（閉じたあとに、画面が空になっていても、使える）
+  const autosave = () => {
+    if (saved) return;
+    const cur = { title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related], id: a.id || null };
+    if (!cur.title.trim() && !cur.body.trim()) { deleteDraft(draftKey); return; }
+    if (cur.title === original.title && cur.body === original.body && a.id) { deleteDraft(draftKey); return; }
+    status(saveDraft(draftKey, cur) ? `下書きを保存しました（${timeText(Date.now())}）` : '下書きを保存できませんでした（ブラウザの保存容量）');
+  };
+  const scheduleAuto = () => { clearTimeout(autoTimer); autoTimer = setTimeout(autosave, 1000); };
   // プレビュー
   let pv = null;
   const preview = async () => {
@@ -291,12 +328,15 @@ export function openArticleEditor(article = null, opts = {}) {
     if (r.refs.some((x) => !imgUrls.get(x))) { await resolveImages(r.refs); }
     const r2 = renderMarkdown(ta.value, imgUrls);
     const box = $('#gd-preview');
+    if (!box) return; // 閉じたあと
     box.innerHTML = r2.html || '<p class="muted small">プレビューが、ここに出ます</p>';
     bindArticle(box);
     box.querySelectorAll('[data-sv-open]').forEach(() => {});
   };
-  const schedule = () => { clearTimeout(pv); pv = setTimeout(preview, 200); };
-  ta.addEventListener('input', schedule);
+  const schedule = () => { form.body = ta.value; clearTimeout(pv); pv = setTimeout(preview, 200); scheduleAuto(); };
+  ta.addEventListener('input', () => { form.body = ta.value; schedule(); scheduleAuto(); });
+  $('#gd-title').addEventListener('input', (e) => { form.title = e.target.value; scheduleAuto(); });
+  $('#gd-folder').addEventListener('change', (e) => { form.folder_id = e.target.value || null; scheduleAuto(); });
   // 挿入
   const insert = (text, { select = null } = {}) => {
     const s = ta.selectionStart; const e = ta.selectionEnd;
@@ -305,8 +345,8 @@ export function openArticleEditor(article = null, opts = {}) {
     ta.focus();
     schedule();
   };
-  const wrap = (l, r = l, ph = '文字') => { const s = ta.selectionStart; const e = ta.selectionEnd; const sel = ta.value.slice(s, e) || ph; ta.setRangeText(`${l}${sel}${r}`, s, e, 'end'); ta.setSelectionRange(s + l.length, s + l.length + sel.length); ta.focus(); schedule(); };
-  const linePrefix = (p, ph = '項目') => { const s = ta.selectionStart; const start = ta.value.lastIndexOf('\n', s - 1) + 1; const e = ta.selectionEnd; const sel = ta.value.slice(start, e) || ph; ta.setRangeText(sel.split('\n').map((l) => p + l).join('\n'), start, e, 'end'); ta.focus(); schedule(); };
+  const wrap = (l, r = l) => { const s = ta.selectionStart; const e = ta.selectionEnd; const sel = ta.value.slice(s, e); ta.setRangeText(`${l}${sel}${r}`, s, e, 'end'); ta.setSelectionRange(s + l.length, s + l.length + sel.length); ta.focus(); schedule(); }; // 選んだ文字を囲む（何も選んでいなければ、記号だけ入れて、その間にカーソル）
+  const linePrefix = (p) => { const s = ta.selectionStart; const start = ta.value.lastIndexOf('\n', s - 1) + 1; const e = ta.selectionEnd; const sel = ta.value.slice(start, e); ta.setRangeText(sel.split('\n').map((l) => p + l).join('\n'), start, e, 'end'); ta.focus(); schedule(); }; // 行の先頭に記号だけ入れる（文字は入れない）
   const needBreak = () => { const before = ta.value.slice(0, ta.selectionStart); return before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : ''; };
   const upload = async (blobs) => {
     for (const b of blobs) {
@@ -323,11 +363,11 @@ export function openArticleEditor(article = null, opts = {}) {
     const b = e.target.closest('[data-md]');
     if (!b) return;
     const k = b.dataset.md;
-    if (k === 'h1') linePrefix('# ', '見出し'); else if (k === 'h2') linePrefix('## ', '見出し'); else if (k === 'h3') linePrefix('### ', '小見出し');
-    else if (k === 'b') wrap('**'); else if (k === 'i') wrap('*'); else if (k === 's') wrap('~~'); else if (k === 'code') wrap('`', '`', 'コード');
-    else if (k === 'ul') linePrefix('- '); else if (k === 'ol') linePrefix('1. '); else if (k === 'quote') linePrefix('> ', '引用');
+    if (k === 'h1') linePrefix('# '); else if (k === 'h2') linePrefix('## '); else if (k === 'h3') linePrefix('### ');
+    else if (k === 'b') wrap('**'); else if (k === 'i') wrap('*'); else if (k === 's') wrap('~~'); else if (k === 'code') wrap('`', '`');
+    else if (k === 'ul') linePrefix('- '); else if (k === 'ol') linePrefix('1. '); else if (k === 'quote') linePrefix('> ');
     else if (k === 'hr') insert(`${needBreak()}---\n\n`); else if (k === 'table') insert(`${needBreak()}| 見出し 1 | 見出し 2 |\n| --- | --- |\n| 内容 | 内容 |\n\n`);
-    else if (k === 'link') { const s = ta.selectionStart; const sel = ta.value.slice(s, ta.selectionEnd) || '文字'; insert(`[${sel}](https://)`, { select: [sel.length + 3, sel.length + 11] }); }
+    else if (k === 'link') { const s = ta.selectionStart; const sel = ta.value.slice(s, ta.selectionEnd); insert(`[${sel}](https://)`, { select: sel ? [sel.length + 3, sel.length + 11] : [1, 1] }); }
     else if (k === 'img-file') $('#gd-file').click();
     else if (k === 'img-paste') {
       try {
@@ -354,9 +394,9 @@ export function openArticleEditor(article = null, opts = {}) {
     const box = $('#gd-rel');
     const list = [...draft.related].map(articleById).filter(Boolean);
     box.innerHTML = list.length ? list.map((r) => `<span class="art-rel-item">${articleChipHtml(r).replace('data-article-open', 'data-nope')}<button type="button" class="btn btn-sm btn-ghost" data-rel-rm="${deps.esc(r.id)}" title="関連から外す">✕</button></span>`).join('') : '<span class="muted small">まだありません</span>';
-    box.querySelectorAll('[data-rel-rm]').forEach((b) => b.addEventListener('click', () => { draft.related.delete(b.dataset.relRm); paintRel(); }));
+    box.querySelectorAll('[data-rel-rm]').forEach((b) => b.addEventListener('click', () => { draft.related.delete(b.dataset.relRm); paintRel(); scheduleAuto(); }));
   };
-  $('#gd-rel-add').addEventListener('click', async () => { const id = await articlePick('関連記事を選ぶ', new Set([a.id, ...draft.related].filter(Boolean))); if (id) { draft.related.add(id); paintRel(); } });
+  $('#gd-rel-add').addEventListener('click', async () => { const id = await articlePick('関連記事を選ぶ', new Set([a.id, ...draft.related].filter(Boolean))); if (id) { draft.related.add(id); paintRel(); scheduleAuto(); } });
   paintRel();
   // 保存・削除
   $('#gd-save').addEventListener('click', async (e) => {
@@ -367,6 +407,7 @@ export function openArticleEditor(article = null, opts = {}) {
       const row = await deps.api.saveArticle({ title, body: ta.value, folder_id: $('#gd-folder').value || null, related: [...draft.related] }, a.id);
       const i = articles.findIndex((x) => x.id === row.id);
       if (i >= 0) articles[i] = row; else articles.unshift(row);
+      saved = true; clearTimeout(autoTimer); deleteDraft(draftKey);
       changed();
       deps.closeModal();
       deps.toast('保存しました');
@@ -375,8 +416,9 @@ export function openArticleEditor(article = null, opts = {}) {
   });
   $('#gd-del')?.addEventListener('click', async () => {
     if (!(await deps.confirm(`「${a.title || '無題'}」を削除しますか？（元に戻せません）`))) return;
-    try { await deps.api.deleteArticle(a.id); articles = articles.filter((x) => x.id !== a.id); changed(); deps.closeModal(); deps.toast('削除しました'); opts.onDeleted?.(a.id); } catch (ex) { deps.toast(`削除できませんでした: ${ex.message}`, 'error'); }
+    try { await deps.api.deleteArticle(a.id); saved = true; deleteDraft(draftKey); articles = articles.filter((x) => x.id !== a.id); changed(); deps.closeModal(); deps.toast('削除しました'); opts.onDeleted?.(a.id); } catch (ex) { deps.toast(`削除できませんでした: ${ex.message}`, 'error'); }
   });
+  m.el.addEventListener('close', () => { clearTimeout(autoTimer); autosave(); refreshGuideView(); }, { once: true }); // 閉じるときにも、下書きを保存して、一覧に出す
   preview();
   $('#gd-title').focus();
 }
@@ -461,6 +503,18 @@ function linkIndexOf(a) {
   return { cards, svs };
 }
 
+// 下書き（書いている途中のもの。このブラウザに、自動で保存してある）
+function draftsHtml(ed) {
+  const drafts = ed ? draftList() : [];
+  if (!drafts.length) return '';
+  return `<section class="gd-folder is-open gd-drafts"><div class="gd-folder-head"><span class="gd-fold-static"><span class="fold-ico">✍</span><b>下書き</b><span class="muted small">${drafts.length}</span><span class="muted small">書いている途中のもの（自動で保存。このブラウザの中）</span></span></div>
+    <div class="gd-folder-body">${drafts.map((d) => `<article class="gd-row gd-draft"><button type="button" class="gd-row-main" data-resume="${deps.esc(d.key)}">
+        <span class="gd-row-title">${deps.esc(d.title || '無題')}${d.id ? ' <span class="muted small">（保存済みの記事を編集中）</span>' : ' <span class="muted small">（新しい記事）</span>'}</span>
+        <span class="gd-row-snip muted small">${deps.esc(snippet(d.body)) || '（本文なし）'}</span>
+        <span class="gd-row-meta muted small">下書き ${timeText(d.at)}</span></button>
+      <button type="button" class="btn btn-sm btn-ghost" data-draft-rm="${deps.esc(d.key)}" title="この下書きを破棄する">破棄</button></article>`).join('')}</div></section>`;
+}
+
 function render() {
   if (!viewEl) return;
   const ed = deps.isEditor();
@@ -494,6 +548,7 @@ function render() {
       <button class="btn btn-sm btn-danger" id="gd-selDel">🗑 削除</button><button class="icon-btn" id="gd-selClear" aria-label="選択を解除">✕</button></div>` : ''}
     <p class="muted small gd-hint">${ed ? '記事を書くと、ここに増えます。カードやストリートビューへのリンク・カードの画像を、記事に入れられます。' : 'ここで、記事を読めます（書けるのは、編集者のみです）。'}</p>
     <div class="gd-list">
+      ${draftsHtml(ed)}
       ${sections}
       ${loose.length || !folders.length ? `<section class="gd-folder is-open gd-loose">${folders.length ? '<div class="gd-folder-head"><span class="gd-fold-static"><span class="fold-ico">📄</span><b>フォルダに入っていない記事</b><span class="muted small">' + loose.length + '</span></span></div>' : ''}<div class="gd-folder-body">${loose.length ? loose.map((a) => rowHtml(a, ed)).join('') : `<div class="empty">${articles.length ? '一致する記事がありません' : 'まだ記事がありません。' + (ed ? '「＋ 新しい記事」から書けます。' : '')}</div>`}</div></section>` : ''}
     </div>
@@ -509,6 +564,13 @@ function bind(ed) {
   q.addEventListener('compositionend', () => { composing = false; state.q = q.value; keepFocus(); });
   q.addEventListener('input', (e) => { if (composing || e.isComposing) return; state.q = q.value; keepFocus(); });
   const keepFocus = () => { const pos = q.selectionStart; render(); const n = viewEl.querySelector('#gd-q'); n?.focus(); try { n.setSelectionRange(pos, pos); } catch { /* 無視 */ } };
+  v.querySelectorAll('[data-resume]').forEach((b) => b.addEventListener('click', () => {
+    const key = b.dataset.resume; const d = loadDrafts()[key];
+    if (d) openArticleEditor(d.id ? articleById(d.id) : null, { draft: d, draftKey: key, onSaved: () => render(), onDeleted: () => render() });
+  }));
+  v.querySelectorAll('[data-draft-rm]').forEach((b) => b.addEventListener('click', async () => {
+    if (await deps.confirm('この下書きを破棄しますか？（元に戻せません）')) { deleteDraft(b.dataset.draftRm); render(); }
+  }));
   v.querySelector('#gd-new')?.addEventListener('click', () => openArticleEditor(null, { onSaved: () => render() }));
   v.querySelector('#gd-newfolder')?.addEventListener('click', () => openFolderEditor());
   v.querySelectorAll('[data-toggle]').forEach((b) => b.addEventListener('click', () => {
