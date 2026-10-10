@@ -15,6 +15,7 @@ const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
 const KINDS = [['cards', '🃏 カード'], ['photo', '📷 参考写真'], ['fact', '🗺 国の特徴'], ['sv', '🧍 ストリートビュー']];
 const MODES = { choice: '4 択', input: '入力', map: '地図で選ぶ', pin: '場所をピン' };
 const modesOf = (kind) => (kind === 'cards' ? ['choice', 'input', 'map'] : kind === 'fact' ? ['choice'] : ['choice', 'input', 'map', 'pin']);
+const RUSH_MS = 15000; // 「先に答えたら」の短縮後の残り時間
 const bonus = (ms, limit) => 1 - Math.min(1, ms / (limit * 1000)); // 速いほど 1 に近い
 
 // 公開中の部屋（アプリ全体で共有。ポップアップと、対戦の入口の一覧の両方が使う）
@@ -41,7 +42,7 @@ export function mountBattle(host, ctx) {
   let pwChecked = false;
   const specIds = new Set(); // 観戦の人（得点・順位には入れない）
   const lastTeam = new Map(); // 退出した人のチーム（合計点に残す）
-  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, teams: false, hints: false, password: '', pwh: '', regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
+  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, teams: false, hints: false, rush: false, password: '', pwh: '', regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
   try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
   const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
   let hostId = '';
@@ -154,7 +155,7 @@ export function mountBattle(host, ctx) {
     if (was && !isHost) { clearHostTimers(); ch?.setMe(meInfo(false)); cfg.public = false; syncPublic(); }
     if (!was && isHost) {
       ch?.setMe(meInfo(true));
-      if (game && phase === 'play') later(Math.max(500, game.perQ * 1000 + 1500 - (performance.now() - game.t0)), () => { if (phase === 'play') send({ t: 'reveal', i: game.i }); });
+      if (game && phase === 'play') later(Math.max(500, game.limitMs + 1500 - (performance.now() - game.t0)), () => { if (phase === 'play') send({ t: 'reveal', i: game.i }); });
       else if (game && phase === 'reveal') hostRevealed(game.i);
     }
     if (phase === 'lobby') renderLobby(); else if (phase === 'final') renderFinal();
@@ -212,12 +213,12 @@ export function mountBattle(host, ctx) {
       const questions = await ctx.buildQuestions(cfg);
       if (questions.length < 3) { toast('出題できる問題が足りません。地域やカテゴリーの条件を広げてください（クイズ設定）', 'error'); return; }
       cfg.public = false; syncPublic();
-      send({ t: 'start', perQ: cfg.perQ, autoNext: cfg.autoNext, hints: cfg.hints, kind: cfg.kind, questions });
+      send({ t: 'start', perQ: cfg.perQ, autoNext: cfg.autoNext, hints: cfg.hints, rush: cfg.rush, kind: cfg.kind, questions });
       later(2000, () => send({ t: 'q', i: 0 }));
     } catch (e) { toast(`問題を作れませんでした（${e.message}）`, 'error'); } finally { building = false; if (phase === 'lobby') renderLobby(); }
   }
   const hostRevealed = (i) => { if (game?.autoNext) later(game.autoNext * 1000, () => { if (game && game.i === i && phase === 'reveal') send(i + 1 < game.questions.length ? { t: 'q', i: i + 1 } : { t: 'end' }); }); }; // ホストの設定で、一定時間後に自動で次へ
-  const hostOpened = (i) => later(game.perQ * 1000 + 1500, () => { if (game && game.i === i && phase === 'play') send({ t: 'reveal', i }); });
+  const hostOpened = (i) => later(game.limitMs + 1500, () => { if (game && game.i === i && phase === 'play') send({ t: 'reveal', i }); });
   function checkAllAnswered() {
     if (!isHost || !game || phase !== 'play') return;
     const got = game.answers.get(game.i);
@@ -232,12 +233,13 @@ export function mountBattle(host, ctx) {
       phase = 'play';
       main.innerHTML = '<p class="bt-wait">問題を準備しています…</p>';
       await ctx.prepare(m.questions);
-      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, hints: !!m.hints, kind: m.kind || '', mine: {}, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
+      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, hints: !!m.hints, rush: !!m.rush, limitMs: m.perQ * 1000, kind: m.kind || '', mine: {}, i: -1, answers: new Map(), scores: new Map(), done: new Set(), t0: 0 };
       play?.('open');
     } else if (m.t === 'q' && game) {
       clearTimers();
       game.i = m.i;
       game.t0 = performance.now();
+      game.limitMs = game.perQ * 1000; // 「先に答えたら残り 15 秒」で短くなることがある
       if (!game.answers.has(m.i)) game.answers.set(m.i, new Map());
       phase = 'play';
       play?.('slide');
@@ -252,7 +254,18 @@ export function mountBattle(host, ctx) {
       if (!game.answers.has(m.i)) game.answers.set(m.i, new Map());
       const got = game.answers.get(m.i);
       if (!got.has(m.id)) got.set(m.id, { pts: m.pts, res: m.res, label: m.label });
-      if (m.i === game.i && phase === 'play') { renderPlayStatus(); checkAllAnswered(); }
+      if (m.i === game.i && phase === 'play') {
+        // 設定「先に答えたら、ほかの人は残り 15 秒」: 最初の回答が来たら、残り時間を 15 秒にする（すでに 15 秒を下回っているときは、そのまま）
+        if (game.rush && !game.rushed?.has(m.i)) {
+          (game.rushed ||= new Set()).add(m.i);
+          const elapsed = performance.now() - game.t0;
+          if (game.limitMs - elapsed > RUSH_MS) {
+            game.limitMs = elapsed + RUSH_MS;
+            if (isHost) { clearHostTimers(); hostOpened(m.i); }
+          }
+        }
+        renderPlayStatus(); checkAllAnswered();
+      }
     } else if (m.t === 'reveal' && game && m.i === game.i && phase === 'play') {
       clearTimers();
       phase = 'reveal';
@@ -265,7 +278,7 @@ export function mountBattle(host, ctx) {
     } else if (m.t === 'state' && m.to === me.id && me.spec) { // 途中から入った観戦の人: ホストが送る今の状況を受け取る
       await ctx.prepare(m.questions);
       Object.entries(m.names || {}).forEach(([id, n]) => names.set(id, n));
-      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, hints: !!m.hints, kind: m.kind || '', mine: {}, i: m.i, answers: new Map([[m.i, new Map(Object.entries(m.got || {}))]]), scores: new Map(Object.entries(m.scores || {})), done: new Set(Array.from({ length: m.i + (m.phase === 'reveal' ? 1 : 0) }, (_, k) => k)), t0: performance.now() - (m.elapsed || 0) };
+      game = { questions: m.questions, perQ: m.perQ, autoNext: m.autoNext || 0, hints: !!m.hints, rush: !!m.rush, limitMs: m.limitMs || m.perQ * 1000, kind: m.kind || '', mine: {}, i: m.i, answers: new Map([[m.i, new Map(Object.entries(m.got || {}))]]), scores: new Map(Object.entries(m.scores || {})), done: new Set(Array.from({ length: m.i + (m.phase === 'reveal' ? 1 : 0) }, (_, k) => k)), t0: performance.now() - (m.elapsed || 0) };
       phase = m.phase;
       if (phase === 'play') { renderPlay(); startTick(); } else renderReveal();
     } else if (m.t === 'end' && game) {
@@ -301,7 +314,7 @@ export function mountBattle(host, ctx) {
     tick = setInterval(() => {
       if (!alive()) { leave(); return; }
       const ms = performance.now() - game.t0;
-      const left = Math.max(0, game.perQ - ms / 1000);
+      const left = Math.max(0, (game.limitMs - ms) / 1000);
       const el = host.querySelector('#bt-timer');
       if (el) { el.textContent = Math.ceil(left); el.closest('.counter')?.classList.toggle('is-hurry', left < 5); }
     }, 200);
@@ -339,7 +352,7 @@ export function mountBattle(host, ctx) {
   function sendState(to) {
     if (!game) return;
     const obj = (m) => Object.fromEntries(m);
-    send({ t: 'state', to, questions: game.questions, perQ: game.perQ, autoNext: game.autoNext, hints: game.hints, kind: game.kind, i: game.i, phase, elapsed: performance.now() - game.t0, scores: obj(game.scores), got: obj(game.answers.get(game.i) || new Map()), names: obj(names) });
+    send({ t: 'state', to, rush: game.rush, limitMs: game.limitMs, questions: game.questions, perQ: game.perQ, autoNext: game.autoNext, hints: game.hints, kind: game.kind, i: game.i, phase, elapsed: performance.now() - game.t0, scores: obj(game.scores), got: obj(game.answers.get(game.i) || new Map()), names: obj(names) });
   }
   const teamTotals = () => { const t = { A: 0, B: 0 }; for (const [id, s] of game?.scores || []) { const tm = teamOf(id); if (tm && !specIds.has(id)) t[tm] += s; } return t; };
   // 対戦の成績を、この端末に記録する（観戦は記録しない）
@@ -480,6 +493,7 @@ export function mountBattle(host, ctx) {
           <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ)}</div>
           <div class="setup-block"><div class="setup-label"><span>答え合わせから次の問題へ</span></div>${sliderHtml('bt-an', 0, 60, 5, cfg.autoNext)}</div>
           <div class="setup-block"><div class="setup-label"><span>対戦の形式</span></div>${segHtml('bt-teams', [[0, '個人戦'], [1, 'チーム戦（赤 vs 青）']], cfg.teams ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>先に答えた人がいたら</span></div>${segHtml('bt-rush', [[0, '変わらない'], [1, 'ほかの人は残り 15 秒']], cfg.rush ? 1 : 0)}</div>
           <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（全員が要求すると表示）']], cfg.hints ? 1 : 0)}</div>
           <div class="setup-block"><div class="setup-label"><span>パスワード（空なら誰でも入れる）</span></div><input id="bt-pw" class="input" type="text" maxlength="20" placeholder="なし" value="${esc(cfg.password)}" autocomplete="off"></div>
         </div>
@@ -505,7 +519,7 @@ export function mountBattle(host, ctx) {
       if (key === 'teams') { for (const p of players.values()) { /* 全員のチームは各自が決める */ } ch?.setMe(meInfo()); if (!cfg.teams) { me.team = ''; ch?.setMe(meInfo()); } }
       renderLobby();
     }));
-    pickBool('bt-teams', 'teams'); pickBool('bt-hints', 'hints');
+    pickBool('bt-teams', 'teams'); pickBool('bt-hints', 'hints'); pickBool('bt-rush', 'rush');
     main.querySelector('#bt-pw')?.addEventListener('change', async (e) => { cfg.password = e.target.value.trim(); cfg.pwh = cfg.password ? await sha(cfg.password) : ''; ch?.setMe(meInfo()); if (pubTimer) announce(); toast(cfg.pwh ? '🔒 パスワードを設定しました' : 'パスワードを外しました'); });
     const redo = () => { saveScope(); renderLobby(); };
     main.querySelectorAll('[data-region]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.regions.add(x.dataset.region); else cfg.regions.delete(x.dataset.region); redo(); }));
