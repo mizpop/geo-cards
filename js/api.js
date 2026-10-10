@@ -35,6 +35,8 @@ function cleanFields(f) {
   if (f.places) out.places = Array.from(f.places);
   // 関連付けた保存済みストリートビューの id（card-extras.sql で追加した列。使っていないときは送らない）
   if (f.sv_ids) out.sv_ids = Array.from(f.sv_ids);
+  // ラベル「(国名)の地域」の国コード（card-extras.sql で追加した列。空 = 「世界の国」。使っていないときは送らない）
+  if (f.scope_countries) out.scope_countries = Array.from(f.scope_countries);
   return out;
 }
 
@@ -51,7 +53,7 @@ function explainSyncError(error) {
 // card-extras.sql をまだ実行していない（列がない）ときのエラーを分かりやすく
 function explainColumnError(error) {
   const msg = error?.message || '';
-  if (/(related|back_path|places|sv_ids)/.test(msg) && /(column|schema cache)/i.test(msg)) {
+  if (/(related|back_path|places|sv_ids|scope_countries)/.test(msg) && /(column|schema cache)/i.test(msg)) {
     return new Error('データベースに新しい列がありません。Supabase の SQL Editor で supabase/card-extras.sql を実行してください');
   }
   return error;
@@ -157,6 +159,7 @@ function createSupabaseApi(sb) {
       if (!row.related?.length) delete row.related;
       if (!row.places?.length) delete row.places;
       if (!row.sv_ids?.length) delete row.sv_ids;
+      if (!row.scope_countries?.length) delete row.scope_countries;
       const uploaded = [path];
       // 一覧・地図用の低画質版（失敗しても本体の保存は続ける）
       let thumbPath = null;
@@ -195,6 +198,7 @@ function createSupabaseApi(sb) {
       if (!patch.related?.length && !card.related?.length) delete patch.related;
       if (!patch.places?.length && !card.places?.length) delete patch.places;
       if (!patch.sv_ids?.length && !card.sv_ids?.length) delete patch.sv_ids;
+      if (!patch.scope_countries?.length && !card.scope_countries?.length) delete patch.scope_countries;
       const added = [];
       const old = [];
       if (imageBlob) {

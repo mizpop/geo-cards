@@ -153,6 +153,14 @@ textarea { resize: vertical; line-height: 1.6; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 900; letter-spacing: .02em; }
 .brand-lg { justify-content: center; font-size: 22px; }
 .brand-mark { font-size: 1.3em; }
+.mode-box { display: flex; align-items: center; gap: 7px; flex: none; }
+.mode-lbl { font-size: 13px; font-weight: 700; color: var(--muted); }
+.mode-box[data-mode="world"] [data-mode-lbl="world"], .mode-box[data-mode="country"] [data-mode-lbl="country"] { color: var(--accent); }
+.mode-switch { position: relative; width: 42px; height: 24px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; padding: 0; flex: none; transition: background .15s; }
+.mode-knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); transition: transform .15s; }
+.mode-switch[aria-checked="true"] .mode-knob { transform: translateX(18px); }
+.mode-switch[aria-checked="true"] { background: var(--accent-soft); }
+.mode-pick { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar {
   position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; gap: 16px;
@@ -2126,6 +2134,8 @@ body:has(.sv-front) { overflow-x: clip; }
   /* 上のバー: 1 段目にロゴ・検索・ボタン、2 段目にタブ（ボタンが増えても重ならない） */
   .topbar { flex-wrap: wrap !important; padding: 6px 10px; gap: 4px 8px; }
   .brand { order: 0; }
+  .mode-box { order: 0; gap: 5px; }
+  .mode-pick { max-width: 110px; padding: 3px 8px; }
   .user-area { order: 1; margin-left: auto; }
   .tabs { order: 2; flex: 1 1 100% !important; justify-content: space-between; overflow-x: auto; }
   .tabs a { flex: 1 1 0; justify-content: center; }
@@ -2759,3 +2769,15 @@ ul .pk-callout { list-style-position: inside; }
 .bmr-box { position: absolute; box-sizing: border-box; border: 2px solid #ff3b30; background: rgba(255, 59, 48, .18); }
 .bmr-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .bt-voicebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+/* 国を選ぶポップアップ（js/countrypick.js） */
+.cp-dialog { width: min(760px, calc(100vw - 24px)); }
+.cp-inner { display: flex; flex-direction: column; gap: 10px; }
+.cp-inner .modal-head { margin-bottom: 0; }
+.cp-map { height: min(52vh, 420px); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.cp-chips { min-height: 28px; }
+.cp-inner .modal-foot { margin-top: 4px; }
+
+.tile-scope { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
+.scope-tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.scope-tag.is-region { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.ed-scope-box { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }

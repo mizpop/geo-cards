@@ -1,3 +1,4 @@
+import { pickCountries } from './countrypick.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
@@ -106,6 +107,7 @@ let api;
 const state = {
   user: null,
   cards: [],
+  mode: loadMode(),
   categories: [],
   countryNotes: new Map(), // 国ごとのメモ（code -> 文）
   urls: new Map(),
@@ -118,7 +120,7 @@ const state = {
   compare: { codes: [], closed: new Set() }, // 比較タブで並べる国・閉じている項目
   lang: { q: '', chars: new Set(), open: new Set(['Latin']) }, // 言語タブ: 絞り込みの文字・開いている文字のまとまり
   mapFilter: { regionsOff: new Set(), catsOff: new Set(), openPick: null }, // 地図の絞り込み
-  manage: { q: '', regionsOff: new Set(), catsOff: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
+  manage: { q: '', scope: 'all', regionsOff: new Set(), catsOff: new Set(), openPick: null, sel: new Set(), anchor: null }, // sel: 選択中のカード id（まとめて削除・カテゴリー変更）
 };
 // 参考写真（GeoHints）もカードと同じように出題できるよう、id「ref|種類|国|番号」で疑似カードを作る
 const PHOTO_TOPICS = ['bollard', 'pole', 'chevron', 'plate'];
@@ -135,6 +137,21 @@ function refCard(id) {
 }
 const svCards = new Map(); // ストリートビューの練習で作ったその場限りの問題（id: sv|…）
 const cardById = (id) => state.cards.find((c) => c.id === id) || (String(id).startsWith('ref|') ? refCard(id) : String(id).startsWith('sv|') ? svCards.get(id) : undefined);
+// ---- モード（世界 / 国）----
+// 世界: 「世界の国」のラベルを持つカードだけを、暗記・クイズ・地図で使う。国: 選んだ国（複数可）の「地域」のラベルを持つカードだけを使う。
+// カードのラベルは card.scope_countries（国コードの配列。空 = 世界の国）。世界と国が同じカードに同時にあることはない。
+const MODE_KEY = 'geo-mode-v1';
+function loadMode() { // 関数宣言（state の初期化より前に使うため）
+  try {
+    const v = JSON.parse(localStorage.getItem('geo-mode-v1'));
+    const countries = v && Array.isArray(v.countries) ? v.countries.filter((c) => typeof c === 'string') : [];
+    return { kind: v && v.kind === 'country' && countries.length ? 'country' : 'world', countries };
+  } catch { return { kind: 'world', countries: [] }; }
+}
+const saveMode = () => { try { localStorage.setItem(MODE_KEY, JSON.stringify(state.mode)); } catch { /* 保存できなくても使える */ } };
+const scopeOf = (card) => card?.scope_countries || [];
+const inMode = (card) => (state.mode.kind === 'country' ? scopeOf(card).some((c) => state.mode.countries.includes(c)) : !scopeOf(card).length);
+const modeCards = () => state.cards.filter(inMode);
 // クイズに出せる参考写真（選んだ種類・地域。「撮影地点を当てる」では座標のあるものだけ）
 function photoPool(q) {
   const out = [];
@@ -485,8 +502,48 @@ const thumbUrl = (card) => card.src || state.urls.get(`${card.id}|thumb`) || img
 const backUrl = (card) => (card.photo ? '' : state.urls.get(`${card.id}|back`) || '');
 
 /* ================= 起動・ログイン ================= */
+// モードの切り替えスイッチ（ロゴと同じ列）と、国を選ぶボタン
+function paintMode() {
+  const m = state.mode;
+  const box = $('#mode-box');
+  if (!box) return;
+  box.dataset.mode = m.kind;
+  $('#mode-switch').setAttribute('aria-checked', String(m.kind === 'country'));
+  const pick = $('#mode-pick');
+  pick.hidden = m.kind !== 'country';
+  const n = m.countries.length;
+  pick.innerHTML = n === 0 ? '🏳 国を選ぶ' : n === 1 ? `${flagImg(m.countries[0])} ${esc(countryName(m.countries[0]))}` : `${flagImg(m.countries[0])} ${esc(countryName(m.countries[0]))} 他${n - 1}`;
+  pick.title = n ? `選んでいる国: ${m.countries.map(countryName).join('、')}（押して変更）` : 'どの国のモードにするか選ぶ';
+}
+async function chooseModeCountries() {
+  const res = await pickCountries({ selected: state.mode.countries, title: 'モードにする国を選ぶ', resolve: resolveCountryCode, countryName, flagImg, esc });
+  if (res === null) return false;
+  state.mode.countries = res;
+  if (!res.length) state.mode.kind = 'world'; // 国がひとつもないときは、世界に戻す
+  saveMode(); paintMode(); applyMode();
+  return true;
+}
+// モードが変わったとき: 今の画面を描き直す
+function applyMode() {
+  state.manage.sel?.clear?.();
+  rebuildStudyDeck(false);
+  if (state.view === 'map') refreshMap($('#view'), mapCtx); else render();
+}
+function initModeSwitch() {
+  paintMode();
+  $('#mode-switch').addEventListener('click', async () => {
+    if (state.mode.kind === 'world') {
+      state.mode.kind = 'country';
+      if (!state.mode.countries.length) { const ok = await chooseModeCountries(); if (!ok) { state.mode.kind = 'world'; paintMode(); } return; }
+    } else state.mode.kind = 'world';
+    saveMode(); paintMode(); applyMode();
+  });
+  $('#mode-pick').addEventListener('click', () => chooseModeCountries());
+}
+
 async function boot() {
   fillDatalists();
+  initModeSwitch();
   try {
     api = await initApi();
   } catch (e) {
@@ -1358,6 +1415,7 @@ function tileHtml(card, extra = '') {
       <div class="tile-img">${catBadge(card, 'cat-on-img')}${thumbUrl(card) ? `<img src="${esc(thumbUrl(card))}" alt="" loading="lazy">` : ''}</div>
       <div class="tile-body">
         <div class="tile-countries">${shown.map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join('')}${more > 0 ? `<span class="chip chip-more">+${more}</span>` : ''}</div>
+        <div class="tile-scope">${scopeOf(card).length ? scopeOf(card).slice(0, 3).map((c) => `<span class="scope-tag is-region">📍 ${esc(countryName(c))}の地域</span>`).join('') + (scopeOf(card).length > 3 ? `<span class="scope-tag">+${scopeOf(card).length - 3}</span>` : '') : '<span class="scope-tag">🌍 世界の国</span>'}</div>
         ${card.description ? `<p class="tile-desc">${esc(card.description)}</p>` : ''}
         ${extra}
       </div>
@@ -1988,7 +2046,7 @@ function openStats() {
   const goal = Math.max(1, Number(settings.dailyGoal) || 30);
   const today = act.days[dayKey()] || { n: 0, ok: 0 };
   const st = streak();
-  const prog = progStats(state.cards.map((c) => c.id));
+  const prog = progStats(modeCards().map((c) => c.id));
   // 直近 14 日
   const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (13 - i)); return { d, k: dayKey(d), v: act.days[dayKey(d)] || { n: 0, ok: 0 } }; });
   const max = Math.max(goal, ...days.map((x) => x.v.n), 1);
@@ -2423,8 +2481,8 @@ function emptyState(msg) {
 // 暗記カード・編集画面・地図で共通
 const pickMatch = (c, regionsOff, catsOff) => [...cardRegions(c)].some((r) => !regionsOff.has(r)) && !catsOff.has(catKey(c));
 // extra: 数に加える、ほかのカード（暗記で参考写真も出しているときの、参考写真）
-const regionPickHtml = (id, off, extra = []) => multiPickHtml(id, 'すべての地域', '地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: state.cards.filter((c) => cardRegions(c).has(r.id)).length + extra.filter((c) => cardRegions(c).has(r.id)).length })), off);
-const catPickHtml = (id, off, extra = []) => multiPickHtml(id, 'すべてのカテゴリー', 'カテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: state.cards.filter((c) => catKey(c) === k.id).length + extra.filter((c) => (CAT_TOPIC[k.name] ? CAT_TOPIC[k.name] === c.topic : catKey(c) === k.id)).length })), off);
+const regionPickHtml = (id, off, extra = []) => multiPickHtml(id, 'すべての地域', '地域', REGIONS.map((r) => ({ id: r.id, name: r.name, n: modeCards().filter((c) => cardRegions(c).has(r.id)).length + extra.filter((c) => cardRegions(c).has(r.id)).length })), off);
+const catPickHtml = (id, off, extra = []) => multiPickHtml(id, 'すべてのカテゴリー', 'カテゴリー', allCats().map((k) => ({ id: k.id, name: k.name, dot: catVars(k), n: modeCards().filter((c) => catKey(c) === k.id).length + extra.filter((c) => (CAT_TOPIC[k.name] ? CAT_TOPIC[k.name] === c.topic : catKey(c) === k.id)).length })), off);
 
 // 複数選択のドロップダウン。チェックが入っている項目が対象
 function multiPickHtml(id, allLabel, unit, options, off) {
@@ -2504,6 +2562,7 @@ function notePhotoIntroduced(id) {
 }
 // 地域・カテゴリーの絞り込みに従った参考写真（カテゴリーの「ボラード」などを外すと、その種類の写真も外れる）
 function studyPhotoCards(s) {
+  if (state.mode.kind === 'country') return []; // 参考写真は世界の国のものなので、国のモードでは出さない
   const off = new Set(state.categories.filter((k) => s.catsOff.has(k.id) && PHOTO_TOPICS.includes(CAT_TOPIC[k.name])).map((k) => CAT_TOPIC[k.name]));
   const out = [];
   for (const t of PHOTO_TOPICS) {
@@ -2528,7 +2587,7 @@ function seededOrder(ids, seedText) {
 }
 // 復習に出す id: 自分のカード全部 + 覚え具合をつけた写真 + まだの写真（1 日 PHOTO_NEW_PER_DAY 枚まで）
 function reviewPoolIds(s) {
-  const ids = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff)).map((c) => c.id);
+  const ids = modeCards().filter((c) => pickMatch(c, s.regionsOff, s.catsOff)).map((c) => c.id);
   if (!settings.studyPhotos) return ids;
   const photos = studyPhotoCards(s).map((c) => c.id);
   const today = new Set(photoNewToday().ids);
@@ -2541,7 +2600,7 @@ function reviewPoolIds(s) {
 function rebuildStudyDeck(keepPosition = false) {
   const s = state.study;
   const currentId = s.deck[s.index];
-  let list = state.cards.filter((c) => pickMatch(c, s.regionsOff, s.catsOff));
+  let list = modeCards().filter((c) => pickMatch(c, s.regionsOff, s.catsOff));
   if (s.review) {
     // 復習: 期限が来たカード（苦手な順）→ まだ覚え具合をつけていないカード
     const order = reviewOrder(reviewPoolIds(s));
@@ -2788,7 +2847,7 @@ function moveStudy(delta) {
 /* ================= クイズ ================= */
 function quizEligible(regions) {
   const off = state.quiz.catsOff;
-  return state.cards.filter((c) => !off.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
+  return modeCards().filter((c) => !off.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
 }
 
 // ---- リアルタイム対戦（js/battle.js） ----
@@ -2839,7 +2898,7 @@ function battleCounts(cfg) {
   if (cfg.kind === 'sv') for (const r of REGIONS) regions.set(r.id, r.countries.filter((c) => isPlayable(c.code)).length);
   else if (cfg.kind === 'photo') { for (const t of cfg.photoTopics) for (const [code, list] of Object.entries(REF_IMAGES[t] || {})) { const r = COUNTRY_BY_CODE.get(code)?.region; if (regions.has(r)) regions.set(r, regions.get(r) + list.length); } }
   else if (cfg.kind === 'fact') for (const r of REGIONS) regions.set(r.id, factQuizPool(cfg.topic, new Set([r.id])).length);
-  else for (const c of state.cards) { if (c.sv) continue; for (const r of cardRegions(c)) regions.set(r, (regions.get(r) || 0) + 1); cats.set(catKey(c), (cats.get(catKey(c)) || 0) + 1); }
+  else for (const c of modeCards()) { if (c.sv) continue; for (const r of cardRegions(c)) regions.set(r, (regions.get(r) || 0) + 1); cats.set(catKey(c), (cats.get(catKey(c)) || 0) + 1); }
   return { regions, cats };
 }
 // 対戦の問題を作る（ホスト）。クイズ設定の地域・カテゴリー・写真の種類を使う
@@ -2895,7 +2954,7 @@ async function battleBuild(cfg) {
   }
   let pool;
   if (cfg.kind === 'photo') { await ensureRefInfo().catch(() => {}); pool = photoPool({ photoTopics: cfg.photoTopics, regions, mode: cfg.mode }); }
-  else pool = state.cards.filter((c) => !c.sv && c.countries.length && !cfg.catsOff.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
+  else pool = modeCards().filter((c) => !c.sv && c.countries.length && !cfg.catsOff.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
   return shuffle(pool).slice(0, n).map((card) => ({ k: 'card', mode: cfg.mode, cardId: card.id, options: opts(card) }));
 }
 // スライダー（数や時間を細かく調整する設定）。動かしている間は表示だけ変え、離したときに設定へ反映する
@@ -2927,9 +2986,9 @@ function renderQuiz() {
 
   const counts = new Map(REGIONS.map((r) => [r.id, 0]));
   if (q.kind === 'sv') for (const r of REGIONS) counts.set(r.id, r.countries.filter((c) => isPlayable(c.code)).length); // ストリートビューは、出題される国の数
-  else for (const c of state.cards) for (const r of cardRegions(c)) counts.set(r, counts.get(r) + 1);
+  else for (const c of modeCards()) for (const r of cardRegions(c)) counts.set(r, counts.get(r) + 1);
   const catCounts = new Map(allCats().map((c) => [c.id, 0]));
-  for (const c of state.cards) catCounts.set(catKey(c), catCounts.get(catKey(c)) + 1);
+  for (const c of modeCards()) catCounts.set(catKey(c), catCounts.get(catKey(c)) + 1);
   const eligible = quizEligible(q.regions).length;
 
   const isFact = q.kind === 'fact';
@@ -4530,6 +4589,7 @@ function renderManage() {
       <input type="search" id="m-filter" class="input grow" placeholder="絞り込み（国名・地域名・説明）" value="${esc(m.q)}">
       ${regionPickHtml('m-region', m.regionsOff)}
       ${catPickHtml('m-cat', m.catsOff)}
+      <select class="select select-sm" id="m-scope" aria-label="ラベルで絞り込み" title="ラベルで絞り込み（世界の国 / 国の地域）">${scopeOptionsHtml(m.scope)}</select>
       ${sortSelectHtml('m-sort')}
       <button class="btn btn-ghost btn-sm" id="m-photonotes" type="button" title="参考写真に書いたメモの一覧・検索">📝 写真メモ</button>
       <span class="counter" id="m-count"></span>
@@ -4552,6 +4612,11 @@ function renderManage() {
         <option value="">🏷 カテゴリーを変更…</option>
         ${allCats().map((k) => `<option value="${k.id}">${esc(k.name)}</option>`).join('')}
       </select>
+      <select class="select select-sm" id="sel-scope" aria-label="選択したカードのラベルを変更">
+        <option value="">🏷 ラベルを変更…</option>
+        <option value="world">🌍 世界の国</option>
+        <option value="country">📍 国の地域…（国を選ぶ）</option>
+      </select>
       <button class="btn btn-sm btn-danger" id="sel-del">🗑 削除</button>
       <button class="icon-btn" id="sel-clear" aria-label="選択を解除" title="選択を解除（Esc）">✕</button>
     </div>` : ''}
@@ -4560,6 +4625,7 @@ function renderManage() {
   $('#m-photonotes')?.addEventListener('click', openPhotoNotes);
   $('#m-new')?.addEventListener('click', () => openEditor(null));
   $('#m-filter').addEventListener('input', (e) => { m.q = e.target.value; renderManageList(); });
+  $('#m-scope').addEventListener('change', (e) => { m.scope = e.target.value; renderManageList(); });
   $('#m-sort').addEventListener('change', (e) => { settings.cardSort = e.target.value; saveSettings(); renderManageList(); });
   const repick = (id) => { m.openPick = id; renderManage(); };
   bindMultiPick('m-region', m.regionsOff, () => repick('m-region'), m.openPick === 'm-region');
@@ -4587,6 +4653,7 @@ function renderManage() {
   $('#m-sel-none')?.addEventListener('click', clearSel);
   $('#sel-clear')?.addEventListener('click', clearSel);
   $('#sel-del')?.addEventListener('click', confirmBulkDelete);
+  $('#sel-scope')?.addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) bulkSetScope(v); });
   $('#sel-cat')?.addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) bulkSetCategory(v); });
   // 選択: Shift+クリックで範囲・Ctrl(⌘)+クリックで1枚ずつ。選択中は普通のクリック / チェックでも切り替え
   const listEl = $('#manage-list');
@@ -4654,6 +4721,19 @@ function confirmBulkDelete() {
   });
 }
 
+async function bulkSetScope(kind) {
+  const ids = [...state.manage.sel].filter((id) => cardById(id));
+  if (!ids.length) return;
+  let codes = [];
+  if (kind === 'country') {
+    const res = await pickCountries({ selected: state.mode.kind === 'country' ? state.mode.countries : [], title: `選択した ${ids.length} 枚を「国の地域」にする国を選ぶ`, resolve: resolveCountryCode, countryName, flagImg, esc });
+    if (!res?.length) return;
+    codes = res;
+  }
+  const label = codes.length ? `${codes.map(countryName).join('・')}の地域` : '世界の国';
+  if (!confirm(`選択した ${ids.length} 枚のラベルを「${label}」にします。よろしいですか？`)) return;
+  await bulkRun(ids, (card) => api.updateCard(card, { ...card, scope_countries: codes }), 'ラベルを変更');
+}
 async function bulkSetCategory(catId) {
   const ids = [...state.manage.sel].filter((id) => cardById(id));
   const cat = allCats().find((k) => k.id === catId);
@@ -4681,14 +4761,21 @@ async function bulkRun(ids, fn, label) {
 }
 
 // 編集画面の一覧: 文字の絞り込み＋地域・カテゴリー
+// ラベル（世界の国 / 国の地域）で絞り込む選択肢。値: all / world / region（国の地域すべて）/ country:XX
+function scopeOptionsHtml(cur) {
+  const have = new Set(state.cards.flatMap((c) => scopeOf(c)));
+  const opts = [['all', 'すべてのラベル'], ['world', '🌍 世界の国'], ['region', '📍 国の地域（すべて）'], ...[...have].sort((a, b) => countryName(a).localeCompare(countryName(b), 'ja')).map((c) => [`country:${c}`, `📍 ${countryName(c)}の地域`])];
+  return opts.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('');
+}
+const scopeMatch = (c, v) => (v === 'world' ? !scopeOf(c).length : v === 'region' ? scopeOf(c).length > 0 : v.startsWith('country:') ? scopeOf(c).includes(v.slice(8)) : true);
 function manageFiltered() {
   const m = state.manage;
-  return sortCards(matchCards(m.q.trim().toLowerCase()).filter((c) => pickMatch(c, m.regionsOff, m.catsOff)));
+  return sortCards(matchCards(m.q.trim().toLowerCase()).filter((c) => pickMatch(c, m.regionsOff, m.catsOff) && scopeMatch(c, m.scope)));
 }
 function renderManageList() {
   const m = state.manage;
   const list = manageFiltered();
-  const filtered = m.q.trim() || m.regionsOff.size || m.catsOff.size;
+  const filtered = m.q.trim() || m.regionsOff.size || m.catsOff.size || m.scope !== 'all';
   $('#m-count').textContent = filtered ? `${list.length} / ${state.cards.length} 枚` : `${state.cards.length} 枚`;
   const ed = state.user.isEditor;
   $('#manage-list').innerHTML = list.length
@@ -4741,7 +4828,10 @@ function openEditor(card, preset = {}) {
     related: new Set((card ? card.related || [] : preset.related || []).filter((id) => state.cards.some((c) => c.id === id))),
     places: Array.isArray(card?.places) ? card.places.map((p) => ({ ...p })) : (Array.isArray(preset.places) ? preset.places.map((p) => ({ ...p })) : []),
     svIds: new Set(card ? card.sv_ids || [] : preset.svIds || []), // 関連付けた保存済みストリートビュー
+    // ラベル: 空 = 「世界の国」、国コードがあれば「(国名)の地域」。新しいカードは、いまのモードに合わせる
+    scope: new Set(card ? scopeOf(card) : preset.scope || (state.mode.kind === 'country' ? state.mode.countries : [])),
   };
+  ed.scopeKind = ed.scope.size ? 'country' : 'world';
 
   openModal(`
     <div class="modal-head">
@@ -4775,6 +4865,17 @@ function openEditor(card, preset = {}) {
                 <span class="cat-dot"></span>${esc(c.name)}
               </label>`).join('')}
           </div>
+        </div>
+        <div class="field">
+          <span>ラベル</span>
+          <div class="seg" id="ed-scope">
+            <button type="button" data-v="world">🌍 世界の国</button><button type="button" data-v="country">📍 国の地域</button>
+          </div>
+          <div class="ed-scope-box" id="ed-scope-box" hidden>
+            <div class="selected-chips" id="ed-scope-chips"></div>
+            <button type="button" class="btn btn-sm" id="ed-scope-pick">🏳 国を選ぶ</button>
+          </div>
+          <p class="muted small">「世界の国」: 国を特定するのに役立つカード ／ 「国の地域」: その国の中で、地域を特定するのに役立つカード（複数の国も選べます）</p>
         </div>
         <label class="field">
           <span>説明（表面）</span>
@@ -5117,11 +5218,35 @@ function openEditor(card, preset = {}) {
   });
   renderRelated();
 
+  // ラベル（世界の国 / 国の地域）
+  const paintScope = () => {
+    $$('#ed-scope button').forEach((b) => b.classList.toggle('on', b.dataset.v === ed.scopeKind));
+    $('#ed-scope-box').hidden = ed.scopeKind !== 'country';
+    $('#ed-scope-chips').innerHTML = ed.scope.size ? [...ed.scope].map((c) => `<span class="chip">${flagImg(c)} ${esc(countryName(c))}の地域</span>`).join('') : '<span class="muted small">国を選んでください</span>';
+  };
+  const pickScope = async () => {
+    const res = await pickCountries({ selected: [...ed.scope], title: '「国の地域」にする国を選ぶ', resolve: resolveCountryCode, countryName, flagImg, esc });
+    if (res === null) return false;
+    ed.scope = new Set(res);
+    if (!res.length) ed.scopeKind = 'world';
+    paintScope();
+    return true;
+  };
+  $$('#ed-scope button').forEach((b) => b.addEventListener('click', async () => {
+    if (b.dataset.v === 'world') { ed.scopeKind = 'world'; paintScope(); return; }
+    ed.scopeKind = 'country';
+    paintScope();
+    if (!ed.scope.size) { const ok = await pickScope(); if (!ok || !ed.scope.size) { ed.scopeKind = 'world'; paintScope(); } }
+  }));
+  $('#ed-scope-pick').addEventListener('click', pickScope);
+  paintScope();
+
   // 保存・削除
   if (card) $('#ed-delete').addEventListener('click', () => confirmDelete(card));
   $('#ed-save').addEventListener('click', async (e) => {
     if (!card && !ed.blob) { toast('画像を追加してください', 'error'); return; }
     if (!ed.countries.size) { toast('国・地域を1つ以上選択してください', 'error'); return; }
+    if (ed.scopeKind === 'country' && !ed.scope.size) { toast('ラベル「国の地域」の国を選んでください', 'error'); return; }
     const fields = {
       description: $('#ed-desc').value.trim(),
       countries: [...ed.countries],
@@ -5131,6 +5256,7 @@ function openEditor(card, preset = {}) {
       related: [...ed.related],
       sv_ids: [...ed.svIds].filter((id) => savedSvById(id)), // 削除済みの保存は除く
       places: ed.places,
+      scope_countries: ed.scopeKind === 'country' ? [...ed.scope] : [],
     };
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -5895,7 +6021,7 @@ const mapCtx = {
     bindMultiPick('map-cat', f.catsOff, () => repick('map-cat'), f.openPick === 'map-cat');
     f.openPick = null;
   },
-  filterMatch: (c) => pickMatch(c, state.mapFilter.regionsOff, state.mapFilter.catsOff),
+  filterMatch: (c) => inMode(c) && pickMatch(c, state.mapFilter.regionsOff, state.mapFilter.catsOff),
   toast: (msg, kind) => toast(msg, kind),
   tileHtml: (card) => tileHtml(card),
   bindTiles: () => bindTiles(),

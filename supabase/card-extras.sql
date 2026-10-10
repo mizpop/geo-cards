@@ -4,6 +4,7 @@ alter table public.cards add column if not exists back_path text;               
 alter table public.cards add column if not exists thumb_path text;                  -- 一覧・地図用の低画質版（ストレージ内の画像パス）
 alter table public.cards add column if not exists related   uuid[] not null default '{}'; -- 関連カードの id
 alter table public.cards add column if not exists sv_ids uuid[] not null default '{}'; -- 関連付けた保存済みストリートビューの id
+alter table public.cards add column if not exists scope_countries text[] not null default '{}'; -- ラベル「(国名)の地域」の国コード（空 = 「世界の国」。既存のカードはすべて「世界の国」）
 -- PostgREST に新しい列を知らせる
 alter table public.cards add column if not exists places jsonb not null default '[]'::jsonb;  -- 地名（都市・町。名前・英語・現地語・国・座標）
 -- 保存したストリートビュー（ストリートビューのウィンドウの保存ボタン → ストリートビュータブ）

@@ -46,6 +46,13 @@
   <div id="app" hidden>
     <header class="topbar">
       <div class="brand"><span class="brand-mark">🌍</span><span class="brand-text">GeoChecker</span></div>
+      <!-- モード（世界 / 国）: 暗記・クイズ・地図に出すカードを切り替える -->
+      <div class="mode-box" id="mode-box">
+        <span class="mode-lbl" data-mode-lbl="world">世界</span>
+        <button type="button" class="mode-switch" id="mode-switch" role="switch" aria-checked="false" aria-label="モードの切り替え（左: 世界 / 右: 国）" title="モードの切り替え（左: 世界 / 右: 国）"><span class="mode-knob"></span></button>
+        <span class="mode-lbl" data-mode-lbl="country">国</span>
+        <button type="button" class="btn btn-sm mode-pick" id="mode-pick" hidden title="どの国のモードにするか選ぶ"></button>
+      </div>
       <nav class="tabs" id="tabs">
         <a href="#study" data-view="study" title="暗記カード" aria-label="暗記カード"><svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="8" width="14" height="12" rx="2"/><path d="M6.5 8V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3"/></svg><span class="tab-label"><span class="tab-long">暗記カード</span><span class="tab-short">暗記</span></span></a>
         <a href="#quiz" data-view="quiz" title="クイズ" aria-label="クイズ"><svg class="tab-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></svg><span class="tab-label">クイズ</span></a>
