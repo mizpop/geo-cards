@@ -15,7 +15,8 @@ import { readClipboardImage, blobToDataUrl, dataUrlToBlob } from './image.js';
 import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { COMMANDS, parseCommand, complete as cmdComplete, syntaxHint, optionMap, unq as cmdUnq, commandNames } from './commands.js';
-import { proposeCards } from './aicards.js';
+import { proposeCards, guideToContext } from './aicards.js';
+import { buildContext as buildAskContext, findCountries } from './askctx.js';
 import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc, parseStreetView } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
@@ -810,6 +811,15 @@ async function enterApp() {
     api, esc, toast, isEditor: () => !!state.user?.isEditor, attachZoom,
     cards: () => state.cards, cardCat: (c) => { const k = catOf(c); return { id: k.id, name: k.name }; }, countryName, cardById, cardImg: (id) => { const c = cardById(id); return c ? imgUrl(c) : ''; }, cardThumb: (c) => thumbUrl(c) || imgUrl(c),
     cardLabel: (c) => `${c.countries[0] ? countryName(c.countries[0]) : ''} ${c.description || catOf(c).name}`.trim(),
+    ai: { // AI に記事を書いてもらうときに渡す、アプリのデータ
+      cards: () => state.cards,
+      cardLabel: (c) => `${catOf(c).name}・${c.countries.map(countryName).join('・')}`,
+      countryName, svList: () => savedSvList(), svLabel,
+      detectCountries: (text) => findCountries(text),
+      resolveCountry: (name) => resolveCountryCode(name),
+      plonkitText: async (code) => { const slug = plonkitUrl(code)?.split('/').pop(); if (!slug) return ''; const g = await loadGuide(slug, api); return guideToContext(g).text.replace(/\[T\d+\]\s*/g, ''); },
+      factsText: async (text) => { await ensureRefInfo().catch(() => {}); return buildAskContext({ question: text, history: [], deps: assistantDeps.getDeps(), pinned: null }).text.slice(0, 20000); },
+    },
     cardSearch: (text) => matchCards(text.toLowerCase()),
     cardChipHtml: (c) => relatedItemHtml(c),
     svList: () => savedSvList(), svById: savedSvById, svLabel, svChipHtml: (r) => svLinkBtnHtml(r),

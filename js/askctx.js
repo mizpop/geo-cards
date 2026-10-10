@@ -39,7 +39,7 @@ const htmlToText = (html) => {
 };
 
 // 質問の中の国を探す（長い名前を先に取り、取った部分は他の国の名前の一部として数えない。例: 「パプアニューギニア」の中の「ギニア」）
-function findCountries(text) {
+export function findCountries(text) {
   const found = [];
   const taken = [];
   const cands = [];

@@ -1,3 +1,4 @@
+import { openArticleAi } from './aiarticle.js';
 // ガイド: ユーザーが書く記事（マークダウン）。一覧（タブ）・フォルダ・編集・読む（ウィンドウ）の部品
 // 記事の書式: 見出し(# ## ###)・太字 **x**・斜体 *x*・取り消し ~~x~~・`コード`・```コードブロック```・箇条書き(- / 1.)・引用(>)・区切り(---)・表(| a | b |)・リンク [文字](https://…)
 //   画像: ![説明](img:パス)（アップロード・貼り付け。ストレージに保存） / ![説明](card:カードのid)（カードの画像をそのまま使う。容量を使わない）
@@ -327,6 +328,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
         <span class="gd-sep"></span>
         <button type="button" data-md="img-file" title="画像をアップロード（複数可）">🖼 画像</button><button type="button" data-md="img-paste" title="クリップボードの画像を貼り付け">📋 貼り付け</button><button type="button" data-md="img-card" title="カードの画像を使う（容量を使いません）">🃏 カードの画像</button>
         <span class="gd-sep"></span>
+        <button type="button" data-md="ai" class="gd-ai-btn" title="AI に記事を書いてもらう（下書き・カード・Plonk It などを読んで、提案します。反映する前に、確認できます）">✨ AI</button>
         <button type="button" data-md="l-card" title="カードへのリンク">🃏 カード</button><button type="button" data-md="l-sv" title="保存したストリートビューへのリンク">🧍 ストリートビュー</button><button type="button" data-md="l-art" title="ほかの記事へのリンク">📝 記事</button>
         <input type="file" id="gd-file" accept="image/*" multiple hidden>
       </div>
@@ -335,7 +337,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
         <div class="gd-preview pk-body" id="gd-preview"></div>
       </div>
       <div class="field gd-rel"><span>関連記事</span><div class="related-list" id="gd-rel"></div><button type="button" class="btn btn-sm" id="gd-rel-add">＋ 関連記事を足す</button></div>
-      <div class="modal-foot">${a.id ? '<button class="btn btn-danger" id="gd-del" type="button">削除</button>' : ''}<span class="grow"></span><span class="muted small" id="gd-status"></span><button class="btn btn-ghost" data-close type="button">キャンセル</button><button class="btn btn-primary" id="gd-save" type="button">保存</button></div>
+      <div class="modal-foot">${a.id ? '<button class="btn btn-danger" id="gd-del" type="button">削除</button>' : ''}<span class="grow"></span><button class="btn btn-ghost btn-sm" id="gd-ai-undo" type="button" hidden title="AI の提案を反映する前の内容に戻す">↩ AI の適用を取り消す</button><span class="muted small" id="gd-status"></span><button class="btn btn-ghost" data-close type="button">キャンセル</button><button class="btn btn-primary" id="gd-save" type="button">保存</button></div>
     </div>`, 'modal-wide modal-guide-ed');
   const $ = (s) => m.el.querySelector(s);
   const ta = $('#gd-body');
@@ -395,6 +397,36 @@ export async function buildArticleEditor(article = null, opts = {}) {
   ta.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((x) => x.kind === 'file')) e.preventDefault(); });
   ta.addEventListener('drop', (e) => { const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/')); if (files.length) { e.preventDefault(); upload(files); } });
   $('#gd-file').addEventListener('change', (e) => { const f = [...e.target.files]; e.target.value = ''; if (f.length) upload(f); });
+  // AI に書いてもらう（提案は、確認の画面で、直してから、反映する）
+  let aiUndo = null;
+  const setBody = (v) => { ta.value = v; form.body = v; schedule(); };
+  const setTitle = (v) => { $('#gd-title').value = v; form.title = v; scheduleAuto(); };
+  function openAi() {
+    if (!deps.ai) { deps.toast('この環境では、AI を使えません', 'error'); return; }
+    openArticleAi({
+      api: deps.api, esc: deps.esc, toast: deps.toast, confirm: deps.confirm, articles: () => articles, currentId: a.id, ai: deps.ai,
+      getForm: () => ({ title: form.title, body: form.body, folder_id: form.folder_id }),
+      exists: { card: (id) => !!deps.cardById(id), sv: (id) => !!deps.svById(id), article: (id) => !!articleById(id) },
+      preview: async (md) => { const r = renderMarkdown(md, imgUrls); if (r.refs.some((x) => !imgUrls.get(x))) await resolveImages(r.refs); return renderMarkdown(md, imgUrls).html; },
+      saveAsDraft: (f) => { const ok = saveDraft(`new-${Date.now()}`, { title: f.title, body: f.body, folder_id: f.folder_id, related: [], id: null }); refreshGuideView(); return ok; },
+      apply: ({ mode, title, body }) => {
+        aiUndo = { title: form.title, body: form.body, caret: ta.selectionStart };
+        if (mode === 'replace') setBody(body);
+        else if (mode === 'append') setBody(`${form.body.replace(/\s+$/, '')}${form.body.trim() ? '\n\n' : ''}${body}\n`);
+        else { const s = Math.min(ta.selectionStart, ta.value.length); const e = Math.min(ta.selectionEnd, ta.value.length); ta.setRangeText(`${needBreak()}${body}\n\n`, s, e, 'end'); form.body = ta.value; schedule(); }
+        if (title) setTitle(title);
+        $('#gd-ai-undo').hidden = false;
+        ta.focus();
+      },
+    });
+  }
+  $('#gd-ai-undo').addEventListener('click', () => {
+    if (!aiUndo) return;
+    setBody(aiUndo.body); setTitle(aiUndo.title);
+    ta.focus(); ta.setSelectionRange(aiUndo.caret, aiUndo.caret);
+    aiUndo = null; $('#gd-ai-undo').hidden = true;
+    deps.toast('AI を反映する前に、戻しました');
+  });
   $('#gd-tools').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-md]');
     if (!b) return;
@@ -419,6 +451,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
       if (c) insert(`${needBreak()}![${deps.cardLabel(c).replace(/[\]\n|]/g, ' ')}](card:${c.id})\n\n`);
     } else if (k === 'l-card') { const id = await cardPick('リンクするカードを選ぶ'); if (id) insert(`[[card:${id}]]`); }
     else if (k === 'l-sv') { const id = await svPick('リンクするストリートビューを選ぶ'); if (id) insert(`[[sv:${id}]]`); }
+    else if (k === 'ai') openAi();
     else if (k === 'l-art') { const id = await articlePick('リンクする記事を選ぶ', new Set(a.id ? [a.id] : [])); if (id) insert(`[[article:${id}]]`); }
   });
   ta.addEventListener('keydown', (e) => { // Tab で字下げ・Ctrl+B / Ctrl+I

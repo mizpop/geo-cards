@@ -59,6 +59,23 @@ const SYSTEM = `あなたは GeoChecker（GeoGuessr で国や地域を当てる�
 - GeoGuessr の学習のための質問に答えます。人物や個人の居場所を特定する目的の調査は手伝いません。
 - 見出しや表は使わず、読みやすい短い文章と箇条書きで答えます。`;
 
+// ガイドの記事を書くとき（body.task === 'article'）の指示。ふだんの質問用（SYSTEM）とは、書き方が違う
+const ARTICLE_SYSTEM = `あなたは GeoChecker（GeoGuessr で国や地域を当てるための手がかりを学ぶアプリ）の「ガイド」記事を書く、編集アシスタントです。
+ユーザーが書いている記事の下書きと、アプリのデータ（カード・保存したストリートビュー・他の記事の題名・国の情報・参考写真の解説・Plonk It のガイド）が、「参考資料」として渡されます。
+
+方針:
+- 日本語のマークダウンで、記事の本文を書きます。「参考資料」にある「記事の書式」だけを使います（それ以外の記法は、使いません）。
+- 事実は、参考資料（カード・Plonk It・国の情報など）を根拠にします。資料にないことを、事実のように書きません。確信が持てないことは、そう書くか、書きません。
+- カード・ストリートビュー・他の記事へのリンクや、カードの画像は、参考資料に ID がある項目だけを使います。ID を作ったり、推測したりしません。既存の下書きにある画像（img:…）の書き方は、そのまま残します。
+- 下書きがあるときは、その文体・構成・内容を尊重します。ユーザーの追加の指示があれば、それを最優先にします。
+- 人物や個人の居場所を特定する目的の記事は、手伝いません。
+
+出力の形式（これ以外は、何も書かない。前置き・あとがき・コードブロックで囲むことは、しない）:
+===TITLE===
+記事のタイトル（1 行）
+===BODY===
+記事の本文（マークダウン）`;
+
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
 // Supabase の接続先は、公開されている js/config.js から読む（ログインの確認だけに使う公開キー）
@@ -222,7 +239,8 @@ export async function onRequestPost({ request, env }) {
 
   const context = typeof body.context === 'string' ? body.context.slice(0, MAX_CONTEXT) : '';
   const MAX_OUT = Math.max(1024, Math.min(32000, Number(body.maxTokens) || 4096)); // 答えの長さの上限（カードの提案など、長い答えが要るときに、増やせる）
-  const system = context.trim() ? `${SYSTEM}\n\n<参考資料>\n${context}\n</参考資料>` : SYSTEM;
+  const baseSystem = body.task === 'article' ? ARTICLE_SYSTEM : SYSTEM;
+  const system = context.trim() ? `${baseSystem}\n\n<参考資料>\n${context}\n</参考資料>` : baseSystem;
 
   // 画面で選ばれたモデル: 'auto'（自動）/ Gemini のモデル / 'cloudflare'
   const wantCf = !!CF_MODELS[body.model] && !!env.AI; // 予備の AI が設定されていないときは、自動と同じ

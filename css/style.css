@@ -2976,3 +2976,20 @@ p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); 
 .gd-pick-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .gd-pick-filters select { flex: 1 1 140px; min-width: 0; }
 .gd-pick-count { margin-bottom: 4px; }
+/* AI で記事を書く */
+.gd-ai-btn { font-weight: 700; }
+.gd-ai { width: min(1100px, calc(100vw - 24px)); }
+.gd-ai-step { display: flex; flex-direction: column; gap: 12px; }
+.gd-ai-step[hidden] { display: none; }
+.gd-ai textarea.input { width: 100%; resize: vertical; }
+.gd-ai-uses { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+.gd-ai-chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.gd-ai-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gd-ai-row .input { flex: 1 1 220px; min-width: 0; }
+.gd-ai-review { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.gd-ai-edit, .gd-ai-prev { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.gd-ai-body { flex: 1; min-height: 340px; height: 46vh; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; line-height: 1.6; }
+.gd-ai-prev .gd-preview { height: 46vh; min-height: 340px; }
+.gd-ai-apply { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gd-ai-warn { color: var(--warn, #e8a33d); }
+@media (max-width: 760px) { .gd-ai-review { grid-template-columns: 1fr; } }

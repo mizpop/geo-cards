@@ -192,6 +192,7 @@ js/countrypick.js       国を選ぶポップアップ（検索 + 地図。複�
 js/regionmap.js         国モードの地図（州・県などの地域ごとの情報）
 js/bulkcards.js         国ごとに、旗・ナンバープレートを、まとめてカードにする
 js/guides.js            ガイド（ユーザーが書く記事。マークダウン・画像・カード/ストリートビューへのリンク・フォルダ・関連記事）。表は supabase/articles.sql
+- `js/aiarticle.js` — ガイドの記事を、AI に書いてもらう画面（資料の組み立て・確認・反映）
 data/region-plates.json 地域ごとのナンバープレート（Wikimedia Commons のリンク。scripts/collect-plates.mjs で集めて保存。現行のものだけ）
 scripts/collect-plates.mjs  Commons から、地域ごとのナンバープレートのリンクを集める（node scripts/collect-plates.mjs data/region-plates.json 国名.json）
 js/loading.js           読み込み中のアニメーション（進行バー・画像の下地・起動中の表示）
