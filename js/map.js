@@ -158,7 +158,9 @@ async function svFind(lat, lng, zoom) {
 // 見つけた地点を、細かい縮尺で道路の真ん中に寄せ直す（寄せられなければ元の地点）
 async function svFinish(p) {
   let cur = (await svSnap(p.lat, p.lng, 17, { R: 16, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 45, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 110, zFix: 17 })); // 青く見えている所の近くなら、少し遠くの道路でも開く
-  if (!cur) return null; // 細かい縮尺で道路が見つからない所（道路から遠い）では開かない
+  // 細かい縮尺の画像に線がない所（古いカバレッジ・北極に近い所など、Google の画像で、細かい縮尺では描かれていない所）でも、
+  // 粗い縮尺で青かった所なら、その地点を開く（映像があるかは、Google のストリートビューが、近くの映像を探す）
+  if (!cur) return p;
   cur = (await svSnap(cur.lat, cur.lng, 19, { R: 12, zFix: 19 })) || cur;
   return cur;
 }
