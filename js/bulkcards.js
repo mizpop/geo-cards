@@ -11,11 +11,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function openBulkCards(deps, preset = {}) {
   const { esc, countryName, flagImg } = deps;
   const d = document.createElement('dialog');
-  d.className = 'modal modal-sm bc-dialog';
+  d.className = 'modal modal-wide bc-dialog';
   let scope = preset.scope === 'world' ? 'world' : 'region';
   let sel = new Set(preset.countries || []);
   let kinds = new Set(preset.kinds || ['flag']);
   let running = false; let cancel = false;
+  let pending = null; // 探した候補（一覧で確かめて、必要ないものを外してから、作る）
   const paint = () => {
     d.innerHTML = `<div class="modal-inner">
       <div class="modal-head"><h2>🗂 旗・ナンバープレートをまとめてカードに</h2><button class="icon-btn" type="button" data-x aria-label="閉じる">✕</button></div>
@@ -30,39 +31,56 @@ export function openBulkCards(deps, preset = {}) {
           <label class="bc-kind"><input type="checkbox" data-kind="plate" ${kinds.has('plate') ? 'checked' : ''}> 🚘 ナンバープレート（GeoHints の州のページ（アメリカ）と、保存した Wikimedia Commons のリンク。見つかった画像は、全部カードにします）</label></div>
         <p class="muted small">ラベルは、その国の「地域」。カテゴリーは「国旗」「ナンバープレート」。場所は、地域の代表点（どの地域のカードかは、この座標で判断します）。すでに、その種類のカードがある地域は除きます。</p>`
       : `<p class="muted small">すべての国の国旗（flagcdn.com の画像）を、「国旗」カテゴリー・ラベル「世界の国」のカードにします。すでに国旗のカードがある国は除きます。</p>`}
+      <div class="bc-review" id="bc-review" hidden>
+        <div class="bc-review-head"><b id="bc-count"></b><span class="muted small">必要ないものは、右上の ✕ で外してから、作成してください（作成する画像だけ、残ります）</span><span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" id="bc-redo">候補を探し直す</button><button type="button" class="btn btn-primary" id="bc-make">作成する</button></div>
+        <div class="bc-tiles" id="bc-tiles"></div>
+      </div>
       <div class="bc-progress" id="bc-progress" hidden><div class="progress"><div class="progress-bar" id="bc-bar" style="width:0"></div></div><p class="small muted" id="bc-text"></p></div>
-      <div class="modal-foot"><button class="btn btn-ghost" type="button" data-x>閉じる</button><button class="btn btn-primary" type="button" id="bc-start">作成を始める</button></div>
+      <div class="modal-foot"><button class="btn btn-ghost" type="button" data-x>閉じる</button><button class="btn btn-primary" type="button" id="bc-start">候補を探す</button></div>
     </div>`;
     d.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => { if (running) { cancel = true; return; } d.close(); d.remove(); }));
     d.querySelectorAll('#bc-scope button').forEach((b) => b.addEventListener('click', () => { if (running) return; scope = b.dataset.v; paint(); }));
     d.querySelector('#bc-pick')?.addEventListener('click', async () => { const r = await deps.pickCountries([...sel]); if (r) { sel = new Set(r); paint(); } });
     d.querySelectorAll('[data-kind]').forEach((c) => c.addEventListener('change', () => { if (c.checked) kinds.add(c.dataset.kind); else kinds.delete(c.dataset.kind); }));
-    d.querySelector('#bc-start').addEventListener('click', start);
+    d.querySelector('#bc-start').addEventListener('click', discover);
+    d.querySelector('#bc-make')?.addEventListener('click', create);
+    d.querySelector('#bc-redo')?.addEventListener('click', () => { pending = null; paint(); });
   };
   const say = (text, pct) => { d.querySelector('#bc-progress').hidden = false; d.querySelector('#bc-text').textContent = text; if (pct != null) d.querySelector('#bc-bar').style.width = `${Math.round(pct * 100)}%`; };
 
-  async function start() {
+  // 作る画像の一覧（タイル）。必要ないものは ✕ で外す
+  function showReview() {
+    const box = d.querySelector('#bc-review');
+    if (!box || !pending) return;
+    box.hidden = false;
+    const tiles = d.querySelector('#bc-tiles');
+    tiles.innerHTML = pending.map((j, i) => `<figure class="bc-tile" data-i="${i}" title="${esc(j.title || j.name)}">
+        <img src="${esc(j.thumb || j.src)}" alt="" loading="lazy">
+        <figcaption><span>${j.kind === 'flag' ? '🚩' : '🚘'}</span> ${esc(j.name)}${j.country ? `<small>${esc(j.country)}</small>` : ''}</figcaption>
+        <button type="button" class="bc-x" data-rm="${i}" aria-label="外す" title="作らない（一覧から外す）">✕</button></figure>`).join('');
+    d.querySelector('#bc-count').textContent = `${pending.length} 枚`;
+    d.querySelector('#bc-make').textContent = `${pending.length} 枚を作成する`;
+    d.querySelector('#bc-make').disabled = !pending.length;
+    tiles.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { pending.splice(Number(b.dataset.rm), 1); showReview(); }));
+  }
+
+  // ① 作る候補を探す
+  async function discover() {
     if (running) return;
     const btn = d.querySelector('#bc-start');
-    let ok = 0; let ng = 0; let skipped = 0;
     running = true; cancel = false; btn.disabled = true;
+    const jobs = []; // { kind, rc, name, country, center, src, thumb, parent, source, world, code }
     try {
       if (scope === 'world') {
         const have = new Set(deps.cards().filter((c) => deps.isKindCard(c, 'flag') && !(c.scope_countries || []).length).flatMap((c) => c.countries));
-        const todo = deps.countries.filter((c) => !have.has(c.code));
-        if (!todo.length) { say('すべての国に、国旗のカードがあります', 1); }
-        for (let i = 0; i < todo.length && !cancel; i++) {
-          const c = todo[i];
-          say(`国旗を作っています… ${i + 1} / ${todo.length}（${c.ja}）`, i / todo.length);
-          try { const blob = await (await fetch(`https://flagcdn.com/w640/${c.code.toLowerCase()}.png`)).blob(); await deps.createNationalFlag({ blob, code: c.code }); ok++; } catch { ng++; }
-        }
+        for (const c of deps.countries) if (!have.has(c.code)) jobs.push({ kind: 'flag', world: true, code: c.code, name: c.ja, src: `https://flagcdn.com/w640/${c.code.toLowerCase()}.png`, thumb: `https://flagcdn.com/w160/${c.code.toLowerCase()}.png` });
+        if (!jobs.length) say('すべての国に、国旗のカードがあります', 1);
       } else {
-        if (!sel.size || !kinds.size) { say('国と種類を選んでください', 0); running = false; btn.disabled = false; return; }
-        const jobs = []; // { kind, rc, name, center, src, parent, source }
+        if (!sel.size || !kinds.size) { say('国と種類を選んでください', 0); return; }
         const codes = [...sel];
         for (let ci = 0; ci < codes.length && !cancel; ci++) {
           const code = codes[ci];
-          say(`${countryName(code)} の地域を調べています…（${ci + 1} / ${codes.length}）`, ci / codes.length * 0.3);
+          say(`${countryName(code)} の地域を調べています…（${ci + 1} / ${codes.length}）`, ci / codes.length * 0.5);
           let idx;
           try { idx = await getRegionIndex(code, deps.iso3Of(code)); } catch { say(`${countryName(code)} は、地域のデータがありません`, null); await sleep(800); continue; }
           // すでにある、その種類のカードの地域
@@ -76,8 +94,9 @@ export function openBulkCards(deps, preset = {}) {
               for (const r of idx.regions) if (nm && nm === r.name.toLowerCase()) taken[k].add(r.rc);
             }
           }
+          const cn = countryName(code);
           for (const r of idx.regions) {
-            if (kinds.has('flag') && regionFlagReadable(r.rc) && !taken.flag.has(r.rc)) jobs.push({ kind: 'flag', rc: r.rc, name: r.name, center: r.center, src: regionFlagSrc(r.rc), parent: code, source: '旗' });
+            if (kinds.has('flag') && regionFlagReadable(r.rc) && !taken.flag.has(r.rc)) jobs.push({ kind: 'flag', rc: r.rc, name: r.name, country: cn, center: r.center, src: regionFlagSrc(r.rc), parent: code, source: '旗' });
           }
           if (kinds.has('plate')) { // ナンバープレート: GeoHints の州のページ（アメリカ）と、保存した Wikimedia Commons のリンク。見つかった画像は、全部
             await loadPlateData();
@@ -85,26 +104,42 @@ export function openBulkCards(deps, preset = {}) {
               const r = idx.regions[i];
               if (taken.plate.has(r.rc)) continue;
               if (ghSupported(code)) {
-                say(`${countryName(code)} の州のページ（GeoHints）を調べています… ${i + 1} / ${idx.regions.length}（${r.name}）`, 0.3 + 0.3 * (i / idx.regions.length));
+                say(`${cn} の州のページ（GeoHints）を調べています… ${i + 1} / ${idx.regions.length}（${r.name}）`, 0.5 + 0.5 * (i / idx.regions.length));
                 const gs = await loadGhStateByName(code, r.rc, r.name);
-                for (const f of gs?.plates || []) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, center: r.center, src: f.src, parent: code, source: 'geohints' });
+                for (const f of gs?.plates || []) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, country: cn, center: r.center, src: f.src, parent: code, source: 'geohints' });
               }
-              for (const f of platesForRegion(code, r.name)) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, center: r.center, src: f.src, parent: code, source: 'commons' });
+              for (const f of platesForRegion(code, r.name)) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, country: cn, title: f.title, center: r.center, src: f.src, parent: code, source: 'commons' });
             }
           }
         }
         if (!jobs.length && !cancel) say('作れるものがありませんでした（すでにカードがある・旗や画像が見つからない）', 1);
-        for (let i = 0; i < jobs.length && !cancel; i++) {
-          const j = jobs[i];
-          say(`カードを作っています… ${i + 1} / ${jobs.length}（${j.kind === 'flag' ? '旗' : 'ナンバープレート'}・${j.name}）`, 0.6 + 0.4 * (i / jobs.length));
-          try { const blob = await (deps.fetchImage ? deps.fetchImage(j.src) : (await fetch(j.src)).blob()); await deps.createRegionCard({ blob, kind: j.kind, source: j.source, parent: j.parent, name: j.name, lat: j.center?.[0], lng: j.center?.[1] }); ok++; } catch { ng++; }
-        }
-        skipped = 0;
+      }
+    } finally { running = false; btn.disabled = false; }
+    if (jobs.length) { pending = jobs; d.querySelector('#bc-progress').hidden = true; showReview(); }
+  }
+
+  // ② 一覧に残した画像を、カードにする
+  async function create() {
+    if (running || !pending?.length) return;
+    const jobs = pending;
+    const make = d.querySelector('#bc-make');
+    let ok = 0; let ng = 0;
+    running = true; cancel = false; make.disabled = true;
+    try {
+      for (let i = 0; i < jobs.length && !cancel; i++) {
+        const j = jobs[i];
+        say(`カードを作っています… ${i + 1} / ${jobs.length}（${j.kind === 'flag' ? '旗' : 'ナンバープレート'}・${j.name}）`, i / jobs.length);
+        try {
+          const blob = await (deps.fetchImage ? deps.fetchImage(j.src) : (await fetch(j.src)).blob());
+          if (j.world) await deps.createNationalFlag({ blob, code: j.code });
+          else await deps.createRegionCard({ blob, kind: j.kind, source: j.source, parent: j.parent, name: j.name, lat: j.center?.[0], lng: j.center?.[1] });
+          ok++;
+        } catch { ng++; }
       }
     } finally {
-      running = false; btn.disabled = false;
+      running = false; make.disabled = false;
       say(`${cancel ? '中止しました: ' : '完了: '}${ok} 枚を作りました${ng ? `（${ng} 枚は、できませんでした）` : ''}`, 1);
-      if (ok) { deps.toast(`${ok} 枚のカードを作りました`); await deps.reloadCards(); }
+      if (ok) { deps.toast(`${ok} 枚のカードを作りました`); pending = null; d.querySelector('#bc-review').hidden = true; await deps.reloadCards(); }
     }
   }
   paint();
