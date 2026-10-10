@@ -2828,3 +2828,5 @@ ul .pk-callout { list-style-position: inside; }
 
 /* 国モードの地図: サムネイルのまとまりの真ん中を、地域の中心に置く */
 .map-thumbs.rm-c { transform-origin: 50% 50%; }
+.scope-where { background: var(--surface); color: var(--text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.scope-where:empty { display: none; }

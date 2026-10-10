@@ -1,6 +1,6 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
-import { renderRegionMap, refreshRegionMap, teardownRegionMap, resolveRegions, isRegionCode, regionName, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, teardownRegionMap, resolveRegions, getRegionIndex, isRegionCode, regionName, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -1420,7 +1420,7 @@ function tileHtml(card, extra = '') {
       <div class="tile-img">${catBadge(card, 'cat-on-img')}${thumbUrl(card) ? `<img src="${esc(thumbUrl(card))}" alt="" loading="lazy">` : ''}</div>
       <div class="tile-body">
         <div class="tile-countries">${shown.map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join('')}${more > 0 ? `<span class="chip chip-more">+${more}</span>` : ''}</div>
-        <div class="tile-scope">${scopeOf(card).length ? scopeOf(card).slice(0, 3).map((c) => `<span class="scope-tag is-region">📍 ${esc(countryName(c))}の地域</span>`).join('') + (scopeOf(card).length > 3 ? `<span class="scope-tag">+${scopeOf(card).length - 3}</span>` : '') : '<span class="scope-tag">🌍 世界の国</span>'}</div>
+        <div class="tile-scope">${scopeOf(card).length ? scopeOf(card).slice(0, 3).map((c) => `<span class="scope-tag is-region">📍 ${esc(countryName(c))}の地域</span>`).join('') + (scopeOf(card).length > 3 ? `<span class="scope-tag">+${scopeOf(card).length - 3}</span>` : '') + `<span class="scope-tag scope-where" data-where="${esc(card.id)}" title="このカードの地域（座標から判断。座標がなければ、詳細エリア）">${card.area ? `📌 ${esc(card.area)}` : ''}</span>` : '<span class="scope-tag">🌍 世界の国</span>'}</div>
         ${card.description ? `<p class="tile-desc">${esc(card.description)}</p>` : ''}
         ${extra}
       </div>
@@ -4806,6 +4806,25 @@ function manageFiltered() {
   const m = state.manage;
   return sortCards(matchCards(m.q.trim().toLowerCase()).filter((c) => pickMatch(c, m.regionsOff, m.catsOff) && scopeMatch(c, m.scope)));
 }
+// 「国の地域」のカードに、どの地域のカードかを出す。カードの地名・関連付けたストリートビューの座標を、地域の境界と照らして決める（国ごとに、境界のデータを読み込む）。座標がなければ、詳細エリアの文字のまま
+let regionNameSeq = 0;
+async function fillRegionNames(list) {
+  const my = ++regionNameSeq;
+  const byCountry = new Map();
+  for (const c of list) { const code = scopeOf(c)[0]; if (code && regionCtx.cardPoints(c).length) { if (!byCountry.has(code)) byCountry.set(code, []); byCountry.get(code).push(c); } }
+  for (const [code, cards] of byCountry) {
+    if (my !== regionNameSeq || state.view !== 'manage') return;
+    let idx;
+    try { idx = await getRegionIndex(code, regionCtx.iso3Of(code)); } catch { continue; }
+    if (my !== regionNameSeq || state.view !== 'manage') return;
+    const names = new Map(idx.regions.map((r) => [r.rc, r.name]));
+    for (const c of cards) {
+      const set = new Set(regionCtx.cardPoints(c).map((p) => idx.at(p.lat, p.lng)).filter(Boolean).map((rc) => names.get(rc)));
+      const el = document.querySelector(`[data-where="${CSS.escape(c.id)}"]`);
+      if (el && set.size) el.textContent = `📌 ${[...set].slice(0, 3).join('・')}`;
+    }
+  }
+}
 function renderManageList() {
   const m = state.manage;
   const list = manageFiltered();
@@ -4821,6 +4840,7 @@ function renderManageList() {
         </div>`)).join('')}</div>`
     : `<div class="empty"><p>${state.cards.length ? '該当するカードがありません' : ed ? 'まだカードがありません。「＋ 新しいカード」から追加しましょう' : 'まだカードがありません'}</p></div>`;
   bindTiles();
+  fillRegionNames(list);
   $$('[data-edit]').forEach((b) => b.addEventListener('click', () => openEditor(cardById(b.dataset.edit))));
   $$('[data-del]').forEach((b) => b.addEventListener('click', () => confirmDelete(cardById(b.dataset.del))));
   updateSelUI();
