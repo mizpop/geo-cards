@@ -4590,13 +4590,16 @@ function renderManage() {
     <div class="toolbar">
       ${ed ? '<button class="btn btn-primary" id="m-new">＋ 新しいカード</button>' : ''}
       <input type="search" id="m-filter" class="input grow" placeholder="絞り込み（国名・地域名・説明）" value="${esc(m.q)}">
+      <span class="counter" id="m-count"></span>
+    </div>
+    <div class="toolbar toolbar-sub m-filters">
       ${regionPickHtml('m-region', m.regionsOff)}
       ${catPickHtml('m-cat', m.catsOff)}
       <select class="select select-sm" id="m-scope" aria-label="ラベルで絞り込み" title="ラベルで絞り込み（世界の国 / 国の地域）">${scopeOptionsHtml(m.scope)}</select>
       ${sortSelectHtml('m-sort')}
       <button class="btn btn-ghost btn-sm" id="m-photonotes" type="button" title="参考写真に書いたメモの一覧・検索">📝 写真メモ</button>
-      <span class="counter" id="m-count"></span>
     </div>
+
     ${ed ? `<div class="toolbar toolbar-sub">
       <button class="btn btn-ghost btn-sm" id="m-cats">🏷 カテゴリー管理</button>
       <button class="btn btn-ghost btn-sm" id="m-bulk" title="複数の画像からまとめてカードを作る">📥 まとめて追加</button>
