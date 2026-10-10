@@ -2781,3 +2781,19 @@ ul .pk-callout { list-style-position: inside; }
 .scope-tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
 .scope-tag.is-region { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .ed-scope-box { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+/* 国モードの地図（js/regionmap.js） */
+.rm-bar { gap: 10px; }
+.rm-countries { display: flex; flex-wrap: wrap; gap: 4px; }
+.rm-modes { display: inline-flex; align-items: center; gap: 6px; }
+.rm-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; }
+.rm-map { height: min(68vh, 640px); min-height: 360px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+.rm-side { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: var(--surface); max-height: min(68vh, 640px); overflow-y: auto; }
+.rm-title { display: flex; align-items: center; gap: 6px; font-size: 17px; margin: 0 0 2px; }
+.rm-fact { padding: 8px 0; border-top: 1px solid var(--border); }
+.rm-fact-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.rm-cards { padding-top: 8px; border-top: 1px solid var(--border); }
+.rm-card { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 4px; margin: 3px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: inherit; font: inherit; cursor: pointer; }
+.rm-card img { width: 52px; height: 36px; object-fit: cover; border-radius: 4px; flex: none; }
+.rm-legend { margin-top: 10px; }
+.rm-legend .map-legend { position: static; display: block; max-width: 420px; }
+@media (max-width: 760px) { .rm-body { grid-template-columns: 1fr; } .rm-map { height: 50vh; min-height: 280px; } .rm-side { max-height: none; } }

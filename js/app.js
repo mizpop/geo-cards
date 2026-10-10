@@ -1,4 +1,6 @@
 import { pickCountries } from './countrypick.js';
+import { renderRegionMap, refreshRegionMap, isRegionCode, regionName, regionParent } from './regionmap.js';
+import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
@@ -16,7 +18,7 @@ import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
 import { saveSession, loadSession, clearSession } from './session.js';
 import { initAssistant, teardownAssistant, raiseAssistant, openAssistant, getAssistantSession, setAssistantSession, embedAssistant } from './assistant.js';
-import { renderMap, refreshMap, setMapLite, mapIsLite, lowSpecDevice, plonkitUrl, isPlayable, focusOnNextRender, showCityOnNextRender, getMapSession, setMapSession, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
+import { renderMap as renderWorldMap, refreshMap as refreshWorldMap, setMapLite, mapIsLite, lowSpecDevice, plonkitUrl, isPlayable, focusOnNextRender, showCityOnNextRender, getMapSession, setMapSession, setTileStyle, countryAt, randomSvPoint, svEmbedUrl, svOpenUrl } from './map.js';
 import { suggestCities, searchCitiesOSM, fillNames, findCity, altNames } from './cities.js';
 import { COUNTRY_INFO, LANG_EN } from './countryinfo.js';
 import { LANGS, LEFT_DRIVING } from './languages.js';
@@ -75,9 +77,10 @@ function toast(msg, kind = '') {
 }
 
 function flagImg(code, cls = 'flag') {
+  if (isRegionCode(code)) code = regionParent(code); // 地域（州・県など）は、その国の旗
   return `<img class="${cls}" src="${flagUrl(code)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`;
 }
-const countryName = (code) => COUNTRY_BY_CODE.get(code)?.ja ?? code;
+const countryName = (code) => (isRegionCode(code) ? regionName(code) : COUNTRY_BY_CODE.get(code)?.ja ?? code);
 // カテゴリー
 const UNCAT = { id: 'none', name: '未分類', color: '#8a96a3' };
 const catOf = (card) => (card.sv ? { id: 'sv', name: 'ストリートビュー', color: '#1c7ed6' } : card.photo ? { id: `ref-${card.topic}`, name: `参考写真: ${modeDef(card.topic).name}`, color: '#868e96' } : (card.category_id && state.categories.find((c) => c.id === card.category_id)) || UNCAT);
@@ -527,7 +530,7 @@ async function chooseModeCountries() {
 function applyMode() {
   state.manage.sel?.clear?.();
   rebuildStudyDeck(false);
-  if (state.view === 'map') refreshMap($('#view'), mapCtx); else render();
+  render();
 }
 function initModeSwitch() {
   paintMode();
@@ -5982,6 +5985,20 @@ async function cardFromSv({ lat, lng, codePromise, svId = null }) {
     notes: `ストリートビュー: https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lng.toFixed(6)}`,
   });
 }
+// 国モードの地図は、選んだ国を州・県などの地域に分けて表示する（js/regionmap.js）。世界モードは、これまでの地図
+const regionMapOn = () => state.mode.kind === 'country' && state.mode.countries.length > 0;
+const regionCtx = {
+  get countries() { return state.mode.countries; },
+  get cards() { return modeCards(); },
+  esc, countryName, flagImg, setFit: (v) => setFit(v),
+  iso3Of: (c) => (ALIASES[c] || []).find((a) => /^[A-Z]{3}$/.test(a)) || null,
+  thumb: (c) => thumbUrl(c),
+  openCard: (id, src) => { const c = cardById(id); if (c) openCardModal(c, src); },
+  editFact: (m, code) => openFactEditor(m, code),
+  isEditor: () => !!state.user?.isEditor,
+};
+function renderMap(view, ctx) { return regionMapOn() ? renderRegionMap(view, regionCtx) : renderWorldMap(view, ctx); }
+function refreshMap(view, ctx) { return regionMapOn() ? refreshRegionMap() : refreshWorldMap(view, ctx); }
 const mapCtx = {
   createCardFromSv: (p) => cardFromSv(p),
   countrySummaryHtml: (code) => countrySummaryHtml(code),
