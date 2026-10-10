@@ -27,7 +27,7 @@ export function openBulkCards(deps, preset = {}) {
           <button type="button" class="btn btn-sm" id="bc-pick">🏳 国を選ぶ</button></div>
         <div class="field"><span>種類</span>
           <label class="bc-kind"><input type="checkbox" data-kind="flag" ${kinds.has('flag') ? 'checked' : ''}> 🚩 地域の旗</label>
-          <label class="bc-kind"><input type="checkbox" data-kind="plate" ${kinds.has('plate') ? 'checked' : ''}> 🚘 ナンバープレート（地域ごとにカテゴリーがある国だけ見つかります。各地域 1 枚）</label></div>
+          <label class="bc-kind"><input type="checkbox" data-kind="plate" ${kinds.has('plate') ? 'checked' : ''}> 🚘 ナンバープレート（地域ごとにカテゴリーがある国だけ見つかります。見つかった画像は、全部カードにします）</label></div>
         <p class="muted small">ラベルは、その国の「地域」。カテゴリーは「国旗」「ナンバープレート」。場所は、地域の代表点（どの地域のカードかは、この座標で判断します）。すでに、その種類のカードがある地域は除きます。</p>`
       : `<p class="muted small">すべての国の国旗（flagcdn.com の画像）を、「国旗」カテゴリー・ラベル「世界の国」のカードにします。すでに国旗のカードがある国は除きます。</p>`}
       <div class="bc-progress" id="bc-progress" hidden><div class="progress"><div class="progress-bar" id="bc-bar" style="width:0"></div></div><p class="small muted" id="bc-text"></p></div>
@@ -85,7 +85,7 @@ export function openBulkCards(deps, preset = {}) {
               const r = regs[i];
               say(`${countryName(code)} のナンバープレートを探しています… ${i + 1} / ${regs.length}（${r.name}）`, 0.3 + 0.3 * (i / regs.length));
               const list = await loadRegionPlates(r.rc, r.name, deps.countryEn(code));
-              if (list[0]) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, center: r.center, src: list[0].thumb, parent: code, source: list[0].title });
+              for (const f of list) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, center: r.center, src: f.thumb, parent: code, source: f.title }); // 見つかった画像は、全部（1 枚ずつカードに）
             }
           }
         }

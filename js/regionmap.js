@@ -71,7 +71,7 @@ export function loadRegionPlates(rc, name, countryEn) {
       // ナンバープレートの画像らしいものだけ（名前に plate / license / registration / Kennzeichen など）。地図・外交官用・トレーラーなどは除き、新しい年のものを先に
       const isPlate = (f) => /plate|licen[cs]e|registration|kennzeichen|kenteken|plaque|targa|matr[ií]cula|placa|rejestracyjn|nummerskylt|nummerplate|ナンバー/i.test(f.title) && !/\bmap\b|diplomatic|trailer|police car|patrol|motor show/i.test(f.title);
       const year = (f) => Math.max(0, ...((f.title.match(/\b(19|20)\d\d\b/g) || []).map(Number)));
-      return files.filter(isPlate).sort((a, b) => year(b) - year(a)).slice(0, 4);
+      return files.filter(isPlate).sort((a, b) => year(b) - year(a)).slice(0, 8);
     })().catch(() => []));
   }
   return plateCache.get(rc);
