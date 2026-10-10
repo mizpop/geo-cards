@@ -1,6 +1,6 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
-import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, articlesLinking } from './guides.js';
+import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, draftOf, articlesLinking } from './guides.js';
 import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
@@ -1536,7 +1536,7 @@ function showNav(entry) {
   } else if (entry.kind === 'photo') {
     renderPhotoModal(entry);
   } else if (entry.kind === 'article-edit') {
-    buildArticleEditor(entry.a || articleById(entry.id), entry.opts || {});
+    buildArticleEditor(entry.a || articleById(entry.id), entry.opts || (entry.draftKey ? { draftKey: entry.draftKey, draft: draftOf(entry.draftKey) } : {})); // 外に出したウィンドウでは、保存した下書きから続ける
   } else if (entry.kind === 'article') {
     renderArticleModal(entry);
   } else if (entry.kind === 'plonkit') {
@@ -5607,6 +5607,8 @@ function popOutEntry(w) {
   if (e.kind === 'country') return { kind: 'country', code: e.code, lang: e.lang || null };
   if (e.kind === 'photo') return { kind: 'photo', topic: e.topic, code: e.code, srcs: e.srcs, i: e.i };
   if (e.kind === 'plonkit') return { kind: 'plonkit', slug: e.slug, code: e.code };
+  if (e.kind === 'article') return { kind: 'article', id: e.id };
+  if (e.kind === 'article-edit' && e.opts?.flush) return { kind: 'article-edit', id: e.id, draftKey: e.opts.flush() }; // 書きかけは、下書きとして渡す
   return null;
 }
 async function popOutWindow(w) {
@@ -5785,6 +5787,7 @@ function openPopoutContent(e) {
   else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
   else if (e.kind === 'photo') openPhotoModal(e.topic, e.code, e.srcs, e.i);
   else if (e.kind === 'plonkit') openPlonkitWindow(e.code, null, e.slug);
+  else if (e.kind === 'article' || e.kind === 'article-edit') loadGuides().catch(() => {}).then(() => navModal(e.kind === 'article' ? { kind: 'article', id: e.id } : { kind: 'article-edit', id: e.id, draftKey: e.draftKey })); // ガイドの記事・書きかけの記事
   else if (e.kind === 'sv') { openSvWindow(e.lat, e.lng, { heading: e.heading, pitch: e.pitch, fov: e.fov }); if (POPOUT) { document.title = 'ストリートビュー'; window.desktop?.setWinMeta?.({ kind: 'sv' }); iconDataUrl(null, '🧍').then((u) => window.desktop?.setWinIcon?.(u)).catch(() => {}); } }
 }
 

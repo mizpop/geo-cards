@@ -258,12 +258,14 @@ const articlePick = (title, exclude = new Set()) => pickDialog({
 });
 
 // ================= 記事の編集 =================
+export const draftOf = (key) => loadDrafts()[key] || null;
 /** 記事の編集画面を開く（PC は、浮かぶウィンドウ。app.js が、ウィンドウで開く） */
 export function openArticleEditor(article = null, opts = {}) {
   if (!deps.isEditor()) { deps.toast('記事を書けるのは、編集者のみです', 'error'); return; }
   if (deps.openEditorWindow) deps.openEditorWindow(article, opts); else buildArticleEditor(article, opts);
 }
 /** 記事の編集画面を作る（今のウィンドウ・モーダルの中に） */
+let editorSeq = 0; // 編集画面を作るたびに増やす（戻ってきて作り直したとき、古い画面の自動保存が、新しい内容を上書きしないように）
 export async function buildArticleEditor(article = null, opts = {}) {
   if (!deps.isEditor()) { deps.toast('記事を書けるのは、編集者のみです', 'error'); return; }
   const a = article || { id: null, title: '', body: opts.body || '', folder_id: opts.folder_id || null, related: [] };
@@ -312,9 +314,10 @@ export async function buildArticleEditor(article = null, opts = {}) {
   // 自動保存（下書き）: 入力が止まって 1 秒で、このブラウザに保存する。何も書いていない・保存済みと同じなら、保存しない
   let autoTimer = null;
   let saved = false; // 記事として保存した（下書きは、もう要らない）
+  const mySeq = ++editorSeq;
   const form = { title: draft.title, body: draft.body, folder_id: draft.folder_id || null }; // 入力欄の今の内容（閉じたあとに、画面が空になっていても、使える）
   const autosave = () => {
-    if (saved) return;
+    if (saved || mySeq !== editorSeq) return;
     const cur = { title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related], id: a.id || null };
     if (!cur.title.trim() && !cur.body.trim()) { deleteDraft(draftKey); return; }
     if (cur.title === original.title && cur.body === original.body && a.id) { deleteDraft(draftKey); return; }
@@ -418,6 +421,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
     if (!(await deps.confirm(`「${a.title || '無題'}」を削除しますか？（元に戻せません）`))) return;
     try { await deps.api.deleteArticle(a.id); saved = true; deleteDraft(draftKey); articles = articles.filter((x) => x.id !== a.id); changed(); deps.closeModal(); deps.toast('削除しました'); opts.onDeleted?.(a.id); } catch (ex) { deps.toast(`削除できませんでした: ${ex.message}`, 'error'); }
   });
+  opts.flush = () => { clearTimeout(autoTimer); autosave(); return draftKey; }; // ウィンドウを外に出す前に、今の内容を保存する
   // プレビューのカード・ストリートビュー・記事を開く前に、今の内容を下書きに保存して、戻ってきたときに、そのまま続きから書けるようにする
   $('#gd-preview').addEventListener('click', () => {
     clearTimeout(autoTimer); autosave();
