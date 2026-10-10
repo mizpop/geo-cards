@@ -821,7 +821,7 @@ export async function renderMap(view, ctx) {
     if (on) {
       $id('sv-banner-text').textContent = helpText();
       addCoverage();
-      if (!init) { clearFocus(); hideBubble(); }
+      if (!init) hideBubble(); // 選んでいる国は、そのまま残す
     } else {
       if (svCoverage) { svCoverage.remove(); svCoverage = null; }
       hideGhost();
