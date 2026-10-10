@@ -1335,6 +1335,17 @@ function placesHtml(card) {
   return `<div class="answer-places">${card.places.map((p, i) => `<button type="button" class="place-link" data-place-card="${card.id}" data-place="${i}" title="地図でこの場所を見る">📍${p.code ? flagImg(p.code) : ''}<b>${esc(p.name)}</b>${altNames(p).map((n) => `<em>${esc(n)}</em>`).join('')}</button>`).join('')}</div>`;
 }
 function answerHtml(card, size = 'lg', linkCountries = false) {
+  // 「国の地域」のカード: 地名（詳細エリア・登録した地名）を大きく、国名を小さく出す（国は分かっていて、地域を当てるカードなので）
+  const where = scopeOf(card).length ? [...new Set([card.area, ...(card.places || []).map((p) => p.name)].map((x) => String(x || '').trim()).filter(Boolean))] : [];
+  if (where.length) {
+    const sub = card.countries.map((c) => (linkCountries
+      ? `<button type="button" class="country-link answer-sub-country" data-info="${c}" title="国の基本情報">${flagImg(c)}${esc(countryName(c))}</button>`
+      : `<span class="answer-sub-country">${flagImg(c)}${esc(countryName(c))}</span>`)).join('');
+    return `
+    <div class="answer answer-${size}"><span class="answer-country answer-place">📍 ${where.map(esc).join('・')}</span></div>
+    <p class="answer-sub">${sub}</p>
+    ${placesHtml(card)}`;
+  }
   const many = card.countries.length > 3;
   return `
     <div class="answer answer-${size} ${many ? 'answer-many' : ''}">

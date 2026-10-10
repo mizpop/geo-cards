@@ -2842,3 +2842,10 @@ ul .pk-callout { list-style-position: inside; }
 .bc-tile figcaption small { display: block; font-weight: 400; color: var(--muted); }
 .bc-x { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .65); color: #fff; cursor: pointer; font-size: 12px; line-height: 1; }
 .bc-x:hover { background: #e03131; }
+
+/* 「国の地域」のカードの裏面: 地名を大きく、国名を小さく */
+.answer-place { font-size: inherit; }
+.answer-sub { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; margin: 2px 0 6px; font-size: 14px; font-weight: 500; color: var(--muted); }
+.answer-sub-country { display: inline-flex; align-items: center; gap: 5px; background: none; border: 0; padding: 0; color: inherit; font: inherit; }
+button.answer-sub-country { cursor: pointer; text-decoration: underline dotted; }
+.answer-sub-country .flag { width: 18px; height: auto; }
