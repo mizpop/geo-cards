@@ -654,7 +654,7 @@ function snapshotSession() {
   if (m?.open && cur) {
     if (cur.kind === 'card') modal = { kind: 'card', id: cur.id, list: cur.list || null };
     else if (cur.kind === 'country') modal = { kind: 'country', code: cur.code, lang: cur.lang || null };
-    else if (cur.kind === 'photo') modal = { kind: 'photo', topic: cur.topic, code: cur.code, srcs: cur.srcs, i: cur.i };
+    else if (cur.kind === 'photo' && !cur.extra) modal = { kind: 'photo', topic: cur.topic, code: cur.code, srcs: cur.srcs, i: cur.i };
     else if (cur.kind === 'plonkit') modal = { kind: 'plonkit', slug: cur.slug, code: cur.code };
     else if (cur.kind === 'panel') modal = { kind: 'panel', which: cur.which };
   }
@@ -1594,11 +1594,11 @@ function countryFactsHtml(code) {
 
 /* ---- 地図の参考写真（GeoHints）: カード詳細と同じ画面で開く ---- */
 // entry: { kind: 'photo', topic, code, srcs: [...], i }
-function openPhotoModal(topic, code, srcs, i, src = null) {
-  if (popOutFromSearch({ kind: 'photo', topic, code, srcs, i })) return;
+function openPhotoModal(topic, code, srcs, i, src = null, extra = null) { // extra: 地域の旗・ナンバープレートの画像（Wikimedia Commons。カード未作成）のとき
+  if (!extra && popOutFromSearch({ kind: 'photo', topic, code, srcs, i })) return;
   claimNewWin();
   const fresh = !W.el.open;
-  navModal({ kind: 'photo', topic, code, srcs, i });
+  navModal({ kind: 'photo', topic, code, srcs, i, extra });
   if (src && fresh) popFrom(W.el, src);
 }
 // 写真メモの一覧・検索（参考写真に書いたメモをまとめて見る）
@@ -1679,6 +1679,29 @@ async function photoToCard(topic, code, src, btn) {
     btn.textContent = '＋ この写真でカードを作る';
   }
 }
+// 地域の旗・ナンバープレートの画像（カード未作成）から、カードの作成画面を開く（国・カテゴリー・ラベル「その国の地域」・地域の代表点の座標を入れた状態）
+async function regionPhotoToCard(ex, rc, src, btn) {
+  btn.disabled = true;
+  btn.textContent = '画像を読み込み中…';
+  try {
+    const blob = await (await fetch(src)).blob();
+    const parent = regionParent(rc);
+    const name = regionName(rc);
+    const re = ex.kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i;
+    const catId = state.categories.find((k) => re.test(k.name))?.id || null;
+    const [lat, lng] = ex.center || [];
+    const memo = photoNote(ex.kind, src, rc);
+    openEditor(null, {
+      countries: [parent], categoryId: catId, blob, area: name, scope: [parent],
+      places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
+      notes: [memo, ex.kind === 'plate' ? `${name}のナンバープレート` : `${name}の旗`, `画像: Wikimedia Commons${ex.items?.[ex.i]?.page ? `（${ex.items[ex.i].page}）` : ''}`].filter(Boolean).join('\n'),
+    });
+  } catch (ex2) {
+    toast(`画像を取り込めませんでした: ${ex2.message}`, 'error');
+    btn.disabled = false;
+    btn.textContent = '＋ この写真でカードを作る';
+  }
+}
 function stepPhoto(delta) {
   const e = W.current;
   if (e?.kind !== 'photo') return;
@@ -1688,8 +1711,9 @@ function stepPhoto(delta) {
   showNav({ ...e, i, enter: delta > 0 ? 'next' : 'prev' });
 }
 function renderPhotoModal(entry) {
-  const { topic, code, srcs, i } = entry;
-  const m = modeDef(topic);
+  const { topic, code, srcs, i, extra: ex } = entry; // ex: 地域の旗・ナンバープレートの画像（Wikimedia Commons。カード未作成）
+  const m = ex ? { icon: ex.kind === 'flag' ? '🚩' : '🚘', name: ex.kind === 'flag' ? '地域の旗' : 'ナンバープレート' } : modeDef(topic);
+  const ctry = ex ? regionParent(code) : code; // 国コード（地域のときは、その国）
   const pager = srcs.length > 1 ? `
     <div class="card-pager">
       <button class="icon-btn pager-btn" id="photo-prev" type="button" aria-label="前の写真" title="前の写真（←）" ${i === 0 ? 'disabled' : ''}>‹</button>
@@ -1699,28 +1723,28 @@ function renderPhotoModal(entry) {
   openModal(`
     <div class="modal-head">
       ${backBtnHtml()}
-      <h2>参考写真: ${esc(m.icon)} ${esc(m.name)}</h2>
+      <h2>参考${ex ? '画像' : '写真'}: ${esc(m.icon)} ${esc(m.name)}${ex ? ` — ${esc(countryName(code))}` : ''}</h2>
       ${pager}
       <button class="icon-btn" data-close aria-label="閉じる">✕</button>
     </div>
     <div class="detail ${entry.enter ? `enter-${entry.enter}` : ''}">
       <div class="detail-front">
         <div class="front-img"><img src="${esc(srcs[i])}"${topic === 'plate' ? ' data-plate="1"' : ''} alt="${esc(countryName(code))}の${esc(m.name)}の参考写真"></div>
-        <p class="muted small photo-credit">写真: <a href="${REF_PAGES[topic] || 'https://geohints.com/'}" target="_blank" rel="noopener">GeoHints</a></p>
+        <p class="muted small photo-credit">${ex ? `画像: <a href="${esc(ex.items?.[i]?.page || 'https://commons.wikimedia.org/')}" target="_blank" rel="noopener">Wikimedia Commons</a>（カード未作成の候補）` : `写真: <a href="${REF_PAGES[topic] || 'https://geohints.com/'}" target="_blank" rel="noopener">GeoHints</a>`}</p>
       </div>
       <div class="detail-back">
-        ${answerHtml({ countries: [code], area: '' }, 'md', true)}
+        ${answerHtml({ countries: [ctry], area: ex ? regionName(code) : '' }, 'md', true)}
         <p class="muted small detail-hint">国名をクリックすると基本情報を表示</p>
-        ${photoInfoHtml(topic, srcs[i], code)}
+        ${ex ? '' : photoInfoHtml(topic, srcs[i], code)}
         ${state.user.isEditor ? `<label class="field photo-note-edit"><span>📝 この写真の見どころ（メモ）<span class="muted small" id="pnote-status"></span></span>
           <textarea id="pnote-input" rows="3" placeholder="例: 反射板の形がポイント。左のボラードは赤い帯が一周している。入力が止まると自動で保存されます">${esc(photoNote(topic, srcs[i], code))}</textarea></label>` : ''}
-        <button type="button" class="btn btn-sm btn-ghost" id="photo-ai" title="この写真を読み取って、AI が答えます">✨ この写真を AI に質問</button>
+        ${ex ? '' : '<button type="button" class="btn btn-sm btn-ghost" id="photo-ai" title="この写真を読み取って、AI が答えます">✨ この写真を AI に質問</button>'}
         ${state.user.isEditor ? '<button type="button" class="btn btn-sm" id="photo-to-card" title="この写真を自分のカードにする（国・カテゴリー・見分け方を入れた状態で作成画面を開きます）">＋ この写真でカードを作る</button>' : ''}
-        <div class="pfact">${factPanelHtml(topic, code).replace(/<div class="pfact-note">[^<]*<\/div>/g, '')}</div>
+        <div class="pfact">${ex && ex.kind === 'flag' ? '' : factPanelHtml(topic, code).replace(/<div class="pfact-note">[^<]*<\/div>/g, '')}</div>
       </div>
     </div>`, 'modal-wide', true);
   attachZoom($('.detail-front .front-img'), srcs.length > 1 ? { onSwipe: (d) => stepPhoto(d) } : {});
-  $('#photo-to-card')?.addEventListener('click', (e) => photoToCard(topic, code, srcs[i], e.currentTarget));
+  $('#photo-to-card')?.addEventListener('click', (e) => (ex ? regionPhotoToCard(ex, code, srcs[i], e.currentTarget) : photoToCard(topic, code, srcs[i], e.currentTarget)));
   $('#photo-ai')?.addEventListener('click', () => openAssistant({ pinned: { type: 'photo', topic, code, rel: relOf(srcs[i]) }, question: 'この写真の見分け方や特徴を教えてください' }));
   // 写真ごとのメモ: 入力が止まって 0.8 秒、または欄から離れたら保存
   const pin = $('#pnote-input');
@@ -5999,6 +6023,8 @@ const regionCtx = {
   thumb: (c) => thumbUrl(c),
   thumbUrl, allCats, catKey, catOf, catVars,
   openCard: (card, src, list) => openCardModal(card, src, list),
+  openRegionImage: ({ kind, rc, items, i, src, center }) => openPhotoModal(kind, rc, items.map((x) => x.src), i, src, { kind, rc, items: items.map((x) => ({ title: x.title, page: x.page })), center }),
+  photoNote: (kind, src, rc) => photoNote(kind, src, rc),
   tileHtml: (card) => tileHtml(card),
   bindTiles: () => bindTiles(),
   panelWidth: () => Number(settings.mapPanelWidth) || 360,

@@ -377,6 +377,8 @@ export async function renderRegionMap(view, ctx) {
   mapEl.addEventListener('click', (e) => { // 地図の上のサムネイル・数字・旗
     const th = e.target.closest('.map-thumb[data-card]');
     if (th) { const c = ctx.cards.find((x) => x.id === th.dataset.card); if (c) ctx.openCard(c, th, (S.byRegion.get(th.closest('[data-rc]')?.dataset.rc) || [c]).map((x) => x.id)); return; }
+    const ps = e.target.closest('.map-thumb.is-pseudo');
+    if (ps && !svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); openPseudo(ps.dataset.rc, ps.dataset.kind, Number(ps.dataset.idx), ps); return; }
     const hd = e.target.closest('[data-rc]');
     if (hd && !svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); toggleFocus(hd.dataset.rc); }
   }, true); // Leaflet の印は、クリックを上に伝えないので、先に（キャプチャで）受ける
@@ -672,10 +674,11 @@ function ensurePlates(rcs, front = false) {
       if (S.seq !== seq) return;
       S.plates.set(rc, list);
       done++;
-      if (list.length && (mode === 'plate' || S.selected === rc) && (done % 3 === 0 || !S.plateQueue.length)) { drawMarks(); if (S.selected === rc) renderList(); }
+      if (S.selected === rc) renderInfo();
+      if (list.length && (mode === 'plate' || S.selected === rc) && (done % 3 === 0 || !S.plateQueue.length)) drawMarks();
     }
     S.plateRun = false;
-    if (S.seq === seq) { drawMarks(); if (S.selected) renderList(); }
+    if (S.seq === seq) { drawMarks(); if (S.selected) renderInfo(); }
   })();
 }
 
@@ -714,7 +717,7 @@ function drawMarks() {
       const show = items.slice(0, 4); const more = items.length - show.length; const cols = show.length === 1 ? 1 : 2; const w = cols === 1 ? 120 : 172;
       const thumb = (it) => (it.card
         ? `<div class="map-thumb" data-card="${esc(it.card.id)}" style="${S.ctx.catVars(S.ctx.catOf(it.card))}" title="${esc(S.ctx.catOf(it.card).name)}">${S.ctx.thumbUrl(it.card) ? `<img src="${esc(S.ctx.thumbUrl(it.card))}" alt="">` : ''}</div>`
-        : `<div class="map-thumb is-pseudo" data-rc="${esc(rc)}" style="${(S.ctx.catOfKind(it.kind) ? S.ctx.catVars(S.ctx.catOfKind(it.kind)) : '')}" title="${esc(it.title)}（カード未作成・Wikimedia Commons）"><img src="${esc(it.src)}" alt=""></div>`);
+        : `<div class="map-thumb is-photo is-pseudo" data-rc="${esc(rc)}" data-kind="${it.kind}" data-idx="${it.idx}" title="${esc(it.title)}（参考画像・Wikimedia Commons）"><img src="${esc(it.src)}" alt=""></div>`);
       icon = L.divIcon({ className: 'map-thumbs-icon', iconSize: [w, 0], iconAnchor: [w / 2, 20], html: `
         <div class="map-thumbs rm-c${active ? '' : ' is-dim'}" data-rc="${esc(rc)}" data-rz="${rz}" style="transform:translateY(-50%) scale(${scale.toFixed(2)})">
           <div class="map-thumbs-head" data-rc="${esc(rc)}">${flagImg(parent)}<span>${esc(regionName(rc))}</span><span class="map-thumbs-n">${items.length}</span></div>
@@ -797,6 +800,13 @@ function restyle() {
 // ---- 右のパネル（世界モードの国と同じ: 上に情報、下にカード）----
 function renderPanel() { renderInfo(); renderList(); }
 
+// カードにしていない旗・ナンバープレートの画像を、参考写真と同じ画面（拡大・メモ・「カードを作る」）で開く
+function openPseudo(rc, kind, idx, el) {
+  const items = pseudoOf(rc, kind);
+  if (!items.length) return;
+  S.ctx.openRegionImage({ kind, rc, items, i: Math.min(idx, items.length - 1), src: el, center: S.geo.get(rc)?.center || null });
+}
+
 function renderInfo() {
   const el = S?.view.querySelector('#pinfo');
   if (!el) return;
@@ -811,10 +821,25 @@ function renderInfo() {
     <h3 class="rm-title">${flagImg(parent)} ${esc(regionName(rc))}</h3>
     <div class="muted small">${esc(countryName(parent))}の地域</div>
     ${(EDITABLE.includes(mode) ? [mode] : EDITABLE).map((id) => { const m = modeDef(id); return `<div class="rm-fact"><div class="rm-fact-head"><span>${m.icon} ${esc(m.name)}</span>${edit ? `<button type="button" class="btn btn-sm btn-ghost" data-edit="${id}" title="この地域の${esc(m.name)}を入力・編集">✏</button>` : ''}</div>${factChipHtml(id, rc)}</div>`; }).join('')}
-    <p class="muted small rm-info-note">旗・ナンバープレートの画像は、下のカードの欄に、カードと同じ形で出ます（まだカードにしていないものは「候補」）。</p>
+    ${photoBlocks(rc)}
   </div><button type="button" class="icon-btn pinfo-close" title="選択を解除（Esc）" aria-label="選択を解除">✕</button>`;
   el.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => S.ctx.editFact(b.dataset.edit, rc)));
   el.querySelector('.pinfo-close')?.addEventListener('click', clearFocus);
+  el.querySelectorAll('.pphoto[data-kind]').forEach((b) => b.addEventListener('click', () => openPseudo(rc, b.dataset.kind, Number(b.dataset.idx), b)));
+  ensurePlates([rc], true); // ナンバープレートの画像は、地域を選んだとき自動で探す（先に）
+}
+// 参考写真と同じ並び: カードにしていない旗・ナンバープレート（その種類のカードが、この地域にまだないとき）
+function photoBlocks(rc) {
+  const { esc } = S.ctx;
+  if (!S.cardRegions) computeCardRegions();
+  const hasKind = (k) => S.ctx.cards.some((c) => S.ctx.isKindCard(c, k) && S.cardRegions.get(c.id)?.regions.has(rc));
+  const block = (kind, icon, name) => {
+    if (hasKind(kind)) return '';
+    const items = pseudoOf(rc, kind);
+    if (!items.length) return kind === 'plate' && !S.plates.has(rc) ? `<div class="pphotos muted small">${icon} ${name}の画像を探しています…（地域ごとにカテゴリーがある国だけ、見つかります）</div>` : '';
+    return `<div class="pphotos"><div class="pphotos-head">${icon} ${name}（カード未作成） <a href="${esc(items[0].page || 'https://commons.wikimedia.org/')}" target="_blank" rel="noopener" class="muted small">Wikimedia Commons ↗</a></div><div class="pphotos-grid">${items.map((it) => { const n = S.ctx.photoNote(kind, it.src, rc); return `<button type="button" class="pphoto ${n ? 'has-note' : ''}" data-kind="${kind}" data-idx="${it.idx}" title="${esc(n || `${it.title}（Wikimedia Commons）`)}"><img src="${esc(it.src)}" alt="" loading="lazy"></button>`; }).join('')}</div></div>`;
+  };
+  return block('flag', '🚩', '地域の旗') + block('plate', '🚘', 'ナンバープレート');
 }
 
 function renderList() {
@@ -825,38 +850,17 @@ function renderList() {
   if (rc) {
     const edit = S.ctx.isEditor();
     const all = S.byRegion.get(rc) || [];
-    // まだカードにしていない旗・ナンバープレートの候補（その種類のカードが、この地域になければ）
-    if (!S.cardRegions) computeCardRegions();
-    const hasKind = (k) => S.ctx.cards.some((c) => S.ctx.isKindCard(c, k) && S.cardRegions.get(c.id)?.regions.has(rc));
-    ensurePlates([rc], true); // 選んだ地域は、先に
-    const pseudo = [...(hasKind('flag') ? [] : pseudoOf(rc, 'flag')), ...(hasKind('plate') ? [] : pseudoOf(rc, 'plate'))];
-    const plateLoading = !hasKind('plate') && !S.plates.has(rc);
-    const kindKey = (it) => S.ctx.catOfKind(it.kind)?.id || it.kind;
-    const cats = S.ctx.allCats().filter((k) => all.some((x) => S.ctx.catKey(x) === k.id) || pseudo.some((it) => kindKey(it) === k.id));
+    const cats = S.ctx.allCats().filter((k) => all.some((x) => S.ctx.catKey(x) === k.id));
     const cat = S.focusCat && cats.some((k) => k.id === S.focusCat) ? S.focusCat : null;
     const list = all.filter((x) => !cat || S.ctx.catKey(x) === cat);
-    const pl = pseudo.filter((it) => !cat || kindKey(it) === cat);
-    const tile = (it) => { const k = S.ctx.catOfKind(it.kind); return `<article class="tile is-pseudo" data-rc="${esc(rc)}" style="${k ? S.ctx.catVars(k) : ''}">
-        <div class="tile-img">${k ? `<span class="cat-badge cat-on-img" style="${S.ctx.catVars(k)}">${esc(k.name)}</span>` : ''}<a href="${esc(it.page || it.src)}" target="_blank" rel="noopener" title="${esc(it.title)}（Wikimedia Commons）"><img src="${esc(it.src)}" alt="${esc(it.title)}" loading="lazy"></a></div>
-        <div class="tile-body"><div class="tile-countries"><span class="chip">${flagImg(regionParent(rc))}${esc(S.ctx.countryName(regionParent(rc)))}</span></div>
-          <div class="tile-scope"><span class="scope-tag is-region">📍 ${esc(S.ctx.countryName(regionParent(rc)))}の地域</span><span class="scope-tag">候補（カード未作成）</span></div>
-          ${edit ? `<div class="tile-actions"><button type="button" class="btn btn-sm" data-mk="${it.kind}|${it.idx}">カードにする</button></div>` : ''}</div></article>`; };
     el.innerHTML = `
       <h3 class="panel-title">${flagImg(regionParent(rc))}${esc(regionName(rc))} のカード <span class="muted">${all.length} 枚</span></h3>
       ${cats.length > 1 ? `<div class="region-chips cat-chips focus-cats">
         <button class="chip chip-btn ${cat ? '' : 'on'}" data-fcat="">すべて</button>
         ${cats.map((k) => `<button class="chip chip-btn chip-cat ${cat === k.id ? 'on' : ''}" data-fcat="${k.id}" style="${S.ctx.catVars(k)}"><span class="cat-dot"></span>${esc(k.name)}</button>`).join('')}
       </div>` : ''}
-      ${list.length || pl.length ? `<div class="tiles tiles-compact">${list.map((c) => S.ctx.tileHtml(c)).join('')}${pl.map(tile).join('')}</div>` : '<p class="muted small">この地域のカードはまだありません。カードに登録した地名や、関連付けたストリートビューの場所が、この地域の中にあると、ここに出ます（座標のないカードは、「詳細エリア」に地域の名前（英語）が入っているもの）。</p>'}
-      ${plateLoading ? '<p class="muted small">ナンバープレートの画像を探しています…（地域ごとにカテゴリーがある国だけ、見つかります）</p>' : ''}`;
+      ${list.length ? `<div class="tiles tiles-compact">${list.map((c) => S.ctx.tileHtml(c)).join('')}</div>` : '<p class="muted small">この地域のカードはまだありません。カードに登録した地名や、関連付けたストリートビューの場所が、この地域の中にあると、ここに出ます（座標のないカードは、「詳細エリア」に地域の名前（英語）が入っているもの）。</p>'}`;
     el.querySelectorAll('[data-fcat]').forEach((b) => b.addEventListener('click', () => { S.focusCat = b.dataset.fcat || null; renderList(); }));
-    el.querySelectorAll('[data-mk]').forEach((b) => b.addEventListener('click', async () => {
-      const [kind, idx] = b.dataset.mk.split('|');
-      const it = pseudoOf(rc, kind)[Number(idx)];
-      if (!it) return;
-      b.disabled = true; b.textContent = '作成中…';
-      try { await createRegionCard(rc, it.src, kind, it.title); S.ctx.toast(kind === 'flag' ? '旗のカードを作りました' : 'ナンバープレートのカードを作りました'); await S.ctx.reloadCards(); } catch (ex) { S.ctx.toast(`作れませんでした: ${ex.message}`, 'error'); b.disabled = false; b.textContent = 'カードにする'; }
-    }));
     S.ctx.bindTiles();
     return;
   }
