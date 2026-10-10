@@ -78,15 +78,17 @@ function inline(t) {
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[\s(（])\*([^*\s][^*]*?)\*(?=$|[\s)）。、.,])/g, '$1<em>$2</em>');
   return s;
 }
+// 「注:」「注意:」「Note:」などで始まる注意書きは、黄色い枠で目立たせる
+const NOTE_RE = /^\s*(?:\*\*)?\s*[（(【\[]?\s*(?:注|注意|注記|注釈|備考|重要|警告|ご注意|ちなみに注|Notes?|NB|N\.B\.|Warning|Caution|Important|Attention)\s*[:：）)】\]]/i;
 function textHtml(lines) {
   let out = '';
   let list = false;
   for (const raw of lines) {
     const line = String(raw);
     const li = /^\s*[-*•]\s+(.*)$/.exec(line);
-    if (li) { if (!list) { out += '<ul>'; list = true; } out += `<li>${inline(li[1])}</li>`; continue; }
+    if (li) { if (!list) { out += '<ul>'; list = true; } out += `<li${NOTE_RE.test(li[1]) ? ' class="pk-callout"' : ''}>${inline(li[1])}</li>`; continue; }
     if (list) { out += '</ul>'; list = false; }
-    if (line.trim()) out += `<p>${inline(line)}</p>`;
+    if (line.trim()) out += `<p${NOTE_RE.test(line) ? ' class="pk-callout"' : ''}>${inline(line)}</p>`;
   }
   if (list) out += '</ul>';
   return out;

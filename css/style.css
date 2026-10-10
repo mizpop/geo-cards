@@ -2550,6 +2550,11 @@ body[data-split] .manage-head { margin: 0 -14px 6px; padding: 12px 14px 2px; }
 .pk-wide { margin: 8px 0; }
 .pk-text { flex: 1; min-width: 0; line-height: 1.7; font-size: 14.5px; }
 .pk-text p { margin: 0 0 8px; }
+.pk-callout { background: #fff4c2; border: 1.5px solid #f2b705; border-radius: 8px; padding: 8px 12px; color: #4a3800; }
+p.pk-callout { margin: 8px 0; }
+ul .pk-callout { list-style-position: inside; }
+:root[data-theme="dark"] .pk-callout { background: #3b3210; border-color: #b48a00; color: #ffe9a3; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pk-callout { background: #3b3210; border-color: #b48a00; color: #ffe9a3; } }
 .pk-text ul { margin: 0 0 8px; padding-left: 20px; }
 .pk-text li { margin-bottom: 4px; }
 .pk-text a { color: var(--accent); }

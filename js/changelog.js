@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v119',
+    date: '2026-10-10',
+    sections: [
+      {
+        title: 'Plonkit',
+        items: ['ガイドの「注:」「注意:」「Note:」などで始まる注意書きを、黄色い枠で表示して、見つけやすく'],
+      },
+    ],
+  },
+  {
     version: 'v118',
     date: '2026-10-09',
     sections: [
