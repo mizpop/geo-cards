@@ -528,9 +528,10 @@ export async function buildArticleEditor(article = null, opts = {}) {
   // プレビューのカード・ストリートビュー・記事を開く前に、今の内容を下書きに保存して、戻ってきたときに、そのまま続きから書けるようにする
   $('#gd-preview').addEventListener('click', () => {
     clearTimeout(autoTimer); autosave();
-    opts.draft = { title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related] };
-    opts.draftKey = draftKey;
   }, true);
+  // 別の画面を開いて、戻ってきたとき（戻る・作り直し）に、いつも、直前の内容から続けられるように、今の入力欄の内容を、いつでも渡せるようにする（ボタンを押したときだけだと、直前の入力が、戻ってしまう）
+  opts.draftKey = draftKey;
+  Object.defineProperty(opts, 'draft', { configurable: true, enumerable: true, get: () => ({ title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related] }) });
   m.el.addEventListener('close', () => { clearTimeout(autoTimer); autosave(); refreshGuideView(); }, { once: true }); // 閉じるときにも、下書きを保存して、一覧に出す
   preview();
   $('#gd-title').focus();
