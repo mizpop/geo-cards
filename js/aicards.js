@@ -22,6 +22,8 @@ const setFrom = (code, v) => { try { if (v == null) localStorage.removeItem(`geo
 const MINSCORE_KEY = 'geo-aicards-minscore';
 const SCORE_OPTS = [[5, '★5 のみ（決め手になるものだけ）'], [4, '★4 以上（初期）'], [3, '★3 以上'], [1, 'すべて']];
 const getMinScore = () => { try { const v = Number(localStorage.getItem(MINSCORE_KEY)); return SCORE_OPTS.some(([n]) => n === v) ? v : 4; } catch { return 4; } };
+const SCOPE_KEY = 'geo-aicards-scope'; // 提案するカードの種類: both（AI が判断）/ world（世界の国）/ region（国の地域）
+const getScope = () => { try { const v = localStorage.getItem(SCOPE_KEY); return v === 'world' || v === 'region' ? v : 'both'; } catch { return 'both'; } };
 const COUNT_KEY = 'geo-aicards-count';
 const getCount = () => { try { const v = Number(localStorage.getItem(COUNT_KEY)); return COUNTS.includes(v) ? v : 20; } catch { return 20; } };
 
@@ -135,7 +137,12 @@ export async function proposeCards(deps) {
   d.className = 'modal modal-sm modal-aicards';
   d.innerHTML = `<div class="modal-inner">
     <div class="modal-head"><h2>✨ AI のカード提案 <span class="muted small">${esc(countryName)}</span></h2><button class="icon-btn" data-x aria-label="閉じる">✕</button></div>
-    <div class="aic-model-row"><label class="muted small" for="aic-model">使うモデル</label>
+    <div class="aic-model-row"><label class="muted small" for="aic-scope">提案するカード</label>
+      <select class="select select-sm" id="aic-scope" title="どんなカードを提案してもらうか（国を特定するカードか、${esc(countryName)}の中で地域を特定するカードか）">
+        <option value="both" ${getScope() === 'both' ? 'selected' : ''}>両方（AI が判断）</option>
+        <option value="world" ${getScope() === 'world' ? 'selected' : ''}>🌍 世界の国のカード</option>
+        <option value="region" ${getScope() === 'region' ? 'selected' : ''}>📍 ${esc(countryName)}の地域のカード</option></select>
+      <label class="muted small" for="aic-model">使うモデル</label>
       <select class="select select-sm" id="aic-model" title="使うモデル（AI のチャットと共通。「自動」は、混み合っているときに別のモデルへ切り替えます）">${AI_MODELS.map(([id, label]) => `<option value="${esc(id)}" ${id === getAiModel() ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <label class="muted small" for="aic-count-sel">数</label>
       <select class="select select-sm" id="aic-count-sel" title="提案してもらうカードの数（上限）">${COUNTS.map((n) => `<option value="${n}" ${n === getCount() ? 'selected' : ''}>最大 ${n} 件</option>`).join('')}</select>
@@ -143,7 +150,7 @@ export async function proposeCards(deps) {
       <select class="select select-sm" id="aic-minscore" title="AI が付けた「この国だと特定するのに役立つ度」で絞り込みます。多くの国で使われている手がかり（シェブロンなど）は、低くなります">${SCORE_OPTS.map(([n, label]) => `<option value="${n}" ${n === getMinScore() ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <span class="aic-linebox small"><button type="button" class="btn btn-ghost btn-sm" id="aic-line" title="Plonkit の画像は、同じ位置に地図が入ります。その範囲を四角で決めると、すべての提案の画像で、そこを消します（AI は使いません）">▭ 地図を消す範囲を決める</button><span id="aic-linestate" class="muted"></span> <button type="button" class="btn btn-ghost btn-sm" id="aic-lineclear" hidden>解除</button></span>
       <button type="button" class="btn btn-ghost btn-sm" id="aic-again" title="今のモデル・数で、もう一度提案する">↻ もう一度提案</button></div>
-    <div class="aic-body"><p class="aic-state muted"><span class="spinner"></span> Plonkit のガイドを読んで、カードにするとよい項目を探しています…（20〜40 秒ほど）</p></div>
+    <div class="aic-body"></div>
   </div>`;
   (host || document.body).appendChild(d);
   let closed = false;
@@ -159,8 +166,14 @@ export async function proposeCards(deps) {
     for (const n of String(text || '').split(/[、,，\n]/).map((x) => x.trim()).filter(Boolean)) { const c = deps.resolveCountry?.(n); if (c && !codes.includes(c)) codes.push(c); else if (!c) unknown.push(n); }
     return { codes, unknown };
   };
+  const scopeNote = () => {
+    const s = getScope();
+    if (s === 'world') return `\n【今回の提案】国を特定するための手がかり（scope は、すべて "world"）だけを提案する。${countryName}の中の地域（州・県・省・地方など）を特定するための項目は、選ばない。regions は、すべて空の配列にする。`;
+    if (s === 'region') return `\n【今回の提案】${countryName}の中で、地域（州・県・省・地方など）を特定するための手がかり（scope は、すべて "region"）だけを提案する。国全体に共通する特徴（国を特定するための手がかり）は、選ばない。地域ごとに違いがある項目（地域の旗・ナンバープレート・看板・建物・方言・植生・道路標識の違いなど）を、広く拾い、regions に、かかわる地域を、必ず入れる。`;
+    return '';
+  };
   const prompt = () => `次は、${countryName}の GeoGuessr の攻略ガイド（Plonk It の日本語訳）の全文です。画像のある項目の先頭に [T番号] が付いています。
-この国だと特定するのに、少しでもヒントになりうる項目は、すべて、暗記カード（表面: 画像と短い説明、裏面: 見分け方の解説）の案にして、採点します。役に立たなそうな項目も、除かずに入れ、低い点数（1〜2）を付けます（画面で、点数で絞り込めます）。ガイドの最初から最後まで、全体を見て、偏りなく、最大 ${getCount()} 個、カードの案を、次の形の JSON だけで返してください（前後に説明は書かない）:
+この国だと特定するのに、少しでもヒントになりうる項目は、すべて、暗記カード（表面: 画像と短い説明、裏面: 見分け方の解説）の案にして、採点します。役に立たなそうな項目も、除かずに入れ、低い点数（1〜2）を付けます（画面で、点数で絞り込めます）。ガイドの最初から最後まで、全体を見て、偏りなく、最大 ${getCount()} 個、カードの案を、次の形の JSON だけで返してください（前後に説明は書かない）:${scopeNote()}
 {"cards":[{"tip":番号,"front":"表面に出す短い説明（何の手がかりか。国や場所を特定できる情報は、一切書かない）","back":"裏面の解説（見分け方、似た国との違い。ガイドに書かれている内容だけ）","category":"カテゴリー名","area":"地域の補足（なければ空）","also":["DE","FR"],"scope":"world","regions":[],"score":4,"why":"点数の理由（20〜40 字）"}]}
 - scope は、その手がかりが何を特定するためのものかを表す。"world": ${countryName}という国を特定するのに役立つ手がかり（他の国と見分けるための手がかり）/ "region": ${countryName}の中で、地域（州・県・地方など）を特定するのに役立つ手がかり（${countryName}の中の、どの地域かを見分けるための手がかり）。地域に関する情報（地域ごとの違い・特定の地方だけにあるもの）に基づくカードは "region"、国の特定に関するものは "world" にする。迷ったら "world"。
 - regions は、scope が "region" のときだけ。そのカードがかかわる、${countryName}の中の地域（州・県・省・地方など）の名前を、英語で（地図データの名前に近い形。例: Osaka Prefecture / California / Bavaria）、1〜3 個の配列で。国全体に当てはまるときや、地域が特定できないときは、空の配列にする。scope が "world" のときは、空の配列。
@@ -402,6 +415,7 @@ export async function proposeCards(deps) {
   let runId = 0;
   const run = async () => {
     const mine = ++runId;
+    started = true;
     setRect(null); setFrom(code, null); showLine(); // 作り直すときは、地図を消す範囲の設定も、リセットする
     // 提案している間の経過を表示する（どの段階か・経過時間・見つかった候補の数と、最新の候補）
     const t0 = Date.now();
@@ -427,8 +441,9 @@ export async function proposeCards(deps) {
     stage = 4; paint(); clearInterval(timer);
     if (mine !== runId) return;
     if (closed || mine !== runId) return;
-    const list = parseProposals(answer, tips, catNames, getCount());
-    if (!list.length) throw new Error('カードにできそうな項目が見つかりませんでした');
+    const sc = getScope();
+    const list = parseProposals(answer, tips, catNames, getCount()).filter((p) => sc === 'both' || p.scope === sc); // 選んだ種類と違うものは除く
+    if (!list.length) throw new Error(sc === 'region' ? `${countryName}の地域を特定するためのカードに、できそうな項目が見つかりませんでした（「両方」や「世界の国」にすると、見つかるかもしれません）` : 'カードにできそうな項目が見つかりませんでした');
     list.forEach((p) => {
       p.categoryId = cats.find((c) => c.name === p.category)?.id || ''; p.checked = true;
       // 他の国: 2 文字のコードは、日本語の国名にして、欄に出す（読めないコードは、そのまま出して、作成のときにお知らせ）
@@ -443,8 +458,16 @@ export async function proposeCards(deps) {
   }
   };
   // モデルを変えたら、そのモデルで、もう一度提案する（「もう一度提案」でも）
-  d.querySelector('#aic-model').addEventListener('change', (e) => { setAiModel(e.target.value); run(); });
-  d.querySelector('#aic-count-sel').addEventListener('change', (e) => { try { localStorage.setItem(COUNT_KEY, e.target.value); } catch { /* 保存できなくても使える */ } run(); });
+  // 提案を始める前（前回の提案がないとき）は、モデル・数・種類を選ぶだけで、すぐには始めない。「✨ 提案する」で始める
+  let started = false;
+  const maybeRun = () => { if (started) run(); };
+  const showStart = () => {
+    body.innerHTML = `<div class="aic-start"><p class="muted small">上で、提案してもらうカードの種類（世界の国 / ${esc(countryName)}の地域）・モデル・数を選んでから、始めてください。</p><button type="button" class="btn btn-primary btn-lg" id="aic-start">✨ カードを提案する</button></div>`;
+    body.querySelector('#aic-start').addEventListener('click', () => run());
+  };
+  d.querySelector('#aic-scope').addEventListener('change', (e) => { try { localStorage.setItem(SCOPE_KEY, e.target.value); } catch { /* 保存できなくても使える */ } maybeRun(); });
+  d.querySelector('#aic-model').addEventListener('change', (e) => { setAiModel(e.target.value); maybeRun(); });
+  d.querySelector('#aic-count-sel').addEventListener('change', (e) => { try { localStorage.setItem(COUNT_KEY, e.target.value); } catch { /* 保存できなくても使える */ } maybeRun(); });
   d.querySelector('#aic-minscore').addEventListener('change', (e) => { try { localStorage.setItem(MINSCORE_KEY, e.target.value); } catch { /* 保存できなくても使える */ } if (curList) renderList(curList, curMeta); });
   d.querySelector('#aic-line').addEventListener('click', async () => { if (await pickLine() && curList) { await applyLineAll(curList); } });
   d.querySelector('#aic-lineclear').addEventListener('click', () => { setRect(null); setFrom(code, null); showLine(); toast('地図を消す範囲を解除しました（すでに消した画像は、「🖌 画像を編集」で直せます）'); });
@@ -452,5 +475,5 @@ export async function proposeCards(deps) {
   d.querySelector('#aic-again').addEventListener('click', () => run());
   const cached = loadCache(code, cacheCtx.sig);
   const cachedList = cached ? cached.items.map((c) => { const item = tips.get(c.tip); const sv = item ? svLinkOf(item) : ''; return { ...c, item, category: '', sv, svOn: sv ? c.svOn !== false : false, mapChecked: false, mapRegions: undefined }; }).filter((p) => p.item) : [];
-  if (cachedList.length) renderList(cachedList, { at: cached.at, model: cached.model, cached: true }); else run();
+  if (cachedList.length) { started = true; renderList(cachedList, { at: cached.at, model: cached.model, cached: true }); } else showStart();
 }
