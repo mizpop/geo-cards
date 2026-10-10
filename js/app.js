@@ -6096,7 +6096,9 @@ const regionCtx = {
 };
 // 画像を取り込む（GeoHints の画像は、サーバー経由。それ以外は、そのまま）
 async function fetchImageBlob(src) {
-  const url = src.startsWith(REF_BASE) ? `/api/refimg?path=${encodeURIComponent(src.slice(REF_BASE.length))}` : src;
+  // Wikimedia の縮小画像は、カードにするときは、大きめ（960px）のものを使う
+  const big = /upload\.wikimedia\.org\/.*\/330px-/.test(src) ? src.replace('/330px-', '/960px-') : src;
+  const url = big.startsWith(REF_BASE) ? `/api/refimg?path=${encodeURIComponent(big.slice(REF_BASE.length))}` : big;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`画像を取得できませんでした（${res.status}）`);
   return res.blob();

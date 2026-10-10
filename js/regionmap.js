@@ -45,36 +45,21 @@ export async function loadRegionFlags(country, codes) {
 }
 
 
-// ---- 地域のナンバープレート（Wikimedia Commons の「License plates of ○○」カテゴリー。地域ごとにカテゴリーがある国だけ）----
-const plateCache = new Map(); // 地域コード → Promise<[{ thumb, title, page }]>
-let plateLast = 0;
-async function commonsApi(params) {
-  const wait = plateLast + 350 - Date.now(); // 続けて呼びすぎないように、少し間をあける
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  plateLast = Date.now();
-  const q = new URLSearchParams({ format: 'json', origin: '*', ...params });
-  const r = await fetch(`https://commons.wikimedia.org/w/api.php?${q}`);
-  return r.json();
+// ---- 地域のナンバープレート（Wikimedia Commons）: あらかじめ集めて保存したリンク（data/region-plates.json。scripts/collect-plates.mjs で作る）を読み込む ----
+// 現行のもの・今でも使われていそうなものだけ（古い年・歴史的・外交官用・トレーラーなどを除いて、新しい年を先に）。画像は、upload.wikimedia.org の縮小画像（そのまま表示できる）
+let plateData = null; let platePromise = null;
+export function loadPlateData() {
+  if (!platePromise) platePromise = fetch('/data/region-plates.json').then((r) => (r.ok ? r.json() : null)).then((j) => { plateData = j?.plates || {}; return plateData; }).catch(() => { platePromise = null; plateData = {}; return plateData; });
+  return platePromise;
 }
-const plateNorm = (s) => String(s || '').toLowerCase().replace(/\b(prefecture|province|state|region|oblast|department|county|district|governorate|municipality|city|autonomous|republic|of|the|license|licence|plates?|vehicle|registration)\b/g, '').replace(/[^a-z0-9\u00c0-\u024f\u3040-\u30ff\u3400-\u9fff]/g, '');
-export function loadRegionPlates(rc, name, countryEn) {
-  if (!plateCache.has(rc)) {
-    plateCache.set(rc, (async () => {
-      const core = String(name).replace(/\b(Prefecture|Province|State|Region|Oblast|Department|County|District|Governorate|Municipality|Autonomous|Republic)\b/g, '').replace(/\s+/g, ' ').trim() || name;
-      const j = await commonsApi({ action: 'query', list: 'search', srnamespace: '14', srlimit: '8', srsearch: `intitle:"license plates of" "${core}"` });
-      const want = plateNorm(core);
-      const cats = (j.query?.search || []).map((x) => x.title).filter((tt) => /license plates? of|vehicle registration plates? of/i.test(tt) && !/trailer|diplomatic|military|temporary|by |personal|motorcycle/i.test(tt) && plateNorm(tt).includes(want));
-      cats.sort((a, b) => (plateNorm(b).includes(plateNorm(countryEn || '')) ? 1 : 0) - (plateNorm(a).includes(plateNorm(countryEn || '')) ? 1 : 0) || a.length - b.length);
-      if (!cats.length) return [];
-      const g = await commonsApi({ action: 'query', generator: 'categorymembers', gcmtitle: cats[0], gcmtype: 'file', gcmlimit: '24', prop: 'imageinfo', iiprop: 'url|mime', iiurlwidth: '320' });
-      const files = Object.values(g.query?.pages || {}).map((pg) => ({ title: pg.title, thumb: pg.imageinfo?.[0]?.thumburl, page: pg.imageinfo?.[0]?.descriptionurl, mime: pg.imageinfo?.[0]?.mime })).filter((f) => f.thumb && /^image\/(jpeg|png|svg)/.test(f.mime || ''));
-      // ナンバープレートの画像らしいものだけ（名前に plate / license / registration / Kennzeichen など）。地図・外交官用・トレーラーなどは除き、新しい年のものを先に
-      const isPlate = (f) => /plate|licen[cs]e|registration|kennzeichen|kenteken|plaque|targa|matr[ií]cula|placa|rejestracyjn|nummerskylt|nummerplate|ナンバー/i.test(f.title) && !/\bmap\b|diplomatic|trailer|police car|patrol|motor show/i.test(f.title);
-      const year = (f) => Math.max(0, ...((f.title.match(/\b(19|20)\d\d\b/g) || []).map(Number)));
-      return files.filter(isPlate).sort((a, b) => year(b) - year(a)).slice(0, 8);
-    })().catch(() => []));
-  }
-  return plateCache.get(rc);
+const plateKey = (s) => String(s || '').toLowerCase().replace(/\b(prefecture|province|state|region|oblast|department|county|district|governorate|municipality|autonomous|republic|of|the|city|canton|land|voivodeship)\b/g, '').replace(/[^a-z0-9\u00c0-\u024f\u3040-\u30ff\u3400-\u9fff]/g, '');
+export function platesForRegion(country, regionName) {
+  const reg = plateData?.[country];
+  if (!reg) return [];
+  const n = plateKey(regionName);
+  if (!n) return [];
+  const hit = Object.keys(reg).find((k) => plateKey(k) === n) || Object.keys(reg).find((k) => n.length >= 4 && (plateKey(k).includes(n) || n.includes(plateKey(k))) && plateKey(k).length >= 4);
+  return hit ? reg[hit].map((x) => ({ src: x.u, title: x.t, year: x.y, page: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(x.t.replace(/ /g, '_'))}` })) : [];
 }
 
 // ---- GeoHints の州ごとのページ（旗・ナンバープレート。/api/geohints 経由。GeoHints が今、州ごとのページを出しているのは、アメリカだけ）----
@@ -434,6 +419,7 @@ export async function renderRegionMap(view, ctx) {
   if (S?.seq !== seq || !S.map) return; // 待っている間に、地図を離れた（ほかのタブへ移った・描き直した）
   if (keepFocus && S.byCode.has(keepFocus)) focusRegion(keepFocus);
   buildGeoHints(); // GeoHints の参考写真を、地域に振り分ける（座標つきのもの）
+  loadPlateData().then(() => { if (S?.seq === seq && S.map) { drawMarks(); if (S.selected) renderInfo(); } }); // 保存したナンバープレートのリンク
   setupSearch();
   setupSv();
   setupFlagCards();
@@ -703,8 +689,10 @@ function pseudoOf(rc, kind) {
     const src = regionFlagSrc(rc, 320);
     return src ? [{ pseudo: true, kind, rc, src, title: `${regionName(rc)}の旗`, idx: 0 }] : [];
   }
-  // ナンバープレート: GeoHints の州のページにあるもの
-  return (gs?.plates || []).map((f, i) => ({ pseudo: true, kind, rc, src: f.src, title: `${regionName(rc)} ${f.year || ''}`.trim(), page: gs.page, source: 'geohints', idx: i }));
+  // ナンバープレート: GeoHints の州のページ（アメリカ）→ 保存した Wikimedia Commons のリンク
+  const a = (gs?.plates || []).map((f) => ({ pseudo: true, kind, rc, src: f.src, title: `${regionName(rc)} ${f.year || ''}`.trim(), page: gs.page, source: 'geohints' }));
+  const b = platesForRegion(regionParent(rc), regionName(rc)).map((f) => ({ pseudo: true, kind, rc, src: f.src, title: f.title, page: f.page, source: 'commons' }));
+  return [...a, ...b].map((x, i) => ({ ...x, idx: i }));
 }
 // GeoHints の州のページを、表示中の地域の分、少しずつ（同時に 3 つまで）取ってくる。取れたら、描き直す
 function prefetchGh(rcs, front = false) {
