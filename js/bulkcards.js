@@ -56,7 +56,7 @@ export function openBulkCards(deps, preset = {}) {
     const tiles = d.querySelector('#bc-tiles');
     tiles.innerHTML = pending.map((j, i) => `<figure class="bc-tile" data-i="${i}" title="${esc(j.title || j.name)}">
         <img src="${esc(j.thumb || j.src)}" alt="" loading="lazy">
-        <figcaption><span>${j.kind === 'flag' ? '🚩' : '🚘'}</span> ${esc(j.name)}${j.country ? `<small>${esc(j.country)}</small>` : ''}</figcaption>
+        <figcaption><span>${j.kind === 'flag' ? '🚩' : '🚘'}</span> ${esc(j.ja || j.name)}${j.country ? `<small>${esc(j.country)}</small>` : ''}</figcaption>
         <button type="button" class="bc-x" data-rm="${i}" aria-label="外す" title="作らない（一覧から外す）">✕</button></figure>`).join('');
     d.querySelector('#bc-count').textContent = `${pending.length} 枚`;
     d.querySelector('#bc-make').textContent = `${pending.length} 枚を作成する`;
@@ -96,7 +96,7 @@ export function openBulkCards(deps, preset = {}) {
           }
           const cn = countryName(code);
           for (const r of idx.regions) {
-            if (kinds.has('flag') && regionFlagReadable(r.rc) && !taken.flag.has(r.rc)) jobs.push({ kind: 'flag', rc: r.rc, name: r.name, country: cn, center: r.center, src: regionFlagSrc(r.rc), parent: code, source: '旗' });
+            if (kinds.has('flag') && regionFlagReadable(r.rc) && !taken.flag.has(r.rc)) jobs.push({ kind: 'flag', rc: r.rc, name: r.name, ja: r.ja, country: cn, center: r.center, src: regionFlagSrc(r.rc), parent: code, source: '旗' });
           }
           if (kinds.has('plate')) { // ナンバープレート: GeoHints の州のページ（アメリカ）と、保存した Wikimedia Commons のリンク。見つかった画像は、全部
             await loadPlateData();
@@ -106,9 +106,9 @@ export function openBulkCards(deps, preset = {}) {
               if (ghSupported(code)) {
                 say(`${cn} の州のページ（GeoHints）を調べています… ${i + 1} / ${idx.regions.length}（${r.name}）`, 0.5 + 0.5 * (i / idx.regions.length));
                 const gs = await loadGhStateByName(code, r.rc, r.name);
-                for (const f of gs?.plates || []) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, country: cn, center: r.center, src: f.src, parent: code, source: 'geohints' });
+                for (const f of gs?.plates || []) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, ja: r.ja, country: cn, center: r.center, src: f.src, parent: code, source: 'geohints' });
               }
-              for (const f of platesForRegion(code, r.name)) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, country: cn, title: f.title, center: r.center, src: f.src, parent: code, source: 'commons' });
+              for (const f of platesForRegion(code, r.name)) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, ja: r.ja, country: cn, title: f.title, center: r.center, src: f.src, parent: code, source: 'commons' });
             }
           }
         }
@@ -132,7 +132,7 @@ export function openBulkCards(deps, preset = {}) {
         try {
           const blob = await (deps.fetchImage ? deps.fetchImage(j.src) : (await fetch(j.src)).blob());
           if (j.world) await deps.createNationalFlag({ blob, code: j.code });
-          else await deps.createRegionCard({ blob, kind: j.kind, source: j.source, parent: j.parent, name: j.name, lat: j.center?.[0], lng: j.center?.[1] });
+          else await deps.createRegionCard({ blob, kind: j.kind, source: j.source, parent: j.parent, name: j.name, ja: j.ja, lat: j.center?.[0], lng: j.center?.[1] });
           ok++;
         } catch { ng++; }
       }

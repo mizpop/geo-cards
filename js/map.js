@@ -157,14 +157,14 @@ async function svFind(lat, lng, zoom) {
 }
 // 見つけた地点を、細かい縮尺で道路の真ん中に寄せ直す（寄せられなければ元の地点）
 async function svFinish(p, click = null, zoom = 12) {
-  let cur = (await svSnap(p.lat, p.lng, 17, { R: 16, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 45, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 110, zFix: 17 })); // 青く見えている所の近くなら、少し遠くの道路でも開く
+  let cur = (await svSnap(p.lat, p.lng, 17, { R: 16, zFix: 17 })) || (await svSnap(p.lat, p.lng, 17, { R: 45, zFix: 17 })); // 道路が、近く（約 50m 以内）に見つかったときだけ
   // 細かい縮尺の画像に線がない所（古いカバレッジ・北極に近い所など、Google の画像で、細かい縮尺では描かれていない所）でも、
   // 粗い縮尺で青かった所なら、その地点を開く（映像があるかは、Google のストリートビューが、近くの映像を探す）
-  if (!cur) { // クリックのすぐ近く（画面で 24px 以内）に、粗い縮尺で青い所があったときだけ。離れているときは、本当に近くにない（以前どおり、お知らせ）
+  if (!cur) { // クリックのすぐ近く（30m 以内）に、粗い縮尺で青い所があったときだけ。離れているときは、本当に近くにない（以前どおり、お知らせ）
     if (!click) return null;
     const mpp = (156543.03392 * Math.cos((click.lat * Math.PI) / 180)) / 2 ** zoom;
     const m = Math.hypot((p.lat - click.lat) * 111320, (p.lng - click.lng) * 111320 * Math.cos((click.lat * Math.PI) / 180));
-    return m / mpp <= 24 ? p : null;
+    return m <= 30 && m / mpp <= 10 ? p : null; // クリックの 30m 以内・画面で 10px 以内に、青い画素があったときだけ（離れていると、Google 側に映像がなく、「利用できません」になりやすいため）
   }
   cur = (await svSnap(cur.lat, cur.lng, 19, { R: 12, zFix: 19 })) || cur;
   return cur;

@@ -1,6 +1,6 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
-import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -528,7 +528,19 @@ async function chooseModeCountries() {
   return true;
 }
 // モードが変わったとき: 今の画面を描き直す
+// 国モードの国の地域名（日本語）を、先に読み込んでおく（暗記の裏面・カード一覧で、日本語で出すため）
+const warmedRegions = new Set();
+function warmRegionNames() {
+  if (state.mode.kind !== 'country') return;
+  const todo = state.mode.countries.filter((c) => !warmedRegions.has(c));
+  if (!todo.length) return;
+  todo.forEach((c) => warmedRegions.add(c));
+  Promise.all(todo.map((code) => resolveRegions(code, regionCtx.iso3Of(code), []).catch(() => {}))).then(() => {
+    if (state.view === 'study' && !state.quiz?.answered) render(); // 暗記の裏面の地名を、日本語にするため、1 回だけ描き直す
+  });
+}
 function applyMode() {
+  warmRegionNames();
   state.manage.sel?.clear?.();
   rebuildStudyDeck(false);
   render();
@@ -548,6 +560,7 @@ function initModeSwitch() {
 async function boot() {
   fillDatalists();
   initModeSwitch();
+  setTimeout(() => warmRegionNames(), 2500);
   try {
     api = await initApi();
   } catch (e) {
@@ -1336,7 +1349,13 @@ function placesHtml(card) {
 }
 function answerHtml(card, size = 'lg', linkCountries = false) {
   // 「国の地域」のカード: 地名（詳細エリア・登録した地名）を大きく、国名を小さく出す（国は分かっていて、地域を当てるカードなので）
-  const where = scopeOf(card).length ? [...new Set([card.area, ...(card.places || []).map((p) => p.name)].map((x) => String(x || '').trim()).filter(Boolean))] : [];
+  const where = scopeOf(card).length ? (() => {
+    const pl = (card.places || []).map((p) => String(p.name || '').trim()).filter(Boolean);
+    const known = new Set((card.places || []).flatMap((p) => [p.name, p.en, p.local]).map((x) => String(x || '').trim().toLowerCase()).filter(Boolean));
+    const a = String(card.area || '').trim();
+    const cc = scopeOf(card)[0];
+    return [...new Set([...pl, ...(a && !known.has(a.toLowerCase()) ? [a] : [])].map((n) => regionJaFor(cc, n) || n))]; // 地名（日本語）を先に。詳細エリアが、地名と同じもの（英語名）なら、重ねない。英語の地域名は、読み込み済みなら、日本語に
+  })() : [];
   if (where.length) {
     const sub = card.countries.map((c) => (linkCountries
       ? `<button type="button" class="country-link answer-sub-country" data-info="${c}" title="国の基本情報">${flagImg(c)}${esc(countryName(c))}</button>`
@@ -1700,7 +1719,8 @@ async function regionPhotoToCard(ex, rc, src, btn) {
   try {
     const blob = await fetchImageBlob(src);
     const parent = regionParent(rc);
-    const name = regionName(rc);
+    const name = regionNameEn(rc);
+    const ja = regionName(rc) !== name ? regionName(rc) : '';
     const re = ex.kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i;
     const catId = state.categories.find((k) => re.test(k.name))?.id || null;
     const [lat, lng] = ex.center || [];
@@ -1708,7 +1728,7 @@ async function regionPhotoToCard(ex, rc, src, btn) {
     const it = ex.items?.find((x) => x.src === src) || ex.items?.[ex.i];
     openEditor(null, {
       countries: [parent], categoryId: catId, blob, area: name, scope: [parent],
-      places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
+      places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name: ja || name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
       notes: [memo, ex.kind === 'plate' ? `${name}のナンバープレート` : `${name}の旗`, `画像: ${it?.source === 'geohints' ? 'GeoHints' : 'Wikimedia Commons'}${it?.page ? `（${it.page}）` : ''}`].filter(Boolean).join('\n'),
     });
   } catch (ex2) {
@@ -3520,7 +3540,7 @@ function renderRegionQuestion(card, item) {
     }).join('')}</div>`;
   } else if (!a) {
     ui = `<div class="input-answer"><div class="multi-input" id="q-box"><input type="text" id="q-input" list="rq-list" placeholder="地域名を入力（例: ${esc(countryName(correct[0]))}）" autocomplete="off" enterkeyhint="done"></div>
-      <datalist id="rq-list">${(idx?.regions || []).map((r) => `<option value="${esc(r.name)}"></option>`).join('')}</datalist>
+      <datalist id="rq-list">${(idx?.regions || []).map((r) => `<option value="${esc(r.ja || r.name)}">${r.ja ? esc(r.name) : ''}</option>`).join('')}</datalist>
       <button class="btn btn-primary" type="button" id="q-submit">回答</button></div>`;
   } else {
     ui = `<div class="given-list">${correct.map((rc) => `<span class="given ${a.given.includes(rc) ? 'given-hit' : 'given-miss'}">${a.given.includes(rc) ? '✓' : '・'} ${flagImg(rc)}${esc(countryName(rc))}</span>`).join('')}${a.given.filter((g) => !correct.includes(g)).map((g) => `<span class="given given-wrong">✗ ${flagImg(g)}${esc(countryName(g))}</span>`).join('')}</div>`;
@@ -3548,10 +3568,12 @@ function renderRegionQuestion(card, item) {
   }
   if (q.mode === 'choice') { $$('.choice').forEach((b) => b.addEventListener('click', () => submitRegionAnswer(card, [b.dataset.rc]))); return; }
   const input = $('#q-input');
+  const nz = (s) => String(s || '').toLowerCase().replace(/[\s\-_.,']/g, '');
   const submit = () => {
-    const v = input.value.trim().toLowerCase().replace(/[\s\-_.,']/g, '');
+    const v = nz(input.value);
     if (!v) { toast('地域名を入力してください', 'error'); return; }
-    const hit = (idx?.regions || []).find((r) => r.name.toLowerCase().replace(/[\s\-_.,']/g, '') === v) || (idx?.regions || []).find((r) => v.length >= 3 && r.name.toLowerCase().replace(/[\s\-_.,']/g, '').includes(v));
+    const regs = idx?.regions || [];
+    const hit = regs.find((r) => nz(r.name) === v || nz(r.ja) === v) || regs.find((r) => v.length >= 2 && (nz(r.name).includes(v) || nz(r.ja).includes(v)) && v.length >= (nz(r.ja).includes(v) ? 2 : 3));
     submitRegionAnswer(card, hit ? [hit.rc] : [`${parent}:?${input.value.trim()}`]);
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submit(); } });
@@ -6192,12 +6214,12 @@ const regionCtx = {
   catOfKind: (kind) => state.categories.find((k) => (kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i).test(k.name)) || null,
   reloadCards: async () => { await reloadCards(); render(); },
   // 地域の旗のカード: 表面は旗の画像だけ・ラベルはその国の「地域」・場所は地域の代表点（どの地域のカードかは、この座標で判断する）
-  createRegionCard: async ({ blob, kind, source, parent, name, lat, lng }) => {
+  createRegionCard: async ({ blob, kind, source, parent, name, ja, lat, lng }) => {
     const re = kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i;
     const cat = state.categories.find((k) => re.test(k.name));
     await api.createCard({
       description: '', countries: [parent], area: name, notes: kind === 'plate' ? `${name}のナンバープレート（画像: ${source === 'geohints' ? 'GeoHints' : `Wikimedia Commons ${source || ''}`}）` : `${name}の旗（画像: Wikimedia Commons）`, category_id: cat?.id || null, related: [], sv_ids: [],
-      places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
+      places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name: ja || name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
       scope_countries: [parent],
     }, blob, null);
   },

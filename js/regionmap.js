@@ -86,7 +86,11 @@ export function loadGhStateByName(country, rc, name) {
 
 const registry = new Map(); // 地域コード → { name, parent }
 export const isRegionCode = (c) => typeof c === 'string' && c.includes(':');
-export const regionName = (c) => registry.get(c)?.name || String(c).split(':')[1] || c;
+// 表示する名前: 日本語（Wikidata のラベル）があれば日本語、なければ英語（境界データの名前）。照合・保存には、英語（regionNameEn）を使う
+export const regionName = (c) => registry.get(c)?.ja || registry.get(c)?.name || String(c).split(':')[1] || c;
+/** 国と英語の地域名から、日本語名（読み込み済みのとき）。なければ空 */
+export const regionJaFor = (country, en) => { const k = String(en || '').trim().toLowerCase(); for (const v of registry.values()) if (v.parent === country && v.ja && String(v.name).toLowerCase() === k) return v.ja; return ''; };
+export const regionNameEn = (c) => registry.get(c)?.name || String(c).split(':')[1] || c;
 export const regionParent = (c) => registry.get(c)?.parent || String(c).split(':')[0];
 
 // 軽くするための間引き（Douglas–Peucker）。境界の点が多すぎると、地図の描画と操作が重くなる
@@ -136,6 +140,20 @@ function simplifyGeometry(g) {
   return out.length === 1 ? { type: 'Polygon', coordinates: out[0] } : { type: 'MultiPolygon', coordinates: out };
 }
 
+// 地域の日本語名: Wikidata の ISO 3166-2 コード → 日本語のラベル（世界モードの地名と同じく、日本語で出す）
+async function loadRegionJa(country, codes) {
+  const isos = codes.map((c) => c.split(':')[1]).filter((x) => /^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(x || ''));
+  for (let i = 0; i < isos.length; i += 120) {
+    const part = isos.slice(i, i + 120);
+    const q = `SELECT ?iso ?l WHERE { VALUES ?iso { ${part.map((x) => `"${x}"`).join(' ')} } ?r wdt:P300 ?iso . ?r rdfs:label ?l . FILTER(LANG(?l) = "ja") }`;
+    try {
+      const r = await fetch(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(q)}`, { headers: { accept: 'application/sparql-results+json' } });
+      const j = await r.json();
+      for (const b of j.results?.bindings || []) { const rc = `${country}:${b.iso.value}`; const e = registry.get(rc); if (e && !e.ja) e.ja = b.l.value; }
+    } catch { /* 日本語名が取れなくても、英語で使える */ }
+  }
+}
+
 const cache = new Map(); // 国コード → Promise<FeatureCollection>
 export function loadRegions(code, iso3) {
   if (!cache.has(code)) {
@@ -162,6 +180,7 @@ export function loadRegions(code, iso3) {
         f.properties = { code: id, name: p.shapeName || id, parent: code };
         registry.set(id, { name: f.properties.name, parent: code });
       }
+      await loadRegionJa(code, fc.features.map((f) => f.properties.code)); // 地域の日本語名（なければ、英語のまま）
       return fc;
     })());
     cache.get(code).catch(() => cache.delete(code));
@@ -251,7 +270,7 @@ function computeCardRegions() {
     const regions = new Set(pts.map((p) => p.region).filter(Boolean));
     if (!pts.length) {
       const hay = norm(c.area);
-      if (hay.length >= 2) for (const [rc] of S.geo) { const nm = norm(regionName(rc)); if (nm.length >= 2 && (hay.includes(nm) || nm.includes(hay)) && (c.scope_countries || []).includes(regionParent(rc))) regions.add(rc); }
+      if (hay.length >= 2) for (const [rc] of S.geo) { const nm = norm(regionNameEn(rc)); if (nm.length >= 2 && (hay.includes(nm) || nm.includes(hay)) && (c.scope_countries || []).includes(regionParent(rc))) regions.add(rc); }
     }
     map.set(c.id, { regions, points: pts });
   }
@@ -279,7 +298,7 @@ export async function resolveRegions(code, iso3, names) {
     const hit = feats.find((x) => x.nm === n) || feats.find((x) => x.iso === raw) || feats.find((x) => n.length >= 3 && (x.nm.includes(n) || n.includes(x.nm)) && x.nm.length >= 3);
     if (!hit) { out.push({ input }); continue; }
     const c = indexRegion(hit.f).center;
-    out.push({ input, name: hit.f.properties.name, rc: hit.f.properties.code, lat: c?.[0], lng: c?.[1] });
+    out.push({ input, name: hit.f.properties.name, ja: registry.get(hit.f.properties.code)?.ja || '', rc: hit.f.properties.code, lat: c?.[0], lng: c?.[1] });
   }
   return out;
 }
@@ -451,7 +470,7 @@ export async function renderRegionMap(view, ctx) {
     const fmtPop = (n) => (n >= 10000 ? `${Math.round(n / 10000).toLocaleString()}万人` : n ? `${n.toLocaleString()}人` : '');
     const regionHits = (q) => {
       const nq = norm(q); const out = [];
-      if (nq.length >= 1) for (const rc of S.byCode.keys()) { if (norm(regionName(rc)).includes(nq)) out.push({ region: rc, name: regionName(rc), sub: `${countryName(regionParent(rc))}の地域`, code: regionParent(rc), pop: 0 }); if (out.length >= 5) break; }
+      if (nq.length >= 1) for (const rc of S.byCode.keys()) { if (norm(regionNameEn(rc)).includes(nq) || norm(regionName(rc)).includes(nq)) out.push({ region: rc, name: regionName(rc), sub: `${countryName(regionParent(rc))}の地域`, code: regionParent(rc), pop: 0 }); if (out.length >= 5) break; }
       return out;
     };
     const closeSug = () => { sug.hidden = true; hi = -1; };
@@ -645,7 +664,7 @@ async function createRegionCard(rc, src, kind, source) {
   const blob = await ctx.fetchImage(src);
   const parent = regionParent(rc);
   const c = S.geo.get(rc)?.center;
-  await ctx.createRegionCard({ blob, kind, source, parent, name: regionName(rc), lat: c?.[0], lng: c?.[1] });
+  await ctx.createRegionCard({ blob, kind, source, parent, name: regionNameEn(rc), ja: registry.get(rc)?.ja || '', lat: c?.[0], lng: c?.[1] });
 }
 const createFlagCard = (rc) => createRegionCard(rc, regionFlagReadable(rc) ? regionFlagSrc(rc) : '', 'flag', '旗');
 
@@ -689,7 +708,7 @@ function pseudoOf(rc, kind) {
   }
   // ナンバープレート: GeoHints の州のページ（アメリカ）→ 保存した Wikimedia Commons のリンク
   const a = (gs?.plates || []).map((f) => ({ pseudo: true, kind, rc, src: f.src, title: `${regionName(rc)} ${f.year || ''}`.trim(), page: gs.page, source: 'geohints' }));
-  const b = platesForRegion(regionParent(rc), regionName(rc)).map((f) => ({ pseudo: true, kind, rc, src: f.src, title: f.title, page: f.page, source: 'commons' }));
+  const b = platesForRegion(regionParent(rc), regionNameEn(rc)).map((f) => ({ pseudo: true, kind, rc, src: f.src, title: f.title, page: f.page, source: 'commons' }));
   return [...a, ...b].map((x, i) => ({ ...x, idx: i }));
 }
 // GeoHints の州のページを、表示中の地域の分、少しずつ（同時に 3 つまで）取ってくる。取れたら、描き直す
@@ -702,7 +721,7 @@ function prefetchGh(rcs, front = false) {
     while (S?.seq === seq && S.ghQueue.length && S.ghActive < 3) {
       const rc = S.ghQueue.shift();
       S.ghActive++;
-      loadGhStateByName(regionParent(rc), rc, regionName(rc)).then((data) => {
+      loadGhStateByName(regionParent(rc), rc, regionNameEn(rc)).then((data) => {
         S.ghActive--; S.ghPending.delete(rc);
         if (S?.seq !== seq) return;
         S.ghs.set(rc, data || null);
@@ -952,7 +971,7 @@ export function refreshRegionMap() { if (!S?.map) return; S.cardRegions = null; 
 /** 国の地域の一覧（代表点・旗つき）と、座標からどの地域かを調べる関数。まとめてカードを作る画面で使う（地図を開かなくても使える） */
 export async function getRegionIndex(code, iso3) {
   const fc = await loadRegions(code, iso3);
-  const regions = fc.features.map((f) => { const ix = indexRegion(f); return { rc: f.properties.code, name: f.properties.name, center: ix.center, ix }; });
+  const regions = fc.features.map((f) => { const ix = indexRegion(f); return { rc: f.properties.code, name: f.properties.name, ja: registry.get(f.properties.code)?.ja || '', center: ix.center, ix }; });
   await loadRegionFlags(code, regions.map((r) => r.rc));
   const at = (lat, lng) => {
     for (const r of regions) {

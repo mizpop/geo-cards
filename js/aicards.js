@@ -223,7 +223,7 @@ export async function proposeCards(deps) {
     const regionPlaces = async (text) => {
       const names = String(text || '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean);
       if (!names.length || !deps.resolveRegions) return [];
-      try { return (await deps.resolveRegions(code, names)).filter((r) => r.rc && Number.isFinite(r.lat)).map((r) => ({ name: r.name, en: r.name, local: '', sub: '', code, lat: r.lat, lng: r.lng, zoom: 8 })); } catch { return []; }
+      try { return (await deps.resolveRegions(code, names)).filter((r) => r.rc && Number.isFinite(r.lat)).map((r) => ({ name: r.ja || r.name, en: r.name, local: '', sub: '', code, lat: r.lat, lng: r.lng, zoom: 8 })); } catch { return []; }
     };
     const fieldsOf = (el) => ({
       description: el.querySelector('.aic-front').value.trim(),
@@ -297,7 +297,7 @@ export async function proposeCards(deps) {
             const names = f.regionsText.split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean);
             try {
               const res = await deps.resolveRegions(code, names);
-              places = res.filter((r) => r.rc && Number.isFinite(r.lat)).map((r) => ({ name: r.name, en: r.name, local: '', sub: '', code, lat: r.lat, lng: r.lng, zoom: 8 }));
+              places = res.filter((r) => r.rc && Number.isFinite(r.lat)).map((r) => ({ name: r.ja || r.name, en: r.name, local: '', sub: '', code, lat: r.lat, lng: r.lng, zoom: 8 }));
               missed = res.filter((r) => !r.rc).map((r) => r.input);
               if (places.length) area = [...res.filter((r) => r.rc).map((r) => r.name), ...missed].join(', '); // 詳細エリアは、判定した地域の名前に（地域の特定に使う）
               else if (!area) area = missed.join(', ');
