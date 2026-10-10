@@ -254,7 +254,7 @@ export function openArticleEditor(article = null, opts = {}) {
   const a = article || { id: null, title: '', body: opts.body || '', folder_id: opts.folder_id || null, related: [] };
   const draft = { title: a.title || '', body: a.body || '', folder_id: a.folder_id || '', related: new Set(a.related || []) };
   const m = deps.openModal(`
-    <div class="modal-head"><h2>${a.id ? '記事を編集' : '新しい記事'}</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+    <div class="modal-head"><h2>${a.id ? '記事を編集' : '新しい記事'}</h2><button class="icon-btn" id="gd-max" type="button" aria-label="書く画面を拡大・元に戻す" title="書く画面を、画面いっぱいに拡大する・元に戻す（F11 のように）">⤢</button><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
     <div class="gd-ed">
       <div class="gd-ed-top">
         <input type="text" id="gd-title" class="input gd-title" maxlength="200" placeholder="タイトル" value="${deps.esc(draft.title)}">
@@ -279,6 +279,10 @@ export function openArticleEditor(article = null, opts = {}) {
     </div>`, 'modal-wide modal-guide-ed');
   const $ = (s) => m.el.querySelector(s);
   const ta = $('#gd-body');
+  // 書く画面の拡大（PC）: 画面いっぱいに。選んだ状態は、覚えておく
+  const setMax = (on) => { m.el.classList.toggle('gd-max', on); $('#gd-max').setAttribute('aria-pressed', String(on)); $('#gd-max').textContent = on ? '⤡' : '⤢'; try { localStorage.setItem('geo-guide-ed-max', on ? '1' : '0'); } catch { /* 無視 */ } };
+  $('#gd-max').addEventListener('click', () => setMax(!m.el.classList.contains('gd-max')));
+  try { if (localStorage.getItem('geo-guide-ed-max') === '1') setMax(true); } catch { /* 無視 */ }
   const status = (t) => { $('#gd-status').textContent = t; };
   // プレビュー
   let pv = null;
