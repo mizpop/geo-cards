@@ -1,6 +1,7 @@
 // 国モードの地図: 選んだ国だけを、州・県などの地域ごとに分けて表示する。
 // 地域の境界は geoBoundaries（ADM1: 州・県・省など。名前は英語）を、国ごとに、必要になったとき取得する。
 // 地域は「国コード:地域コード」（例: JP:JP-13）で区別し、国ごとの情報（シェブロン・ガードレールなど）と同じ仕組みで、値を保存・表示する。
+import { createHoverBubble } from './hoverbubble.js';
 import { loadLibs, addBaseTiles, isDark } from './map.js';
 import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, factChipHtml, factPanelHtml } from './infomap.js';
 
@@ -138,7 +139,13 @@ export async function renderRegionMap(view, ctx) {
   paintSide();
   let loaded = 0; let failed = 0;
   const status = () => { const el = view.querySelector('#rm-status'); if (el) el.textContent = loaded + failed < countries.length ? `地域の境界を読み込んでいます… ${loaded + failed} / ${countries.length}` : failed ? `${failed} か国は、地域の境界を読み込めませんでした（データがない国もあります）` : `地域をクリックすると、情報が出ます（${[...S.byCode.keys()].length} 地域）`; };
-  const tip = L.tooltip({ direction: 'top', offset: [0, -4], opacity: 0.95, className: 'rm-tip' });
+  if (S.bubble) S.bubble.destroy();
+  const bubble = createHoverBubble();
+  S.bubble = bubble;
+  const hintHtml = (rc) => {
+    if (mode === 'cards') { const n = cardsOfRegion(ctx, rc).length; return n ? `<span class="hb-n">${n} 枚</span>` : ''; }
+    return EDITABLE.includes(mode) ? factChipHtml(mode, rc) : '';
+  };
   const group = L.featureGroup().addTo(map);
   await Promise.all(countries.map(async (code) => {
     try {
@@ -149,10 +156,9 @@ export async function renderRegionMap(view, ctx) {
         onEachFeature: (f, l) => {
           const rc = f.properties.code;
           S.byCode.set(rc, l);
-          // 地名の表示は、ひとつだけを使い回す（同時に複数出ないように）
-          l.on('mouseover', (e) => { l.setStyle({ weight: 2.5 }); tip.setContent(esc(f.properties.name)).setLatLng(e.latlng); if (!map.hasLayer(tip)) tip.addTo(map); });
-          l.on('mousemove', (e) => tip.setLatLng(e.latlng));
-          l.on('mouseout', () => { l.setStyle({ weight: S.selected === rc ? 3 : 1 }); map.removeLayer(tip); });
+          // 世界モードの国と同じ、旗 + 名前 + ひとこと（カード枚数・選んでいる情報）の吹き出し。ひとつだけを使い回す
+          l.on('mouseover', (e) => { l.setStyle({ weight: 2.5 }); bubble.show(`${flagImg(code)}<b>${esc(f.properties.name)}</b>${hintHtml(rc)}`, e); });
+          l.on('mouseout', () => { l.setStyle({ weight: S.selected === rc ? 3 : 1 }); bubble.hide(); });
           l.on('click', () => selectRegion(rc));
         },
       });

@@ -1,5 +1,6 @@
 // 国を選ぶポップアップ: 上に検索バー（地図タブと同じ、補完つき）、その下に地図。検索で選ぶか、地図の国を押すと、追加・解除できる（複数選択）。
 // 使い方: const codes = await pickCountries({ selected, resolve, countryName, flagImg, esc, attachComplete }) → 決定した国コードの配列（キャンセルなら null）
+import { createHoverBubble } from './hoverbubble.js';
 import { loadLibs, loadWorld, isDark } from './map.js';
 
 export async function pickCountries({ selected = [], title = '国を選ぶ', resolve, countryName, flagImg, esc, attachComplete = null }) {
@@ -16,6 +17,7 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
   </div>`;
   document.body.appendChild(d);
   const chips = d.querySelector('.cp-chips');
+  const bubble = createHoverBubble(d); // ダイアログの中に置く（モーダルの手前に出すため）
   const input = d.querySelector('.cp-search');
   let layerByCode = new Map();
   let map = null;
@@ -45,7 +47,7 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
   input.addEventListener('change', () => { if (resolve(input.value)) enter(); }); // 候補を選んだとき
   paintChips();
   return new Promise((resolveP) => {
-    const done = (v) => { try { map?.remove(); } catch { /* 無視 */ } d.close(); d.remove(); resolveP(v); };
+    const done = (v) => { try { map?.remove(); } catch { /* 無視 */ } bubble.destroy(); d.close(); d.remove(); resolveP(v); };
     d.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', () => done(null)));
     d.querySelector('[data-ok]').addEventListener('click', () => done([...sel]));
     d.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
@@ -59,7 +61,6 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
         const box = d.querySelector('.cp-map');
         map = L.map(box, { minZoom: 1, maxZoom: 8, worldCopyJump: true, zoomControl: true, attributionControl: false, keyboard: false }).setView([20, 10], 2);
         box.classList.toggle('map-dark', isDark());
-        const tip = L.tooltip({ direction: 'top', offset: [0, -4], opacity: 0.95 });
         L.geoJSON(fc, {
           style: (f) => style(f.properties.code),
           onEachFeature: (f, layer) => {
@@ -67,10 +68,9 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
             if (!code) return;
             if (!layerByCode.has(code)) layerByCode.set(code, []);
             layerByCode.get(code).push(layer);
-            // 地名の表示は、ひとつだけを使い回す（同時に複数出ないように）
-            layer.on('mouseover', (e) => { tip.setContent(esc(countryName(code))).setLatLng(e.latlng); if (!map.hasLayer(tip)) tip.addTo(map); });
-            layer.on('mousemove', (e) => tip.setLatLng(e.latlng));
-            layer.on('mouseout', () => map.removeLayer(tip));
+            // 世界モードの国と同じ、旗 + 名前の吹き出し（ひとつだけを使い回す）
+            layer.on('mouseover', (e) => bubble.show(`${flagImg(code)}<b>${esc(countryName(code))}</b>${sel.has(code) ? '<span class="hb-n">選択中</span>' : ''}`, e));
+            layer.on('mouseout', () => bubble.hide());
             layer.on('click', () => toggle(code));
           },
         }).addTo(map);
