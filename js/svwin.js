@@ -78,6 +78,15 @@ const mobile = () => !document.documentElement.classList.contains('is-popout') &
 // ストリートビューも最前面の層（popover）に出して、あとから開いた方が手前に来るようにする（PC は、浮かぶウィンドウどうしの重なりを保つため使わない）
 function raiseTop() {
   store();
+  // スマホ: 最前面の層に出したストリートビューは、モーダルのダイアログが開いていると「操作できない状態」になる（モーダルの外はすべて無効）。
+  // ストリートビューが開いている間は、ダイアログを、モーダルではない表示に切り替えて、ストリートビューを操作できるようにする
+  if (mobile() && svs.some((i) => i.panel?.isConnected && !i.panel.hidden)) {
+    for (const dlg of document.querySelectorAll('dialog.modal[open]')) {
+      try { // すぐ開き直すので、close イベントの片付けは、開いている間は行われない
+        if (dlg.matches(':modal')) { dlg.classList.add('is-nonmodal'); dlg.close(); dlg.show(); }
+      } catch { /* 非対応のブラウザでは、そのまま */ }
+    }
+  }
   for (const i of svs) {
     const p = i.panel;
     if (!p?.isConnected) continue;

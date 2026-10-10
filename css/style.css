@@ -1833,6 +1833,9 @@ textarea { resize: vertical; line-height: 1.6; }
 .sv-panel.is-min { height: auto !important; min-height: 0; resize: none; }
 .sv-panel.is-min iframe, .sv-panel.is-min .sv-note { display: none; }
 
+/* スマホで、ストリートビューを開いている間は、ダイアログをモーダルにしない（ストリートビューを操作できるように）。画面の中央に固定して表示 */
+.modal.is-nonmodal[open] { position: fixed; inset: 0; margin: auto; height: fit-content; z-index: 30; box-shadow: 0 0 0 100vmax rgba(8, 12, 16, .35), 0 20px 60px rgba(0, 0, 0, .35); }
+
 /* ---------- 浮かぶウィンドウ（PC: カード・国・写真の詳細） ---------- */
 .modal.is-window[open] {
   display: flex; flex-direction: column; overflow: hidden; resize: both; min-width: 380px; min-height: 120px; max-width: 100vw; max-height: 100vh;

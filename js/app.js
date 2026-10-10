@@ -2360,7 +2360,7 @@ function openModal(html, cls = '', nav = false) {
   const keep = asWindow && wasWindow ? ['is-max', 'is-min', 'is-snap'].filter((c) => m.classList.contains(c)) : []; // ウィンドウの中で移るときは、拡大・縮小の状態を保つ
   if (!nav) { W.stack = []; W.current = null; }
   if (m.open && wasWindow !== asWindow) m.close(); // モーダルとウィンドウを行き来するときは開き直す
-  m.className = `modal ${cls}${asWindow ? ' is-window' : ''}${keep.length ? ` ${keep.join(' ')}` : ''}`;
+  m.className = `modal ${cls}${asWindow ? ' is-window' : ''}${keep.length ? ` ${keep.join(' ')}` : ''}${m.open && !asWindow && m.classList.contains('is-nonmodal') ? ' is-nonmodal' : ''}`; // スマホで、ストリートビューを操作できるように、モーダルでなくしてあるダイアログは、そのまま
   if (!asWindow) { releaseSnap(m); m.removeAttribute('style'); delete m.dataset.winFront; }
   m.style.removeProperty('--cat');
   if (!m.open) play('open'); // 詳細の中で移るとき（戻る・国へ）はタップ音だけ
