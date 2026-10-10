@@ -92,10 +92,15 @@ function inline(text, env) {
   s = s.replace(/(^|[\s(（])(https?:\/\/[^\s<）)]+)/g, (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
   return s.replace(/\u0000(\d+)\u0000/g, (m, i) => hold[Number(i)]);
 }
-function imageHtml(src, alt, env) {
+/** 画像の説明の最後に「|50%」「|300」（px）と書くと、表示の大きさになる（例: ![説明|50%](img:…)） */
+const IMG_SIZE = /^(.*?)\s*\|\s*(\d{1,4})\s*(%|px)?\s*$/;
+export const parseImgAlt = (alt) => { const m = IMG_SIZE.exec(alt || ''); return m ? { alt: m[1], size: m[3] === '%' ? `${Math.min(100, +m[2])}%` : `${+m[2]}px` } : { alt: alt || '', size: '' }; };
+function imageHtml(src, rawAlt, env) {
+  const { alt, size } = parseImgAlt(rawAlt);
+  const idx = env.imgN = (env.imgN || 0) + 1;
   const url = env.urls.get(src) || '';
   if (!url) return `<span class="art-img-missing" title="${deps.esc(src)}">🖼（画像が見つかりません）</span>`;
-  return `<span class="art-zoom front-img" data-art-img><img src="${deps.esc(url)}" alt="${deps.esc(alt)}" loading="lazy"></span>`;
+  return `<span class="art-zoom front-img" data-art-img data-img-i="${idx - 1}"${size ? ` style="width:${size};max-width:100%"` : ''}><img src="${deps.esc(url)}" alt="${deps.esc(alt)}" loading="lazy"></span>`;
 }
 function linkChip(kind, id, label, env) {
   if (kind === 'card') { const c = deps.cardById(id); return c ? deps.cardChipHtml(c) : '<span class="art-link-gone">（削除されたカード）</span>'; }
@@ -178,7 +183,7 @@ export function renderMarkdown(src, urls = new Map()) {
       continue;
     }
     const im = IMG_LINE.exec(line);
-    if (im) { flushPara(); out.push(`<figure class="art-fig">${imageHtml(im[2], im[1], env)}${im[1] ? `<figcaption>${deps.esc(im[1])}</figcaption>` : ''}</figure>`); i++; continue; }
+    if (im) { flushPara(); out.push(`<figure class="art-fig">${imageHtml(im[2], im[1], env)}${parseImgAlt(im[1]).alt ? `<figcaption>${deps.esc(parseImgAlt(im[1]).alt)}</figcaption>` : ''}</figure>`); i++; continue; }
     if (!line.trim()) { flushPara(); i++; continue; }
     para.push(line);
     i++;
@@ -422,6 +427,43 @@ export async function buildArticleEditor(article = null, opts = {}) {
     try { await deps.api.deleteArticle(a.id); saved = true; deleteDraft(draftKey); articles = articles.filter((x) => x.id !== a.id); changed(); deps.closeModal(); deps.toast('削除しました'); opts.onDeleted?.(a.id); } catch (ex) { deps.toast(`削除できませんでした: ${ex.message}`, 'error'); }
   });
   opts.flush = () => { clearTimeout(autoTimer); autosave(); return draftKey; }; // ウィンドウを外に出す前に、今の内容を保存する
+  // プレビューの画像を押すと、大きさを選べる（本文の「![説明|50%](…)」を書き換える）
+  const imgSpans = () => { // 本文の中の画像の書き方の位置（コードの中は除く）
+    const masked = ta.value.replace(/```[\s\S]*?(```|$)/g, (s) => ' '.repeat(s.length)).replace(/`[^`\n]+`/g, (s) => ' '.repeat(s.length));
+    return [...masked.matchAll(/!\[([^\]]*)\]\(([^)\s]+)\)/g)].map((x) => ({ at: x.index, len: x[0].length, alt: parseImgAlt(ta.value.slice(x.index + 2, x.index + 2 + x[1].length)).alt, src: x[2] }));
+  };
+  const setImgSize = (i, size) => {
+    const x = imgSpans()[i];
+    if (!x) return;
+    ta.setRangeText(`![${x.alt}${size ? `|${size}` : ''}](${x.src})`, x.at, x.at + x.len, 'preserve');
+    schedule();
+  };
+  let sizePop = null;
+  const closeSizePop = () => { sizePop?.remove(); sizePop = null; };
+  $('#gd-preview').addEventListener('click', (e) => {
+    const el = e.target.closest?.('[data-art-img]');
+    if (!el) { closeSizePop(); return; }
+    e.preventDefault(); e.stopPropagation();
+    closeSizePop();
+    const i = Number(el.dataset.imgI);
+    const cur = parseImgAlt(ta.value.slice(...(() => { const x = imgSpans()[i]; return x ? [x.at + 2, x.at + x.len] : [0, 0]; })())).size;
+    const sizes = [['25%', '小'], ['50%', '中'], ['75%', '大'], ['100%', '幅いっぱい'], ['', '元の大きさ']];
+    sizePop = document.createElement('div');
+    sizePop.className = 'gd-sizepop';
+    sizePop.innerHTML = `<span class="muted small">画像の大きさ</span>${sizes.map(([v, l]) => `<button type="button" class="btn btn-sm ${v === cur ? 'btn-primary' : ''}" data-sz="${v}">${l}</button>`).join('')}<input type="number" class="input input-sm" min="20" max="2000" step="10" placeholder="px" value="${cur.endsWith('px') ? parseInt(cur, 10) : ''}" aria-label="幅（px）"><button type="button" class="btn btn-sm" data-sz-px>幅 px</button>`;
+    const r = el.getBoundingClientRect();
+    const host = m.el.getBoundingClientRect();
+    sizePop.style.left = `${Math.max(8, Math.min(r.left - host.left, host.width - 420))}px`;
+    sizePop.style.top = `${Math.max(8, r.top - host.top - 44)}px`;
+    m.el.appendChild(sizePop);
+    sizePop.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const b = ev.target.closest('button');
+      if (!b) return;
+      if (b.hasAttribute('data-sz-px')) { const n = Number(sizePop.querySelector('input').value); if (n >= 20) { setImgSize(i, `${Math.round(n)}px`); closeSizePop(); } return; }
+      setImgSize(i, b.dataset.sz); closeSizePop();
+    });
+  }, true);
   // プレビューのカード・ストリートビュー・記事を開く前に、今の内容を下書きに保存して、戻ってきたときに、そのまま続きから書けるようにする
   $('#gd-preview').addEventListener('click', () => {
     clearTimeout(autoTimer); autosave();
