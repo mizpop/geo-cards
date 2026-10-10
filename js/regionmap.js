@@ -144,7 +144,9 @@ export function loadRegions(code, iso3) {
       for (const u of urls) { try { const r = await fetch(u); if (!r.ok) continue; const j = await r.json(); if (j?.features) { fc = j; break; } } catch { /* 次の URL */ } }
       if (!fc) throw new Error('地域データを読み込めませんでした');
       const seen = new Set();
+      let n = 0;
       for (const f of fc.features || []) {
+        if (++n % 6 === 0) await new Promise((r) => setTimeout(r, 0)); // 点の間引きは重いので、少しずつ（画面が固まらないように、途中で一息つく）
         const p = f.properties || {};
         let id = `${code}:${p.shapeISO || p.shapeID || p.shapeName}`;
         while (seen.has(id)) id += '_';
@@ -167,10 +169,17 @@ const modeInfo = (id) => (id === 'cards' ? { icon: '🃏', name: 'カード' } :
 let mode = (() => { try { const v = localStorage.getItem(MODE_KEY); return MODES.includes(v) ? v : 'cards'; } catch { return 'cards'; } })();
 let legendOpenPref = null; // 凡例の開閉（未操作なら、広い画面は開く・スマホは閉じる）
 let svTemp = false; // スペースキーを押している間だけのストリートビューのモード
-let spaceKeys = null;
 let svOn = false; // ストリートビューのモード（地図を描き直しても引き継ぐ）
 
 let S = null; // 今の画面の状態
+let cleanups = []; // 地図を離れるとき（ほかのタブへ移る・描き直す）に、必ず外すもの（キー・マウスの監視など）
+/** 国モードの地図を片付ける（ほかのタブへ移るとき・描き直すとき）。外し忘れた監視が、ほかのタブのキー操作を奪って、固まったように見えるのを防ぐ */
+export function teardownRegionMap() {
+  for (const fn of cleanups.splice(0)) { try { fn(); } catch { /* 無視 */ } }
+  if (S) { S.seq += 1; S.plateQueue = []; try { S.map?.remove(); } catch { /* 無視 */ } S.map = null; S.bubble?.destroy(); S.bubble = null; }
+  svTemp = false;
+}
+const listen = (target, type, fn, opts) => { target.addEventListener(type, fn, opts); cleanups.push(() => target.removeEventListener(type, fn, opts)); };
 const norm = (s) => String(s || '').toLowerCase().replace(/\b(prefecture|province|state|region|oblast|department|county|district|governorate|municipality|city|autonomous|republic|of|the)\b/g, '').replace(/[\s\-_.,()'’]/g, '');
 
 // ---- 点がどの地域に入るか（境界の多角形との判定）----
@@ -267,11 +276,11 @@ export async function resolveRegions(code, iso3, names) {
 }
 
 export async function renderRegionMap(view, ctx) {
-  if (S?.map) { try { S.map.remove(); } catch { /* 無視 */ } }
-  S?.bubble?.destroy();
   const keepFocus = S?.selected && S.ctx === ctx ? S.selected : null;
+  const prevSeq = S?.seq || 0;
+  teardownRegionMap();
   let legendOpen = legendOpenPref ?? !window.matchMedia('(max-width: 760px)').matches;
-  const seq = (S?.seq || 0) + 1;
+  const seq = Math.max(prevSeq, S?.seq || 0) + 1;
   S = { seq, ctx, view, map: null, byCode: new Map(), geo: new Map(), cardRegions: null, selected: null, pins: null, thumbs: new Map(), plates: new Map(), platePending: new Set(), plateQueue: [], plateRun: false, svCov: null, svPins: null, found: null, byRegion: new Map() };
   const { esc, countryName, flagImg } = ctx;
   const countries = ctx.countries;
@@ -317,7 +326,10 @@ export async function renderRegionMap(view, ctx) {
   addBaseTiles(map, { updateWhenZooming: false });
   map.attributionControl.addAttribution('地域の境界 &copy; <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a>');
   map.on('zoomend', () => scalePatterns(map.getPane('overlayPane').querySelector('svg'), map.getZoom()));
-  map.on('zoomend moveend', () => { drawMarks(); if (!S.selected) renderList(); });
+  // 動かしている間に何度も描き直さないよう、少し待って、一度だけ描く
+  let redrawTimer = null;
+  map.on('zoomend moveend', () => { clearTimeout(redrawTimer); redrawTimer = setTimeout(() => { if (S?.seq !== seq || !S.map) return; drawMarks(); if (!S.selected) renderList(); }, 120); });
+  cleanups.push(() => clearTimeout(redrawTimer));
   requestAnimationFrame(() => { try { map.invalidateSize(); } catch { /* 無視 */ } });
   view.querySelector('#rm-mode').addEventListener('change', (e) => { mode = e.target.value; try { localStorage.setItem(MODE_KEY, mode); } catch { /* 無視 */ } renderRegionMap(S.view, S.ctx); });
   renderPanel();
@@ -368,6 +380,7 @@ export async function renderRegionMap(view, ctx) {
     restyle();
   }));
   status();
+  if (S?.seq !== seq || !S.map) return; // 待っている間に、地図を離れた（ほかのタブへ移った・描き直した）
   if (keepFocus && S.byCode.has(keepFocus)) focusRegion(keepFocus);
   setupSearch();
   setupSv();
@@ -383,8 +396,8 @@ export async function renderRegionMap(view, ctx) {
     if (hd && !svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); toggleFocus(hd.dataset.rc); }
   }, true); // Leaflet の印は、クリックを上に伝えないので、先に（キャプチャで）受ける
   // Esc: ストリートビューのモード → 地名の目印 → 地域の選択、の順に解除（世界モードと同じ）
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || S?.view !== view || document.querySelector('dialog[open]') || /^(input|textarea|select)$/i.test(e.target.tagName)) return;
+  listen(document, 'keydown', (e) => {
+    if (e.key !== 'Escape' || S?.view !== view || !mapEl.isConnected || document.querySelector('dialog[open]') || /^(input|textarea|select)$/i.test(e.target.tagName)) return;
     if (svOn) S.setSv?.(false); else if (S.city) S.clearCity?.(); else if (S.selected) clearFocus();
   });
 
@@ -566,10 +579,9 @@ export async function renderRegionMap(view, ctx) {
     if (svOn) set(true);
     S.setSv = set;
     // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る。世界モードの地図と同じ）
-    if (spaceKeys) { document.removeEventListener('keydown', spaceKeys.down); document.removeEventListener('keyup', spaceKeys.up); window.removeEventListener('blur', spaceKeys.up); }
     const typing = (el) => /^(input|textarea)$/i.test(el?.tagName || '') || el?.isContentEditable;
     const spaceDown = (e) => {
-      if (e.code !== 'Space' || e.ctrlKey || e.altKey || e.metaKey || typing(e.target) || document.querySelector('dialog[open]:not(.is-window)') || S?.view !== view || !view.isConnected) return;
+      if (e.code !== 'Space' || e.ctrlKey || e.altKey || e.metaKey || typing(e.target) || document.querySelector('dialog[open]:not(.is-window)') || S?.view !== view || !view.isConnected || !mapEl.isConnected) return;
       e.preventDefault(); // ページが下へ動かないように
       if (e.repeat || svOn) return;
       svTemp = true;
@@ -579,10 +591,9 @@ export async function renderRegionMap(view, ctx) {
       if (e.type === 'keyup') { if (e.code !== 'Space') return; if (!typing(e.target) && view.isConnected) e.preventDefault(); } // フォーカス中のボタンがスペースで押されないように
       if (svTemp) { svTemp = false; set(false); }
     };
-    spaceKeys = { down: spaceDown, up: spaceUp };
-    document.addEventListener('keydown', spaceDown);
-    document.addEventListener('keyup', spaceUp);
-    window.addEventListener('blur', spaceUp);
+    listen(document, 'keydown', spaceDown);
+    listen(document, 'keyup', spaceUp);
+    listen(window, 'blur', spaceUp);
   }
 
   // ---- 地域の旗をカードにする（編集者）----
@@ -621,7 +632,7 @@ const createFlagCard = (rc) => createRegionCard(rc, regionFlagReadable(rc) ? reg
 
 // 世界モードの国と同じ配色: 塗りだけ（輪郭は別の境界線の層）。カード数が多いほど濃く / 選んでいる地域は黄色の輪郭と薄い塗り / マウスを乗せると輪郭
 function styleOf(rc) {
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1c7f55';
+  const accent = S.accent || (S.accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1c7f55'); // 毎回は読まない（レイアウトの再計算が重くなる）
   const focused = S?.selected === rc;
   const hover = S?.hover === rc;
   let st;

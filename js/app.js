@@ -1,5 +1,5 @@
 import { pickCountries } from './countrypick.js';
-import { renderRegionMap, refreshRegionMap, resolveRegions, isRegionCode, regionName, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, teardownRegionMap, resolveRegions, isRegionCode, regionName, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -1126,6 +1126,7 @@ function render() {
 
 function renderView() {
   const v = state.view;
+  if (v !== 'map') teardownRegionMap(); // 国モードの地図の監視（キー・マウス）を、ほかのタブへ持ち越さない
   if ($('#spotlight').open) renderSearchResults();
   if (v === 'study') renderStudy();
   else if (v === 'quiz') renderQuiz();
@@ -6061,7 +6062,7 @@ const regionCtx = {
   svView: (r) => rowView(r),
   openSv: (lat, lng, view) => openSvWindow(lat, lng, view),
 };
-function renderMap(view, ctx) { return regionMapOn() ? renderRegionMap(view, regionCtx) : renderWorldMap(view, ctx); }
+function renderMap(view, ctx) { if (!regionMapOn()) teardownRegionMap(); return regionMapOn() ? renderRegionMap(view, regionCtx) : renderWorldMap(view, ctx); }
 function refreshMap(view, ctx) { return regionMapOn() ? refreshRegionMap() : refreshWorldMap(view, ctx); }
 const mapCtx = {
   createCardFromSv: (p) => cardFromSv(p),
