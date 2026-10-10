@@ -1,5 +1,5 @@
 import { pickCountries } from './countrypick.js';
-import { renderRegionMap, refreshRegionMap, isRegionCode, regionName, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, resolveRegions, isRegionCode, regionName, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -5645,6 +5645,7 @@ function renderPlonkitModal(entry) {
         resolveCountry: (name) => findCountry(name)?.code || null, // 国名（日本語・英語・略称）→ 国コード（完全に一致するものだけ）
         editImage: (url, host, extra = {}) => editImage(url, { host, tool: 'erase', ...extra }), // 画像の一部を消す・ぼかす（画像編集の「消す」から始める）
         createCard: (fields, blob, back = null) => api.createCard(fields, blob, back),
+        resolveRegions: (code, names) => resolveRegions(code, (ALIASES[code] || []).find((a) => /^[A-Z]{3}$/.test(a)) || null, names),
         addSv: async (url) => { // ガイドのストリートビューのリンクを、保存したストリートビューにして、その id を返す（短縮リンクは、元のリンクに戻す）
           let p = parseStreetView(url);
           if (!p && /^https?:\/\/(goo\.gl\/maps\/|maps\.app\.goo\.gl\/)/.test(url)) {
@@ -6007,6 +6008,8 @@ const regionCtx = {
   bindFilterPicks: (onChange) => mapCtx.bindFilterPicks(onChange),
   filterMatch: (c) => mapCtx.filterMatch(c),
   isFlagCard: (c) => /国旗|flag/i.test(catOf(c).name),
+  isKindCard: (c, kind) => (kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i).test(catOf(c).name),
+  catOfKind: (kind) => state.categories.find((k) => (kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i).test(k.name)) || null,
   reloadCards: async () => { await reloadCards(); render(); },
   // 地域の旗のカード: 表面は旗の画像だけ・ラベルはその国の「地域」・場所は地域の代表点（どの地域のカードかは、この座標で判断する）
   createRegionCard: async ({ blob, kind, source, parent, name, lat, lng }) => {
