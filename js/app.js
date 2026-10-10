@@ -1,6 +1,6 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
-import { renderRegionMap, refreshRegionMap, teardownRegionMap, resolveRegions, getRegionIndex, isRegionCode, regionName, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -1021,7 +1021,7 @@ function bindGlobal() {
     const place = cardById(b.dataset.placeCard)?.places?.[Number(b.dataset.place)];
     if (!place) return;
     e.stopPropagation();
-    showCityOnNextRender(place);
+    if (regionMapOn()) showRegionCityOnNextRender(place); else showCityOnNextRender(place);
     closeModal();
     if (state.view === 'map') render(); else gotoView('map', { place });
   }, true);
@@ -5566,7 +5566,7 @@ function openTabContent(e) {
   document.documentElement.classList.add('is-tabwin');
   if (e.compare) state.compare.codes = e.compare.filter((c) => COUNTRY_BY_CODE.has(c));
   if (e.focus) focusOnNextRender(e.focus);
-  if (e.place) showCityOnNextRender(e.place);
+  if (e.place) { if (regionMapOn()) showRegionCityOnNextRender(e.place); else showCityOnNextRender(e.place); }
   document.getElementById('po-bar')?.remove();
   const bar = document.createElement('div');
   bar.id = 'po-bar';

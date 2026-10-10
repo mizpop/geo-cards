@@ -179,6 +179,8 @@ let svTemp = false; // スペースキーを押している間だけのストリ
 let svOn = false; // ストリートビューのモード（地図を描き直しても引き継ぐ）
 
 let S = null; // 今の画面の状態
+let pendingCity = null; // カードの地名を押して、地図を開いたとき: 開いたら、その場所へ飛ぶ
+export const showRegionCityOnNextRender = (place) => { pendingCity = place; };
 let cleanups = []; // 地図を離れるとき（ほかのタブへ移る・描き直す）に、必ず外すもの（キー・マウスの監視など）
 /** 国モードの地図を片付ける（ほかのタブへ移るとき・描き直すとき）。外し忘れた監視が、ほかのタブのキー操作を奪って、固まったように見えるのを防ぐ */
 export function teardownRegionMap() {
@@ -421,6 +423,7 @@ export async function renderRegionMap(view, ctx) {
   buildGeoHints(); // GeoHints の参考写真を、地域に振り分ける（座標つきのもの）
   loadPlateData().then(() => { if (S?.seq === seq && S.map) { drawMarks(); if (S.selected) renderInfo(); } }); // 保存したナンバープレートのリンク
   setupSearch();
+  if (pendingCity) { const c = pendingCity; pendingCity = null; S.showCity?.(c); } // カードの地名から来たときは、その場所へ飛ぶ
   setupSv();
   setupFlagCards();
   // 地域のないところ（海・ほかの国など）をクリックしたら、選択を解除（世界モードと同じ）
@@ -504,6 +507,7 @@ export async function renderRegionMap(view, ctx) {
       const rc = regionAt(c.lat, c.lng);
       if (rc && rc !== S.selected) { const prev = S.selected; S.selected = rc; for (const x of [prev, rc]) { const l = x && S.byCode.get(x); if (l) l.setStyle(styleOf(x)); } renderPanel(); }
     }
+    S.showCity = showCity;
     S.clearCity = () => { S.city = null; S.cityMarker?.remove(); S.cityMarker = null; };
     const clearCity = S.clearCity;
     function pickCity(c) {
