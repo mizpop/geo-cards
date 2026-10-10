@@ -45,6 +45,38 @@ export async function loadRegionFlags(country, codes) {
 }
 
 
+// ---- 地域のナンバープレート（Wikimedia Commons の「License plates of ○○」カテゴリー。地域ごとにカテゴリーがある国だけ）----
+const plateCache = new Map(); // 地域コード → Promise<[{ thumb, title, page }]>
+let plateLast = 0;
+async function commonsApi(params) {
+  const wait = plateLast + 350 - Date.now(); // 続けて呼びすぎないように、少し間をあける
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  plateLast = Date.now();
+  const q = new URLSearchParams({ format: 'json', origin: '*', ...params });
+  const r = await fetch(`https://commons.wikimedia.org/w/api.php?${q}`);
+  return r.json();
+}
+const plateNorm = (s) => String(s || '').toLowerCase().replace(/\b(prefecture|province|state|region|oblast|department|county|district|governorate|municipality|city|autonomous|republic|of|the|license|licence|plates?|vehicle|registration)\b/g, '').replace(/[^a-z0-9\u00c0-\u024f\u3040-\u30ff\u3400-\u9fff]/g, '');
+export function loadRegionPlates(rc, name, countryEn) {
+  if (!plateCache.has(rc)) {
+    plateCache.set(rc, (async () => {
+      const core = String(name).replace(/\b(Prefecture|Province|State|Region|Oblast|Department|County|District|Governorate|Municipality|Autonomous|Republic)\b/g, '').replace(/\s+/g, ' ').trim() || name;
+      const j = await commonsApi({ action: 'query', list: 'search', srnamespace: '14', srlimit: '8', srsearch: `intitle:"license plates of" "${core}"` });
+      const want = plateNorm(core);
+      const cats = (j.query?.search || []).map((x) => x.title).filter((tt) => /license plates? of|vehicle registration plates? of/i.test(tt) && !/trailer|diplomatic|military|temporary|by |personal|motorcycle/i.test(tt) && plateNorm(tt).includes(want));
+      cats.sort((a, b) => (plateNorm(b).includes(plateNorm(countryEn || '')) ? 1 : 0) - (plateNorm(a).includes(plateNorm(countryEn || '')) ? 1 : 0) || a.length - b.length);
+      if (!cats.length) return [];
+      const g = await commonsApi({ action: 'query', generator: 'categorymembers', gcmtitle: cats[0], gcmtype: 'file', gcmlimit: '24', prop: 'imageinfo', iiprop: 'url|mime', iiurlwidth: '320' });
+      const files = Object.values(g.query?.pages || {}).map((pg) => ({ title: pg.title, thumb: pg.imageinfo?.[0]?.thumburl, page: pg.imageinfo?.[0]?.descriptionurl, mime: pg.imageinfo?.[0]?.mime })).filter((f) => f.thumb && /^image\/(jpeg|png|svg)/.test(f.mime || ''));
+      // ナンバープレートの画像らしいものだけ（名前に plate / license / registration / Kennzeichen など）。地図・外交官用・トレーラーなどは除き、新しい年のものを先に
+      const isPlate = (f) => /plate|licen[cs]e|registration|kennzeichen|kenteken|plaque|targa|matr[ií]cula|placa|rejestracyjn|nummerskylt|nummerplate|ナンバー/i.test(f.title) && !/\bmap\b|diplomatic|trailer|police car|patrol|motor show/i.test(f.title);
+      const year = (f) => Math.max(0, ...((f.title.match(/\b(19|20)\d\d\b/g) || []).map(Number)));
+      return files.filter(isPlate).sort((a, b) => year(b) - year(a)).slice(0, 4);
+    })().catch(() => []));
+  }
+  return plateCache.get(rc);
+}
+
 const registry = new Map(); // 地域コード → { name, parent }
 export const isRegionCode = (c) => typeof c === 'string' && c.includes(':');
 export const regionName = (c) => registry.get(c)?.name || String(c).split(':')[1] || c;
@@ -246,7 +278,7 @@ export async function renderRegionMap(view, ctx) {
         <div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend" ${mode === 'cards' || mode === 'flag' || mode === 'none' ? 'hidden' : ''}><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeInfo(mode).icon} ${esc(modeInfo(mode).name)}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${esc(modeInfo(mode).desc || '')}</div><div class="lg-items"></div></div>
       </div>
       <div class="vsplit" aria-hidden="true"></div>
-      <aside class="map-panel" id="rm-panel" style="--pinfo-h:${(ctx.panelSplit() * 100).toFixed(1)}%">
+      <aside class="map-panel" id="rm-panel" style="--pinfo-h:${(Math.max(ctx.panelSplit(), 0.5) * 100).toFixed(1)}%">
         <section class="pinfo" id="pinfo"></section>
         <section class="plist" id="plist"></section>
       </aside>
@@ -552,16 +584,16 @@ export async function renderRegionMap(view, ctx) {
   }
 }
 
-// 旗の画像を取ってきて、カードにする（ラベル: その国の地域 / 場所: 地域の代表点 / 表面は画像だけ）
-async function createFlagCard(rc) {
+// 画像を取ってきて、カードにする（ラベル: その国の地域 / 場所: 地域の代表点 / 表面は画像だけ）。kind: 'flag' | 'plate'
+async function createRegionCard(rc, src, kind, source) {
   const ctx = S.ctx;
-  const src = regionFlagReadable(rc) ? regionFlagSrc(rc) : '';
-  if (!src) throw new Error('旗の画像を取得できませんでした');
+  if (!src) throw new Error('画像がありません');
   const blob = await (await fetch(src)).blob();
   const parent = regionParent(rc);
   const c = S.geo.get(rc)?.center;
-  await ctx.createRegionFlagCard({ blob, parent, name: regionName(rc), lat: c?.[0], lng: c?.[1] });
+  await ctx.createRegionCard({ blob, kind, source, parent, name: regionName(rc), lat: c?.[0], lng: c?.[1] });
 }
+const createFlagCard = (rc) => createRegionCard(rc, regionFlagReadable(rc) ? regionFlagSrc(rc) : '', 'flag', '旗');
 
 // 世界モードの国と同じ配色: 塗りだけ（輪郭は別の境界線の層）。カード数が多いほど濃く / 選んでいる地域は黄色の輪郭と薄い塗り / マウスを乗せると輪郭
 function styleOf(rc) {
@@ -716,10 +748,23 @@ function renderInfo() {
     <h3 class="rm-title">${flagImg(parent)} ${esc(regionName(rc))}</h3>
     <div class="muted small">${esc(countryName(parent))}の地域</div>
     ${flag ? `<div class="rm-flagbox"><img src="${esc(flag)}" alt="${esc(regionName(rc))}の旗"><span class="muted small">🚩 地域の旗（Wikimedia Commons）</span>${edit ? `<button type="button" class="btn btn-sm" data-flagcard ${hasFlagCard ? 'disabled' : ''} title="この地域の旗を、カードにします（ラベル: ${esc(countryName(parent))}の地域）">${hasFlagCard ? '✔ 旗のカードあり' : '🚩 旗をカードにする'}</button>` : ''}</div>` : ''}
+    <div class="rm-plates" data-plates><div class="rm-fact-head"><span>🚘 ナンバープレート（Wikimedia Commons の候補）</span></div><div class="rm-plate-list muted small">探しています…</div></div>
     ${(EDITABLE.includes(mode) ? [mode] : EDITABLE).map((id) => { const m = modeDef(id); return `<div class="rm-fact"><div class="rm-fact-head"><span>${m.icon} ${esc(m.name)}</span>${edit ? `<button type="button" class="btn btn-sm btn-ghost" data-edit="${id}" title="この地域の${esc(m.name)}を入力・編集">✏</button>` : ''}</div>${factChipHtml(id, rc)}</div>`; }).join('')}
   </div><button type="button" class="icon-btn pinfo-close" title="選択を解除（Esc）" aria-label="選択を解除">✕</button>`;
   el.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => S.ctx.editFact(b.dataset.edit, rc)));
   el.querySelector('.pinfo-close')?.addEventListener('click', clearFocus);
+  // ナンバープレートの画像は、地域を選んだとき自動で探す（地域ごとにカテゴリーがある国だけ見つかる）
+  const box = el.querySelector('.rm-plate-list');
+  loadRegionPlates(rc, regionName(rc), S.ctx.countryEn(parent)).then((list) => {
+    if (S.selected !== rc || !box?.isConnected) return;
+    if (!list.length) { el.querySelector('[data-plates]').classList.add('is-none'); box.textContent = 'この地域のナンバープレートの画像は、見つかりませんでした（地域ごとに違いがある国だけ、見つかります）'; return; }
+    box.classList.remove('muted', 'small');
+    box.innerHTML = list.map((f, i) => `<figure class="rm-plate"><a href="${esc(f.page || '#')}" target="_blank" rel="noopener" title="${esc(f.title)}（Wikimedia Commons）"><img src="${esc(f.thumb)}" alt="${esc(f.title)}" loading="lazy"></a>${edit ? `<button type="button" class="btn btn-sm" data-plate="${i}" title="この画像を、ナンバープレートのカードにします（ラベル: ${esc(countryName(parent))}の地域）">カードに</button>` : ''}</figure>`).join('');
+    box.querySelectorAll('[data-plate]').forEach((b) => b.addEventListener('click', async () => {
+      const f = list[Number(b.dataset.plate)]; b.disabled = true; b.textContent = '作成中…';
+      try { await createRegionCard(rc, f.thumb, 'plate', f.title); S.ctx.toast('ナンバープレートのカードを作りました'); await S.ctx.reloadCards(); } catch (ex) { S.ctx.toast(`作れませんでした: ${ex.message}`, 'error'); b.disabled = false; b.textContent = 'カードに'; }
+    }));
+  });
   el.querySelector('[data-flagcard]')?.addEventListener('click', async (e) => {
     const b = e.currentTarget; b.disabled = true; b.textContent = '作成中…';
     try { await createFlagCard(rc); S.ctx.toast('旗のカードを作りました'); await S.ctx.reloadCards(); } catch (ex) { S.ctx.toast(`作れませんでした: ${ex.message}`, 'error'); b.disabled = false; b.textContent = '🚩 旗をカードにする'; }

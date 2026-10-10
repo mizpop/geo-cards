@@ -6009,14 +6009,16 @@ const regionCtx = {
   isFlagCard: (c) => /国旗|flag/i.test(catOf(c).name),
   reloadCards: async () => { await reloadCards(); render(); },
   // 地域の旗のカード: 表面は旗の画像だけ・ラベルはその国の「地域」・場所は地域の代表点（どの地域のカードかは、この座標で判断する）
-  createRegionFlagCard: async ({ blob, parent, name, lat, lng }) => {
-    const cat = state.categories.find((k) => /国旗|flag/i.test(k.name));
+  createRegionCard: async ({ blob, kind, source, parent, name, lat, lng }) => {
+    const re = kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i;
+    const cat = state.categories.find((k) => re.test(k.name));
     await api.createCard({
-      description: '', countries: [parent], area: name, notes: `${name}の旗（画像: Wikimedia Commons）`, category_id: cat?.id || null, related: [], sv_ids: [],
+      description: '', countries: [parent], area: name, notes: kind === 'plate' ? `${name}のナンバープレート（画像: Wikimedia Commons ${source || ''}）` : `${name}の旗（画像: Wikimedia Commons）`, category_id: cat?.id || null, related: [], sv_ids: [],
       places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
       scope_countries: [parent],
     }, blob, null);
   },
+  countryEn: (c) => (ALIASES[c] || []).find((a) => /^[A-Z][a-z]/.test(a)) || '',
   editFact: (m, code) => openFactEditor(m, code),
   isEditor: () => !!state.user?.isEditor,
   toast: (msg, kind) => toast(msg, kind),
