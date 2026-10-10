@@ -1686,17 +1686,18 @@ async function regionPhotoToCard(ex, rc, src, btn) {
   btn.disabled = true;
   btn.textContent = '画像を読み込み中…';
   try {
-    const blob = await (await fetch(src)).blob();
+    const blob = await fetchImageBlob(src);
     const parent = regionParent(rc);
     const name = regionName(rc);
     const re = ex.kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i;
     const catId = state.categories.find((k) => re.test(k.name))?.id || null;
     const [lat, lng] = ex.center || [];
     const memo = photoNote(ex.kind, src, rc);
+    const it = ex.items?.find((x) => x.src === src) || ex.items?.[ex.i];
     openEditor(null, {
       countries: [parent], categoryId: catId, blob, area: name, scope: [parent],
       places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
-      notes: [memo, ex.kind === 'plate' ? `${name}のナンバープレート` : `${name}の旗`, `画像: Wikimedia Commons${ex.items?.[ex.i]?.page ? `（${ex.items[ex.i].page}）` : ''}`].filter(Boolean).join('\n'),
+      notes: [memo, ex.kind === 'plate' ? `${name}のナンバープレート` : `${name}の旗`, `画像: ${it?.source === 'geohints' ? 'GeoHints' : 'Wikimedia Commons'}${it?.page ? `（${it.page}）` : ''}`].filter(Boolean).join('\n'),
     });
   } catch (ex2) {
     toast(`画像を取り込めませんでした: ${ex2.message}`, 'error');
@@ -1732,7 +1733,7 @@ function renderPhotoModal(entry) {
     <div class="detail ${entry.enter ? `enter-${entry.enter}` : ''}">
       <div class="detail-front">
         <div class="front-img"><img src="${esc(srcs[i])}"${topic === 'plate' ? ' data-plate="1"' : ''} alt="${esc(countryName(code))}の${esc(m.name)}の参考写真"></div>
-        <p class="muted small photo-credit">${ex ? `画像: <a href="${esc(ex.items?.[i]?.page || 'https://commons.wikimedia.org/')}" target="_blank" rel="noopener">Wikimedia Commons</a>（カード未作成の候補）` : `写真: <a href="${REF_PAGES[topic] || 'https://geohints.com/'}" target="_blank" rel="noopener">GeoHints</a>`}</p>
+        <p class="muted small photo-credit">${ex ? `画像: <a href="${esc(ex.items?.[i]?.page || 'https://commons.wikimedia.org/')}" target="_blank" rel="noopener">${ex.items?.[i]?.source === 'geohints' ? 'GeoHints' : 'Wikimedia Commons'}</a>（カード未作成の候補）` : `写真: <a href="${REF_PAGES[topic] || 'https://geohints.com/'}" target="_blank" rel="noopener">GeoHints</a>`}</p>
       </div>
       <div class="detail-back">
         ${answerHtml({ countries: [ctry], area: ex ? regionName(code) : '' }, 'md', true)}
@@ -6047,8 +6048,14 @@ const regionCtx = {
   thumb: (c) => thumbUrl(c),
   thumbUrl, allCats, catKey, catOf, catVars,
   openCard: (card, src, list) => openCardModal(card, src, list),
-  openRegionImage: ({ kind, rc, items, i, src, center }) => openPhotoModal(kind, rc, items.map((x) => x.src), i, src, { kind, rc, items: items.map((x) => ({ title: x.title, page: x.page })), center }),
+  openRegionImage: ({ kind, rc, items, i, src, center }) => openPhotoModal(kind, rc, items.map((x) => x.src), i, src, { kind, rc, items: items.map((x) => ({ src: x.src, title: x.title, page: x.page, source: x.source })), center }),
   photoNote: (kind, src, rc) => photoNote(kind, src, rc),
+  // GeoHints の参考写真（座標つき）。画像の取得は、GeoHints のものは、サーバー経由
+  loadRefInfo: () => ensureRefInfo(),
+  refPhotos: (topic, code) => (REF_IMAGES[topic]?.[code] || []).map((rel) => { const i = refInfo(topic, rel); return i && i.lat != null && i.lng != null ? { rel, src: REF_BASE + rel, lat: i.lat, lng: i.lng, desc: i.desc } : null; }).filter(Boolean),
+  refPage: (topic) => REF_PAGES[topic] || 'https://geohints.com/',
+  openPhoto: (topic, code, srcs, i, src) => openPhotoModal(topic, code, srcs, i, src),
+  fetchImage: (src) => fetchImageBlob(src),
   tileHtml: (card) => tileHtml(card),
   bindTiles: () => bindTiles(),
   panelWidth: () => Number(settings.mapPanelWidth) || 360,
@@ -6066,7 +6073,7 @@ const regionCtx = {
     const re = kind === 'plate' ? /ナンバー|plate/i : /国旗|flag/i;
     const cat = state.categories.find((k) => re.test(k.name));
     await api.createCard({
-      description: '', countries: [parent], area: name, notes: kind === 'plate' ? `${name}のナンバープレート（画像: Wikimedia Commons ${source || ''}）` : `${name}の旗（画像: Wikimedia Commons）`, category_id: cat?.id || null, related: [], sv_ids: [],
+      description: '', countries: [parent], area: name, notes: kind === 'plate' ? `${name}のナンバープレート（画像: ${source === 'geohints' ? 'GeoHints' : `Wikimedia Commons ${source || ''}`}）` : `${name}の旗（画像: Wikimedia Commons）`, category_id: cat?.id || null, related: [], sv_ids: [],
       places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
       scope_countries: [parent],
     }, blob, null);
@@ -6087,6 +6094,13 @@ const regionCtx = {
   svView: (r) => rowView(r),
   openSv: (lat, lng, view) => openSvWindow(lat, lng, view),
 };
+// 画像を取り込む（GeoHints の画像は、サーバー経由。それ以外は、そのまま）
+async function fetchImageBlob(src) {
+  const url = src.startsWith(REF_BASE) ? `/api/refimg?path=${encodeURIComponent(src.slice(REF_BASE.length))}` : src;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`画像を取得できませんでした（${res.status}）`);
+  return res.blob();
+}
 // 国ごとに、旗・ナンバープレートを、まとめてカードにする（js/bulkcards.js）
 function openBulkFlagPlate(preset = {}) {
   if (!state.user?.isEditor) { toast('編集できるのは、編集者のみです', 'error'); return; }
@@ -6099,6 +6113,9 @@ function openBulkFlagPlate(preset = {}) {
     iso3Of: (c) => regionCtx.iso3Of(c),
     countryEn: (c) => regionCtx.countryEn(c),
     createRegionCard: (p) => regionCtx.createRegionCard(p),
+    loadRefInfo: () => ensureRefInfo(),
+    refPhotos: (topic, code) => regionCtx.refPhotos(topic, code),
+    fetchImage: (src) => fetchImageBlob(src),
     createNationalFlag: async ({ blob, code }) => {
       const cat = state.categories.find((k) => /国旗|flag/i.test(k.name));
       await api.createCard({ description: '', countries: [code], area: '', notes: `${countryName(code)}の国旗（画像: flagcdn.com）`, category_id: cat?.id || null, related: [], places: [], sv_ids: [], scope_countries: [] }, blob, null);

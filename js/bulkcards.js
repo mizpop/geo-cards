@@ -1,8 +1,8 @@
 // 旗・ナンバープレートを、国ごとに、まとめてカードにする
 //  - 🌍 国の旗: 世界の国のカード（画像: flagcdn.com）。すでに「国旗」のカードがある国は、除く
-//  - 📍 国の地域の旗・ナンバープレート: 選んだ国の、州・県などの地域ごとに（旗: Wikidata + Wikimedia Commons / ナンバープレート: Wikimedia Commons の候補）。ラベルは、その国の「地域」。
+//  - 📍 国の地域の旗・ナンバープレート: 選んだ国の、州・県などの地域ごとに（旗: Wikidata + Wikimedia Commons / ナンバープレート: GeoHints の州のページ（アメリカ））。ラベルは、その国の「地域」。
 //    すでにその種類のカードがある地域（座標・詳細エリアで判断）は、除く
-import { getRegionIndex, loadRegionPlates, regionFlagReadable, regionFlagSrc } from './regionmap.js';
+import { getRegionIndex, regionFlagReadable, regionFlagSrc, loadGhStateByName, ghSupported } from './regionmap.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -27,7 +27,7 @@ export function openBulkCards(deps, preset = {}) {
           <button type="button" class="btn btn-sm" id="bc-pick">🏳 国を選ぶ</button></div>
         <div class="field"><span>種類</span>
           <label class="bc-kind"><input type="checkbox" data-kind="flag" ${kinds.has('flag') ? 'checked' : ''}> 🚩 地域の旗</label>
-          <label class="bc-kind"><input type="checkbox" data-kind="plate" ${kinds.has('plate') ? 'checked' : ''}> 🚘 ナンバープレート（地域ごとにカテゴリーがある国だけ見つかります。見つかった画像は、全部カードにします）</label></div>
+          <label class="bc-kind"><input type="checkbox" data-kind="plate" ${kinds.has('plate') ? 'checked' : ''}> 🚘 ナンバープレート（GeoHints の州のページにあるもの。今は、アメリカだけ。見つかった画像は、全部カードにします）</label></div>
         <p class="muted small">ラベルは、その国の「地域」。カテゴリーは「国旗」「ナンバープレート」。場所は、地域の代表点（どの地域のカードかは、この座標で判断します）。すでに、その種類のカードがある地域は除きます。</p>`
       : `<p class="muted small">すべての国の国旗（flagcdn.com の画像）を、「国旗」カテゴリー・ラベル「世界の国」のカードにします。すでに国旗のカードがある国は除きます。</p>`}
       <div class="bc-progress" id="bc-progress" hidden><div class="progress"><div class="progress-bar" id="bc-bar" style="width:0"></div></div><p class="small muted" id="bc-text"></p></div>
@@ -79,13 +79,15 @@ export function openBulkCards(deps, preset = {}) {
           for (const r of idx.regions) {
             if (kinds.has('flag') && regionFlagReadable(r.rc) && !taken.flag.has(r.rc)) jobs.push({ kind: 'flag', rc: r.rc, name: r.name, center: r.center, src: regionFlagSrc(r.rc), parent: code, source: '旗' });
           }
-          if (kinds.has('plate')) {
-            const regs = idx.regions.filter((r) => !taken.plate.has(r.rc));
-            for (let i = 0; i < regs.length && !cancel; i++) {
-              const r = regs[i];
-              say(`${countryName(code)} のナンバープレートを探しています… ${i + 1} / ${regs.length}（${r.name}）`, 0.3 + 0.3 * (i / regs.length));
-              const list = await loadRegionPlates(r.rc, r.name, deps.countryEn(code));
-              for (const f of list) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, center: r.center, src: f.thumb, parent: code, source: f.title }); // 見つかった画像は、全部（1 枚ずつカードに）
+          if (kinds.has('plate') || kinds.has('flag')) { // GeoHints の州のページ（今は、アメリカだけ）: 旗はこちらを優先、ナンバープレートは見つかった画像を、全部
+            if (ghSupported(code)) {
+              for (let i = 0; i < idx.regions.length && !cancel; i++) {
+                const r = idx.regions[i];
+                say(`${countryName(code)} の州のページ（GeoHints）を調べています… ${i + 1} / ${idx.regions.length}（${r.name}）`, 0.3 + 0.3 * (i / idx.regions.length));
+                const gs = await loadGhStateByName(code, r.rc, r.name);
+                if (!gs) continue;
+                if (kinds.has('plate') && !taken.plate.has(r.rc)) for (const f of gs.plates) jobs.push({ kind: 'plate', rc: r.rc, name: r.name, center: r.center, src: f.src, parent: code, source: 'geohints' });
+              }
             }
           }
         }
@@ -93,7 +95,7 @@ export function openBulkCards(deps, preset = {}) {
         for (let i = 0; i < jobs.length && !cancel; i++) {
           const j = jobs[i];
           say(`カードを作っています… ${i + 1} / ${jobs.length}（${j.kind === 'flag' ? '旗' : 'ナンバープレート'}・${j.name}）`, 0.6 + 0.4 * (i / jobs.length));
-          try { const blob = await (await fetch(j.src)).blob(); await deps.createRegionCard({ blob, kind: j.kind, source: j.source, parent: j.parent, name: j.name, lat: j.center?.[0], lng: j.center?.[1] }); ok++; } catch { ng++; }
+          try { const blob = await (deps.fetchImage ? deps.fetchImage(j.src) : (await fetch(j.src)).blob()); await deps.createRegionCard({ blob, kind: j.kind, source: j.source, parent: j.parent, name: j.name, lat: j.center?.[0], lng: j.center?.[1] }); ok++; } catch { ng++; }
         }
         skipped = 0;
       }

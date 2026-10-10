@@ -77,6 +77,28 @@ export function loadRegionPlates(rc, name, countryEn) {
   return plateCache.get(rc);
 }
 
+// ---- GeoHints の州ごとのページ（旗・ナンバープレート。/api/geohints 経由。GeoHints が今、州ごとのページを出しているのは、アメリカだけ）----
+export const ghSupported = (code) => code === 'US';
+const ghListCache = new Map(); // 国コード → Promise<[{ slug, name }]>
+const ghStateCache = new Map(); // 地域コード → Promise<{ flag, plates: [{ src, year }], page } | null>
+const ghNorm = (s) => String(s || '').toLowerCase().replace(/\b(district|of|the|state)\b/g, '').replace(/[^a-z0-9]/g, '');
+export function loadGhStateByName(country, rc, name) {
+  if (!ghSupported(country)) return Promise.resolve(null);
+  if (!ghStateCache.has(rc)) {
+    ghStateCache.set(rc, (async () => {
+      if (!ghListCache.has(country)) ghListCache.set(country, fetch(`/api/geohints?country=${country.toLowerCase()}`).then((r) => r.json()).then((j) => j.states || []).catch(() => { ghListCache.delete(country); return []; }));
+      const list = await ghListCache.get(country);
+      const n = ghNorm(name);
+      const hit = list.find((x) => ghNorm(x.name) === n) || list.find((x) => ghNorm(x.slug) === n) || list.find((x) => n && (ghNorm(x.name).includes(n) || n.includes(ghNorm(x.name))) && ghNorm(x.name).length >= 5);
+      if (!hit) return null;
+      const j = await (await fetch(`/api/geohints?country=${country.toLowerCase()}&state=${hit.slug}`)).json();
+      if (j.error) return null;
+      return { flag: j.flag || '', plates: j.plates || [], page: j.page || '' };
+    })().catch(() => { ghStateCache.delete(rc); return null; }));
+  }
+  return ghStateCache.get(rc);
+}
+
 const registry = new Map(); // 地域コード → { name, parent }
 export const isRegionCode = (c) => typeof c === 'string' && c.includes(':');
 export const regionName = (c) => registry.get(c)?.name || String(c).split(':')[1] || c;
@@ -176,7 +198,7 @@ let cleanups = []; // 地図を離れるとき（ほかのタブへ移る・描�
 /** 国モードの地図を片付ける（ほかのタブへ移るとき・描き直すとき）。外し忘れた監視が、ほかのタブのキー操作を奪って、固まったように見えるのを防ぐ */
 export function teardownRegionMap() {
   for (const fn of cleanups.splice(0)) { try { fn(); } catch { /* 無視 */ } }
-  if (S) { S.seq += 1; S.plateQueue = []; try { S.map?.remove(); } catch { /* 無視 */ } S.map = null; S.bubble?.destroy(); S.bubble = null; }
+  if (S) { S.seq += 1; try { S.map?.remove(); } catch { /* 無視 */ } S.map = null; S.bubble?.destroy(); S.bubble = null; }
   svTemp = false;
 }
 const listen = (target, type, fn, opts) => { target.addEventListener(type, fn, opts); cleanups.push(() => target.removeEventListener(type, fn, opts)); };
@@ -281,7 +303,7 @@ export async function renderRegionMap(view, ctx) {
   teardownRegionMap();
   let legendOpen = legendOpenPref ?? !window.matchMedia('(max-width: 760px)').matches;
   const seq = Math.max(prevSeq, S?.seq || 0) + 1;
-  S = { seq, ctx, view, map: null, byCode: new Map(), geo: new Map(), cardRegions: null, selected: null, pins: null, thumbs: new Map(), plates: new Map(), platePending: new Set(), plateQueue: [], plateRun: false, svCov: null, svPins: null, found: null, byRegion: new Map() };
+  S = { seq, ctx, view, map: null, byCode: new Map(), geo: new Map(), cardRegions: null, selected: null, pins: null, thumbs: new Map(), gh: null, ghs: new Map(), ghPending: new Set(), ghQueue: [], ghActive: 0, ghTimer: null, svCov: null, svPins: null, found: null, byRegion: new Map() };
   const { esc, countryName, flagImg } = ctx;
   const countries = ctx.countries;
   view.innerHTML = `
@@ -411,6 +433,7 @@ export async function renderRegionMap(view, ctx) {
   status();
   if (S?.seq !== seq || !S.map) return; // 待っている間に、地図を離れた（ほかのタブへ移った・描き直した）
   if (keepFocus && S.byCode.has(keepFocus)) focusRegion(keepFocus);
+  buildGeoHints(); // GeoHints の参考写真を、地域に振り分ける（座標つきのもの）
   setupSearch();
   setupSv();
   setupFlagCards();
@@ -635,7 +658,7 @@ export async function renderRegionMap(view, ctx) {
 async function createRegionCard(rc, src, kind, source) {
   const ctx = S.ctx;
   if (!src) throw new Error('画像がありません');
-  const blob = await (await fetch(src)).blob();
+  const blob = await ctx.fetchImage(src);
   const parent = regionParent(rc);
   const c = S.geo.get(rc)?.center;
   await ctx.createRegionCard({ blob, kind, source, parent, name: regionName(rc), lat: c?.[0], lng: c?.[1] });
@@ -674,36 +697,61 @@ function itemsOf(rc) {
   return pseudoOf(rc, mode);
 }
 function pseudoOf(rc, kind) {
-  if (kind === 'flag') { const src = regionFlagSrc(rc, 320); return src ? [{ pseudo: true, kind, rc, src, title: `${regionName(rc)}の旗`, idx: 0 }] : []; }
-  return (S.plates.get(rc) || []).map((f, i) => ({ pseudo: true, kind, rc, src: f.thumb, title: f.title, page: f.page, idx: i }));
-}
-// 表示中の地域のナンバープレート（Wikimedia Commons）を、順に（続けて呼びすぎないように）取ってくる
-function ensurePlates(rcs, front = false) {
-  for (const rc of rcs) {
-    if (S.plates.has(rc) || S.platePending.has(rc)) continue;
-    const i = S.plateQueue.indexOf(rc);
-    if (i >= 0) { if (front) { S.plateQueue.splice(i, 1); S.plateQueue.unshift(rc); } } else if (front) S.plateQueue.unshift(rc); else S.plateQueue.push(rc);
+  const gs = S.ghs.get(rc); // GeoHints の州のページ（アメリカ）
+  if (kind === 'flag') {
+    if (gs?.flag) return [{ pseudo: true, kind, rc, src: gs.flag, title: `${regionName(rc)}の旗`, page: gs.page, source: 'geohints', idx: 0 }];
+    const src = regionFlagSrc(rc, 320);
+    return src ? [{ pseudo: true, kind, rc, src, title: `${regionName(rc)}の旗`, idx: 0 }] : [];
   }
-  if (S.plateRun || !S.plateQueue.length) return; // 探すものがないときは、何もしない（呼び出し元が、終わりに描き直すので、空のまま始めると、描き直しと探す処理が、互いに呼び合って止まらなくなる）
-  S.plateRun = true;
-  const seq = S.seq;
-  (async () => {
-    let done = 0;
-    while (S.seq === seq && S.plateQueue.length) {
-      const rc = S.plateQueue.shift();
-      S.platePending.add(rc);
-      const list = await loadRegionPlates(rc, regionName(rc), S.ctx.countryEn(regionParent(rc)));
-      S.platePending.delete(rc);
-      if (S.seq !== seq) return;
-      S.plates.set(rc, list);
-      done++;
-      if (S.selected === rc) renderInfo();
-      if (list.length && (mode === 'plate' || S.selected === rc) && (done % 3 === 0 || !S.plateQueue.length)) drawMarks();
-    }
-    S.plateRun = false;
-    if (S.seq === seq && done) { drawMarks(); if (S.selected) renderInfo(); }
-  })();
+  // ナンバープレート: GeoHints の州のページにあるもの
+  return (gs?.plates || []).map((f, i) => ({ pseudo: true, kind, rc, src: f.src, title: `${regionName(rc)} ${f.year || ''}`.trim(), page: gs.page, source: 'geohints', idx: i }));
 }
+// GeoHints の州のページを、表示中の地域の分、少しずつ（同時に 3 つまで）取ってくる。取れたら、描き直す
+function prefetchGh(rcs, front = false) {
+  const todo = rcs.filter((rc) => ghSupported(regionParent(rc)) && !S.ghs.has(rc) && !S.ghPending.has(rc));
+  if (!todo.length) return; // 探すものがないときは、何もしない（描き直しと、取得が、互いに呼び合わないように）
+  const seq = S.seq;
+  for (const rc of front ? todo.reverse() : todo) { S.ghPending.add(rc); S.ghQueue[front ? 'unshift' : 'push'](rc); }
+  const pump = async () => {
+    while (S?.seq === seq && S.ghQueue.length && S.ghActive < 3) {
+      const rc = S.ghQueue.shift();
+      S.ghActive++;
+      loadGhStateByName(regionParent(rc), rc, regionName(rc)).then((data) => {
+        S.ghActive--; S.ghPending.delete(rc);
+        if (S?.seq !== seq) return;
+        S.ghs.set(rc, data || null);
+        clearTimeout(S.ghTimer);
+        S.ghTimer = setTimeout(() => { if (S?.seq === seq && S.map) { drawMarks(); if (S.selected) renderInfo(); } }, 150);
+        pump();
+      });
+    }
+  };
+  pump();
+}
+
+// GeoHints の参考写真（ナンバープレート・ボラード・電柱・シェブロン）を、撮影地点の座標から、地域に振り分ける
+async function buildGeoHints() {
+  const seq = S.seq;
+  try { await S.ctx.loadRefInfo(); } catch { return; }
+  if (S?.seq !== seq || !S.map) return;
+  const gh = {};
+  for (const topic of GH_TOPICS) {
+    const m = new Map();
+    for (const code of S.ctx.countries) {
+      for (const p of S.ctx.refPhotos(topic, code)) {
+        const rc = regionAt(p.lat, p.lng);
+        if (!rc) continue;
+        if (!m.has(rc)) m.set(rc, []);
+        m.get(rc).push({ src: p.src, rel: p.rel, title: String(p.desc || '').split('\n')[0].replace(/^撮影場所:\s*/, '') || 'GeoHints', page: S.ctx.refPage(topic) });
+      }
+    }
+    gh[topic] = m;
+  }
+  S.gh = gh;
+  drawMarks();
+  if (S.selected) renderInfo();
+}
+const GH_TOPICS = ['bollard', 'pole', 'chevron'];
 
 // 地図の上の印: 地域ごとのサムネイル（拡大すると画像、引くと数字・小さな画像）と、精密な場所（地名・ストリートビュー）の点
 function drawMarks() {
@@ -716,7 +764,7 @@ function drawMarks() {
   const bounds = map.getBounds().pad(0.2);
   if (!MARK_MODES.includes(mode)) return;
   const visible = [...S.byCode.keys()].filter((rc) => { const c = S.geo.get(rc)?.center; return c && bounds.contains(c); });
-  if (mode === 'plate') ensurePlates(visible.filter((rc) => !itemsOf(rc).some((i) => !i.pseudo)).slice(0, 40));
+  if (mode === 'plate' || mode === 'flag') prefetchGh(visible.slice(0, 60));
   for (const rc of visible) {
     const items = itemsOf(rc);
     if (!items.length) continue;
@@ -849,20 +897,28 @@ function renderInfo() {
   el.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => S.ctx.editFact(b.dataset.edit, rc)));
   el.querySelector('.pinfo-close')?.addEventListener('click', clearFocus);
   el.querySelectorAll('.pphoto[data-kind]').forEach((b) => b.addEventListener('click', () => openPseudo(rc, b.dataset.kind, Number(b.dataset.idx), b)));
-  if (!S.plates.has(rc)) ensurePlates([rc], true); // ナンバープレートの画像は、地域を選んだとき自動で探す（先に）
+  prefetchGh([rc], true);
+  el.querySelectorAll('.pphoto[data-topic]').forEach((b) => b.addEventListener('click', () => { const list = S.gh?.[b.dataset.topic]?.get(rc) || []; S.ctx.openPhoto(b.dataset.topic, regionParent(rc), list.map((x) => x.src), Number(b.dataset.i), b); }));
 }
 // 参考写真と同じ並び: カードにしていない旗・ナンバープレート（その種類のカードが、この地域にまだないとき）
 function photoBlocks(rc) {
   const { esc } = S.ctx;
   if (!S.cardRegions) computeCardRegions();
   const hasKind = (k) => S.ctx.cards.some((c) => S.ctx.isKindCard(c, k) && S.cardRegions.get(c.id)?.regions.has(rc));
-  const block = (kind, icon, name) => {
+  const block = (kind, icon, name, link) => {
     if (hasKind(kind)) return '';
     const items = pseudoOf(rc, kind);
-    if (!items.length) return kind === 'plate' && !S.plates.has(rc) ? `<div class="pphotos muted small">${icon} ${name}の画像を探しています…（地域ごとにカテゴリーがある国だけ、見つかります）</div>` : '';
-    return `<div class="pphotos"><div class="pphotos-head">${icon} ${name}（カード未作成） <a href="${esc(items[0].page || 'https://commons.wikimedia.org/')}" target="_blank" rel="noopener" class="muted small">Wikimedia Commons ↗</a></div><div class="pphotos-grid">${items.map((it) => { const n = S.ctx.photoNote(kind, it.src, rc); return `<button type="button" class="pphoto ${n ? 'has-note' : ''}" data-kind="${kind}" data-idx="${it.idx}" title="${esc(n || `${it.title}（Wikimedia Commons）`)}"><img src="${esc(it.src)}" alt="" loading="lazy"></button>`; }).join('')}</div></div>`;
+    if (!items.length) return kind === 'plate' && ghSupported(regionParent(rc)) && (S.ghPending.has(rc) || !S.ghs.has(rc)) ? `<div class="pphotos muted small">${icon} ${name}を探しています…</div>` : '';
+    return `<div class="pphotos"><div class="pphotos-head">${icon} ${name}（カード未作成） <a href="${esc(items[0].page || link)}" target="_blank" rel="noopener" class="muted small">${items[0].source === 'geohints' ? 'GeoHints' : 'Wikimedia Commons'} ↗</a></div><div class="pphotos-grid">${items.map((it) => { const n = S.ctx.photoNote(kind, it.src, rc); return `<button type="button" class="pphoto ${n ? 'has-note' : ''}" data-kind="${kind}" data-idx="${it.idx}" title="${esc(n || `${it.title}（${it.source === 'geohints' ? 'GeoHints' : 'Wikimedia Commons'}）`)}"><img src="${esc(it.src)}" alt="" loading="lazy"></button>`; }).join('')}</div></div>`;
   };
-  return block('flag', '🚩', '地域の旗') + block('plate', '🚘', 'ナンバープレート');
+  // 参考写真（GeoHints）: この地域で撮影されたボラード・電柱・シェブロン。世界モードの参考写真と同じ画面で開く
+  const refBlock = (topic) => {
+    const list = S.gh?.[topic]?.get(rc) || [];
+    if (!list.length) return '';
+    const m = modeDef(topic);
+    return `<div class="pphotos"><div class="pphotos-head">${m.icon} ${esc(m.name)}の参考写真 <a href="${esc(S.ctx.refPage(topic))}" target="_blank" rel="noopener" class="muted small">GeoHints ↗</a></div><div class="pphotos-grid">${list.map((it, i) => { const n = S.ctx.photoNote(topic, it.src, regionParent(rc)); return `<button type="button" class="pphoto ${n ? 'has-note' : ''}" data-topic="${topic}" data-i="${i}" title="${esc(n || `${it.title}（GeoHints）`)}"><img src="${esc(it.src)}" alt="" loading="lazy"></button>`; }).join('')}</div></div>`;
+  };
+  return block('flag', '🚩', '地域の旗', 'https://commons.wikimedia.org/') + block('plate', '🚘', 'ナンバープレート', S.ctx.refPage('plate')) + ['bollard', 'pole', 'chevron'].map(refBlock).join('');
 }
 
 function renderList() {
