@@ -3,7 +3,7 @@
 // 地域は「国コード:地域コード」（例: JP:JP-13）で区別し、国ごとの情報（シェブロン・ガードレールなど）と同じ仕組みで、値を保存・表示する。
 import { createHoverBubble } from './hoverbubble.js';
 import { loadLibs, addBaseTiles, isDark, svFind } from './map.js';
-import { suggestCities } from './cities.js';
+import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
 import { openSvWindow, SV_ICON } from './svwin.js';
 import { MAP_MODES, modeDef, infoStyle, ensurePatterns, scalePatterns, legendHtml, factChipHtml, factPanelHtml } from './infomap.js';
 
@@ -133,6 +133,9 @@ const EDITABLE = MAP_MODES.filter((m) => m.editable).map((m) => m.id);
 const MODES = ['cards', 'flag', 'none', ...EDITABLE];
 const modeInfo = (id) => (id === 'cards' ? { icon: '🃏', name: 'カード' } : id === 'flag' ? { icon: '🚩', name: '地域の旗' } : modeDef(id));
 let mode = (() => { try { const v = localStorage.getItem(MODE_KEY); return MODES.includes(v) ? v : 'cards'; } catch { return 'cards'; } })();
+let legendOpenPref = null; // 凡例の開閉（未操作なら、広い画面は開く・スマホは閉じる）
+let svTemp = false; // スペースキーを押している間だけのストリートビューのモード
+let spaceKeys = null;
 let svOn = false; // ストリートビューのモード（地図を描き直しても引き継ぐ）
 
 let S = null; // 今の画面の状態
@@ -213,6 +216,7 @@ export async function renderRegionMap(view, ctx) {
   if (S?.map) { try { S.map.remove(); } catch { /* 無視 */ } }
   S?.bubble?.destroy();
   const keepFocus = S?.selected && S.ctx === ctx ? S.selected : null;
+  let legendOpen = legendOpenPref ?? !window.matchMedia('(max-width: 760px)').matches;
   const seq = (S?.seq || 0) + 1;
   S = { seq, ctx, view, map: null, byCode: new Map(), geo: new Map(), cardRegions: null, selected: null, pins: null, thumbs: new Map(), flagMarks: new Map(), svCov: null, svPins: null, found: null, byRegion: new Map() };
   const { esc, countryName, flagImg } = ctx;
@@ -223,8 +227,9 @@ export async function renderRegionMap(view, ctx) {
         <select class="select select-sm" id="rm-mode" aria-label="表示する情報">${MODES.map((id) => `<option value="${id}" ${id === mode ? 'selected' : ''}>${modeInfo(id).icon} ${esc(modeInfo(id).name)}</option>`).join('')}</select></label>
       ${mode === 'cards' ? ctx.filterPicksHtml() : ''}
       ${ctx.isEditor() ? '<button type="button" class="btn btn-ghost btn-sm" id="rm-flagcards" title="旗が見つかった地域の旗を、まとめてカードにします（ラベルは、その国の「地域」。すでに旗のカードがある地域は除きます）">🚩 地域の旗をカードに</button>' : ''}
+      <button class="btn btn-ghost btn-sm" id="rm-all" aria-label="選んだ国の全体" title="選んだ国の全体を表示">🌐<span class="tab-long"> 国全体</span></button>
       <span class="rm-countries">${countries.map((c) => `<span class="chip">${flagImg(c)} ${esc(countryName(c))}</span>`).join('')}</span>
-      <span class="muted small grow" id="rm-status">地域の境界を読み込んでいます…</span>
+      <span class="muted small map-hint" id="rm-status">地域の境界を読み込んでいます…</span>
     </div>
     <div class="map-layout rm-layout" style="--panel-w:${ctx.panelWidth()}px">
       <div class="map-box rm-box">
@@ -238,7 +243,7 @@ export async function renderRegionMap(view, ctx) {
           <button class="map-sv-btn ${svOn ? 'is-on' : ''}" id="rm-sv" type="button" aria-pressed="${svOn}" aria-label="ストリートビュー" title="ストリートビュー: 押してから、青い線で表示される道路の近くをクリックすると、その場所のストリートビューが開きます">${SV_ICON}</button>
         </div>
         <div class="sv-banner" id="rm-sv-banner" hidden>${SV_ICON}<span>青い線がストリートビューのある道路です。その近くをクリックしてください</span><button type="button" class="link-btn" id="rm-sv-exit">終了</button></div>
-        <div class="rm-legend" id="rm-legend"></div>
+        <div class="map-legend ${legendOpen ? 'is-open' : ''}" id="map-legend" ${mode === 'cards' || mode === 'flag' || mode === 'none' ? 'hidden' : ''}><button type="button" class="lg-title" aria-expanded="${legendOpen}" title="凡例を開く / 閉じる">${modeInfo(mode).icon} ${esc(modeInfo(mode).name)}<span class="lg-toggle" aria-hidden="true">▾</span></button><div class="lg-desc">${esc(modeInfo(mode).desc || '')}</div><div class="lg-items"></div></div>
       </div>
       <div class="vsplit" aria-hidden="true"></div>
       <aside class="map-panel" id="rm-panel" style="--pinfo-h:${(ctx.panelSplit() * 100).toFixed(1)}%">
@@ -262,6 +267,12 @@ export async function renderRegionMap(view, ctx) {
   requestAnimationFrame(() => { try { map.invalidateSize(); } catch { /* 無視 */ } });
   view.querySelector('#rm-mode').addEventListener('change', (e) => { mode = e.target.value; try { localStorage.setItem(MODE_KEY, mode); } catch { /* 無視 */ } renderRegionMap(S.view, S.ctx); });
   renderPanel();
+  view.querySelector('#map-legend .lg-title')?.addEventListener('click', (e) => {
+    legendOpen = !legendOpen; legendOpenPref = legendOpen;
+    view.querySelector('#map-legend').classList.toggle('is-open', legendOpen);
+    e.currentTarget.setAttribute('aria-expanded', String(legendOpen));
+  });
+  view.querySelector('#rm-all').addEventListener('click', () => { clearFocus(); try { map.flyToBounds(S.group.getBounds(), { padding: [20, 20], maxZoom: 7, duration: 0.8 }); } catch { /* 無視 */ } });
   const bubble = createHoverBubble();
   S.bubble = bubble;
   const hintHtml = (rc) => {
@@ -271,7 +282,7 @@ export async function renderRegionMap(view, ctx) {
     return `${flag}${EDITABLE.includes(mode) ? factChipHtml(mode, rc) : ''}`;
   };
   let loaded = 0; let failed = 0;
-  const status = () => { const el = view.querySelector('#rm-status'); if (el) el.textContent = loaded + failed < countries.length ? `地域の境界を読み込んでいます… ${loaded + failed} / ${countries.length}` : failed ? `${failed} か国は、地域の境界を読み込めませんでした（データがない国もあります）` : `地域をクリックすると、情報が出ます（${S.byCode.size} 地域）`; };
+  const status = () => { const el = view.querySelector('#rm-status'); if (el) el.textContent = loaded + failed < countries.length ? `地域の境界を読み込んでいます… ${loaded + failed} / ${countries.length}` : failed ? `${failed} か国は、地域の境界を読み込めませんでした（データがない国もあります）` : `${mode === 'cards' ? 'クリック・拡大でカード表示' : 'クリックで地域を選択'} ／ スペースキー長押しでストリートビュー（${S.byCode.size} 地域）`; };
   const group = L.featureGroup().addTo(map);
   S.group = group;
   await Promise.all(countries.map(async (code) => {
@@ -315,55 +326,138 @@ export async function renderRegionMap(view, ctx) {
     const hd = e.target.closest('[data-rc]');
     if (hd && !svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); toggleFocus(hd.dataset.rc); }
   }, true); // Leaflet の印は、クリックを上に伝えないので、先に（キャプチャで）受ける
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S?.view === view && S.selected && !svOn && !document.querySelector('dialog[open]') && !/^(input|textarea|select)$/i.test(e.target.tagName)) clearFocus(); });
+  // Esc: ストリートビューのモード → 地名の目印 → 地域の選択、の順に解除（世界モードと同じ）
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || S?.view !== view || document.querySelector('dialog[open]') || /^(input|textarea|select)$/i.test(e.target.tagName)) return;
+    if (svOn) S.setSv?.(false); else if (S.city) S.clearCity?.(); else if (S.selected) clearFocus();
+  });
 
-  // ---- 地名・地域の検索（選んだ国の中だけ）----
+  // ---- 地名・地域の検索（選んだ国の中だけ。世界モードの地図と同じ流れ）----
   function setupSearch() {
-    const input = view.querySelector('#map-search');
+    const ms = view.querySelector('#map-search');
     const sug = view.querySelector('#rm-suggest');
-    let rows = []; let hi = -1; let timer = null; let ctl = null; let mySeq = 0;
-    const close = () => { sug.hidden = true; hi = -1; };
-    const render = (q, status = '') => {
-      sug.innerHTML = `${status ? `<div class="sug-status">${esc(status)}</div>` : ''}${rows.map((r, i) => `<button type="button" role="option" class="sug-row ${i === hi ? 'is-hi' : ''}" data-i="${i}">
-        ${r.code ? flagImg(r.code) : '<span class="sug-ico">📍</span>'}
-        <span class="sug-main"><span class="sug-title"><b>${esc(r.name)}</b></span><small>${esc(r.sub || '')}</small></span></button>`).join('')}`;
-      sug.hidden = !rows.length && !status;
+    let cities = []; let hi = -1; let osmMode = false; let sugQ = ''; let sugCtl = null; let sugTimer = null; let sugSeq = 0;
+    const inSet = (c) => !c.code || countries.includes(c.code);
+    const fmtPop = (n) => (n >= 10000 ? `${Math.round(n / 10000).toLocaleString()}万人` : n ? `${n.toLocaleString()}人` : '');
+    const regionHits = (q) => {
+      const nq = norm(q); const out = [];
+      if (nq.length >= 1) for (const rc of S.byCode.keys()) { if (norm(regionName(rc)).includes(nq)) out.push({ region: rc, name: regionName(rc), sub: `${countryName(regionParent(rc))}の地域`, code: regionParent(rc), pop: 0 }); if (out.length >= 5) break; }
+      return out;
     };
-    const pick = (r) => {
-      if (!r) return;
-      close();
-      if (r.region) { focusRegion(r.region); input.blur(); return; }
-      if (S.found) { S.found.remove(); S.found = null; }
-      S.found = L.marker([r.lat, r.lng], { title: r.name }).addTo(map).bindPopup(`<b>${esc(r.name)}</b>${r.sub ? `<br><small>${esc(r.sub)}</small>` : ''}`).openPopup();
-      map.flyTo([r.lat, r.lng], Math.max(8, Math.min(13, r.zoom || 10)), { duration: 0.6 });
-      const rc = regionAt(r.lat, r.lng);
-      if (rc) { S.selected = rc; renderPanel(); restyle(); }
-      input.blur();
-    };
-    const search = async (q) => {
-      const local = [];
-      const nq = norm(q);
-      if (nq.length >= 1) for (const rc of S.byCode.keys()) { if (norm(regionName(rc)).includes(nq)) local.push({ region: rc, name: regionName(rc), sub: `${countryName(regionParent(rc))}の地域`, code: regionParent(rc) }); if (local.length >= 6) break; }
-      rows = local; hi = -1; render(q, '都市を探しています…');
-      ctl?.abort(); ctl = new AbortController();
-      const my = ++mySeq;
+    const closeSug = () => { sug.hidden = true; hi = -1; };
+    const sugRows = () => cities.length + (osmMode ? 0 : 1);
+    function renderSug(q, status = '') {
+      const rows = cities.map((c, i) => `<button type="button" role="option" class="sug-row ${i === hi ? 'is-hi' : ''}" data-i="${i}">
+        ${c.code ? flagImg(c.code) : '<span class="sug-ico">🏙</span>'}
+        <span class="sug-main"><span class="sug-title"><b>${esc(c.name)}</b>${c.region ? '' : altNames(c).map((n) => `<em class="sug-alt">${esc(n)}</em>`).join('')}</span><small>${esc(c.region ? c.sub : [c.sub, c.code ? countryName(c.code) : ''].filter(Boolean).join('・'))}</small></span>
+        ${c.pop ? `<span class="sug-pop">${fmtPop(c.pop)}</span>` : ''}
+      </button>`).join('');
+      const more = osmMode ? '' : `<button type="button" class="sug-row sug-more ${hi === cities.length ? 'is-hi' : ''}" data-more="1"><span class="sug-ico">🔎</span><span class="sug-main"><b>OpenStreetMap で「${esc(q)}」を探す</b><small>小さな地名・漢字の名前など</small></span></button>`;
+      sug.innerHTML = `${status ? `<div class="sug-status">${esc(status)}</div>` : ''}${rows}${more}`;
+      sug.hidden = !(rows || more || status);
+      sug.querySelector('.is-hi')?.scrollIntoView({ block: 'nearest' });
+    }
+    async function runSuggest(q) {
+      sugCtl?.abort(); sugCtl = new AbortController();
+      const my = ++sugSeq;
+      const local = regionHits(q);
       try {
-        const list = (await suggestCities(q, { signal: ctl.signal, count: 12 })).filter((c) => countries.includes(c.code));
-        if (my !== mySeq) return;
-        rows = [...local, ...list.map((c) => ({ ...c, sub: [c.sub, countryName(c.code)].filter(Boolean).join(' · ') }))];
-        render(q, rows.length ? '' : '見つかりませんでした');
-      } catch (e) { if (e.name !== 'AbortError' && my === mySeq) render(q, '都市を検索できませんでした'); }
+        const list = (await suggestCities(q, { signal: sugCtl.signal, count: 14 })).filter(inSet);
+        if (my !== sugSeq) return;
+        cities = [...local, ...list]; sugQ = q; osmMode = false; hi = -1;
+        if (document.activeElement === ms) renderSug(q);
+        Promise.allSettled(list.slice(0, 6).map((c) => fillNames(c, { signal: sugCtl?.signal }))).then(() => { if (my === sugSeq && !sug.hidden && document.activeElement === ms) renderSug(q); });
+      } catch (e) { if (e.name !== 'AbortError' && my === sugSeq) { cities = local; osmMode = false; renderSug(q); } }
+    }
+    async function runOsm(q, autoPick = false) {
+      sugCtl?.abort(); sugCtl = new AbortController();
+      const my = ++sugSeq; osmMode = true; cities = []; hi = -1;
+      renderSug(q, 'OpenStreetMap で探しています…');
+      try {
+        const list = (await searchCitiesOSM(q, { signal: sugCtl.signal })).filter(inSet);
+        if (my !== sugSeq) return;
+        cities = list; sugQ = q;
+        if (!list.length) { renderSug(q, '見つかりませんでした'); ctx.toast('この国の中に、見つかりません', 'error'); return; }
+        if (autoPick) { pickCity(list[0]); return; }
+        renderSug(q);
+      } catch (e) { if (e.name !== 'AbortError' && my === sugSeq) { renderSug(q, e.message || '検索できませんでした'); ctx.toast(e.message || '検索できませんでした', 'error'); } }
+    }
+    // 選んだ都市へ移動して目印を置く。その地域があれば、右パネルにその地域の情報を出す
+    const cityIcon = (c) => {
+      const place = [c.sub, c.code ? countryName(c.code) : ''].filter(Boolean).join('・');
+      return L.divIcon({ className: 'city-pin', iconSize: [0, 0], iconAnchor: [0, 0], html: `<span class="city-dot"></span><div class="city-card">${c.code ? flagImg(c.code) : ''}<span class="city-name"><span class="city-title"><b>${esc(c.name)}</b>${altNames(c).map((n) => `<em class="city-alt">${esc(n)}</em>`).join('')}</span>${place ? `<small>${esc(place)}</small>` : ''}</span><button type="button" class="city-x" aria-label="目印を消す" title="目印を消す（Esc）">✕</button></div>` });
     };
-    input.addEventListener('input', () => { clearTimeout(timer); const q = input.value.trim(); if (!q) { rows = []; close(); return; } timer = setTimeout(() => search(q), 300); });
-    input.addEventListener('keydown', (e) => {
-      if (e.isComposing) return;
-      if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(rows.length - 1, hi + 1); render(input.value); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(0, hi - 1); render(input.value); }
-      else if (e.key === 'Enter') { e.preventDefault(); if (rows.length) pick(rows[Math.max(0, hi)]); else search(input.value.trim()); }
-      else if (e.key === 'Escape') { close(); if (S.found) { S.found.remove(); S.found = null; } input.blur(); }
+    function showCity(c) {
+      S.city = c; S.cityMarker?.remove();
+      S.cityMarker = L.marker([c.lat, c.lng], { icon: cityIcon(c), keyboard: false, zIndexOffset: 4500 }).addTo(map);
+      const bindX = () => S.cityMarker?.getElement()?.querySelector('.city-x')?.addEventListener('click', (e) => { e.stopPropagation(); clearCity(); });
+      bindX();
+      if (!c.filled) fillNames(c).then(() => { if (S.city === c && S.cityMarker) { S.cityMarker.setIcon(cityIcon(c)); bindX(); } }).catch(() => {});
+      map.flyTo([c.lat, c.lng], c.zoom || 11, { duration: 0.8 });
+      const rc = regionAt(c.lat, c.lng);
+      if (rc && rc !== S.selected) { const prev = S.selected; S.selected = rc; for (const x of [prev, rc]) { const l = x && S.byCode.get(x); if (l) l.setStyle(styleOf(x)); } renderPanel(); }
+    }
+    S.clearCity = () => { S.city = null; S.cityMarker?.remove(); S.cityMarker = null; };
+    const clearCity = S.clearCity;
+    function pickCity(c) {
+      clearTimeout(sugTimer); sugCtl?.abort(); closeSug();
+      if (c.region) { clearCity(); focusRegion(c.region); } else showCity(c);
+      ms.blur(); ms.value = ''; ms.dispatchEvent(new Event('input'));
+    }
+    // Enter: 入力した言葉そのもので、すぐに探して移動する（候補が更新されるのを待たない）
+    async function resolveCity(q) {
+      clearTimeout(sugTimer);
+      const local = regionHits(q);
+      const exact = local.find((r) => norm(r.name) === norm(q));
+      if (exact) { pickCity(exact); return; }
+      if (!(sugQ === q && cities.length && !osmMode)) {
+        sugCtl?.abort(); sugCtl = new AbortController();
+        const my = ++sugSeq; cities = []; sugQ = ''; osmMode = false;
+        renderSug(q, '探しています…');
+        try {
+          const list = (await suggestCities(q, { signal: sugCtl.signal, count: 14 })).filter(inSet);
+          if (my !== sugSeq) return;
+          if (list.length) { cities = [...local, ...list]; sugQ = q; }
+        } catch (e) { if (e.name === 'AbortError') return; }
+      }
+      const firstCity = cities.find((c) => !c.region);
+      if (firstCity && firstCity.pop > 0) pickCity(firstCity);
+      else if (local.length) pickCity(local[0]);
+      else runOsm(q, true);
+    }
+    ms.addEventListener('input', () => {
+      clearTimeout(sugTimer);
+      const q = ms.value.trim();
+      hi = -1;
+      if (!q) { sugCtl?.abort(); sugSeq++; cities = []; sugQ = ''; closeSug(); return; }
+      sugTimer = setTimeout(() => runSuggest(q), 300);
     });
-    sug.addEventListener('mousedown', (e) => { const b = e.target.closest('[data-i]'); if (b) { e.preventDefault(); pick(rows[Number(b.dataset.i)]); } });
-    input.addEventListener('blur', () => setTimeout(close, 150));
+    ms.addEventListener('keydown', (e) => {
+      if (e.isComposing) return;
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !sug.hidden && sugRows()) {
+        e.preventDefault();
+        const n = sugRows();
+        hi = e.key === 'ArrowDown' ? (hi + 1) % n : (hi < 0 ? n - 1 : (hi - 1 + n) % n);
+        renderSug(ms.value.trim());
+        return;
+      }
+      if (e.key === 'Escape') { closeSug(); S.clearCity(); ms.blur(); return; }
+      if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const q = ms.value.trim();
+      if (!q) return;
+      e.preventDefault();
+      if (hi >= 0 && sugQ === q) { if (hi < cities.length) pickCity(cities[hi]); else runOsm(q); return; }
+      resolveCity(q);
+    });
+    sug.addEventListener('mousedown', (e) => e.preventDefault()); // 候補を押しても、入力欄から離れない
+    sug.addEventListener('click', (e) => {
+      const row = e.target.closest('.sug-row');
+      if (!row) return;
+      if (row.dataset.more) runOsm(ms.value.trim()); else pickCity(cities[Number(row.dataset.i)]);
+    });
+    ms.addEventListener('blur', () => setTimeout(closeSug, 150));
+    // 地図の他の場所をクリックしたら、地名の目印を消す（目印の上のクリックは、地図には伝わらない）
+    map.on('click', () => { if (S.city) S.clearCity(); });
   }
 
   // ---- ストリートビュー（青い線の近くをクリックすると、その場所のストリートビューを開く）----
@@ -396,7 +490,7 @@ export async function renderRegionMap(view, ctx) {
       if (on) { addCoverage(); bubble.hide(); } else { S.svCov?.remove(); S.svCov = null; }
       drawSavedPins();
     };
-    btn.addEventListener('click', () => set(!svOn));
+    btn.addEventListener('click', () => { if (svTemp) { svTemp = false; return; } set(!svOn); }); // スペース長押し中にボタンを押したら、そのままオンで固定
     view.querySelector('#rm-sv-exit').addEventListener('click', () => set(false));
     let down = null;
     mapEl.addEventListener('mousedown', (e) => { down = [e.clientX, e.clientY]; }, true);
@@ -414,7 +508,25 @@ export async function renderRegionMap(view, ctx) {
       if (hit) openSvWindow(hit.lat, hit.lng); else ctx.toast('この付近にはストリートビューがありません', 'error');
     });
     if (svOn) set(true);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && svOn && S?.view === view && !/^(input|textarea|select)$/i.test(e.target.tagName)) set(false); });
+    S.setSv = set;
+    // スペースキーを押している間だけ、ストリートビューを開ける状態にする（離すと元に戻る。世界モードの地図と同じ）
+    if (spaceKeys) { document.removeEventListener('keydown', spaceKeys.down); document.removeEventListener('keyup', spaceKeys.up); window.removeEventListener('blur', spaceKeys.up); }
+    const typing = (el) => /^(input|textarea)$/i.test(el?.tagName || '') || el?.isContentEditable;
+    const spaceDown = (e) => {
+      if (e.code !== 'Space' || e.ctrlKey || e.altKey || e.metaKey || typing(e.target) || document.querySelector('dialog[open]:not(.is-window)') || S?.view !== view || !view.isConnected) return;
+      e.preventDefault(); // ページが下へ動かないように
+      if (e.repeat || svOn) return;
+      svTemp = true;
+      set(true);
+    };
+    const spaceUp = (e) => {
+      if (e.type === 'keyup') { if (e.code !== 'Space') return; if (!typing(e.target) && view.isConnected) e.preventDefault(); } // フォーカス中のボタンがスペースで押されないように
+      if (svTemp) { svTemp = false; set(false); }
+    };
+    spaceKeys = { down: spaceDown, up: spaceUp };
+    document.addEventListener('keydown', spaceDown);
+    document.addEventListener('keyup', spaceUp);
+    window.addEventListener('blur', spaceUp);
   }
 
   // ---- 地域の旗をカードにする（編集者）----
@@ -486,19 +598,27 @@ function drawMarks() {
       const c = S.geo.get(rc)?.center;
       if (!c || !bounds.contains(c)) continue;
       const parent = regionParent(rc);
-      const active = rc === S.selected;
+      const active = rc === S.selected || rc === S.hover;
+      // 世界モードと同じ: 縮小しているときは緑の丸い数字、その地域が画面に収まるくらい拡大するとサムネイル（拡大するほど大きく）
+      const l = S.byCode.get(rc);
+      const rz = l ? Math.max(4, Math.min(11, map.getBoundsZoom(l.getBounds(), false, L.point(60, 60)) - 0.75)) : 6;
       let icon;
-      if (z < 5) icon = L.divIcon({ className: 'map-count', html: `<span data-rc="${esc(rc)}">${list.length}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] });
-      else {
+      if (z < rz) {
+        const n = list.length; const size = n >= 100 ? 28 : n >= 10 ? 23 : 19;
+        icon = L.divIcon({ className: 'map-count', html: `<span>${n}</span>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+      } else {
+        const scale = Math.min(1.44, Math.max(0.58, 0.58 * 2 ** ((z - rz) * 0.5))) * (active ? 1 : 0.78);
         const show = list.slice(0, 4); const more = list.length - show.length; const cols = show.length === 1 ? 1 : 2; const w = cols === 1 ? 120 : 172;
         icon = L.divIcon({ className: 'map-thumbs-icon', iconSize: [w, 0], iconAnchor: [w / 2, 20], html: `
-          <div class="map-thumbs${active || rc === S.hover ? '' : ' is-dim'}" data-rc="${esc(rc)}" style="transform:scale(${active || rc === S.hover ? 0.58 : 0.45})">
+          <div class="map-thumbs${active ? '' : ' is-dim'}" data-rc="${esc(rc)}" data-rz="${rz}" style="transform:scale(${scale.toFixed(2)})">
             <div class="map-thumbs-head" data-rc="${esc(rc)}">${flagImg(parent)}<span>${esc(regionName(rc))}</span><span class="map-thumbs-n">${list.length}</span></div>
             <div class="map-thumbs-grid" style="grid-template-columns:repeat(${cols},1fr)">${show.map((c2) => `<div class="map-thumb" data-card="${esc(c2.id)}" style="${S.ctx.catVars(S.ctx.catOf(c2))}" title="${esc(S.ctx.catOf(c2).name)}">${S.ctx.thumbUrl(c2) ? `<img src="${esc(S.ctx.thumbUrl(c2))}" alt="">` : ''}</div>`).join('')}</div>
             ${more > 0 ? `<div class="map-thumbs-more" data-rc="${esc(rc)}">ほか ${more} 枚</div>` : ''}
           </div>` });
       }
-      S.thumbs.set(rc, L.marker(c, { icon, zIndexOffset: active ? 1000 : 0, keyboard: false }).addTo(map));
+      const mk = L.marker(c, { icon, zIndexOffset: active ? 1000 : 0, keyboard: false, riseOnHover: true }).addTo(map);
+      if (z < rz) { const el = mk.getElement(); if (el) { el.dataset.rc = rc; el.dataset.rz = rz; } }
+      S.thumbs.set(rc, mk);
     }
     // 精密な場所（カードに登録した地名・関連付けたストリートビュー）
     if (z >= 8) {
@@ -526,11 +646,14 @@ function drawMarks() {
 
 // サムネイルの見え方: 選んでいる・マウスが乗っている地域ははっきり、それ以外は半透明で小さめ（世界モードと同じ）
 function refreshThumbs() {
+  const z = S.map.getZoom();
   for (const [rc, m] of S.thumbs) {
     const el = m.getElement()?.querySelector('.map-thumbs');
     if (!el) continue;
+    const rz = Number(el.dataset.rz) || 6;
     const active = rc === S.selected || rc === S.hover;
-    el.style.transform = `scale(${active ? 0.58 : 0.45})`;
+    const scale = Math.min(1.44, Math.max(0.58, 0.58 * 2 ** ((z - rz) * 0.5))) * (active ? 1 : 0.78);
+    el.style.transform = `scale(${scale.toFixed(2)})`;
     el.classList.toggle('is-dim', !active);
     m.setZIndexOffset(active ? 1000 : 0);
   }
@@ -568,8 +691,8 @@ function restyle() {
   for (const [rc, l] of S.byCode) l.setStyle(styleOf(rc));
   scalePatterns(svgOf(), S.map.getZoom());
   drawMarks();
-  const lg = S.view.querySelector('#rm-legend');
-  if (lg) lg.innerHTML = EDITABLE.includes(mode) ? `<div class="map-legend is-open"><div class="lg-title">${modeDef(mode).icon} ${S.ctx.esc(modeDef(mode).name)}</div>${legendHtml(mode, codes)}</div>` : '';
+  const lg = S.view.querySelector('#map-legend');
+  if (lg) { const on = EDITABLE.includes(mode); lg.hidden = !on; if (on) lg.querySelector('.lg-items').innerHTML = legendHtml(mode, codes); }
   S.byCode.get(S.selected)?.bringToFront();
   if (!S.selected) renderList(); else renderPanel();
 }
