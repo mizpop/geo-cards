@@ -180,7 +180,7 @@ export async function proposeCards(deps) {
 - score は、scope が "world" なら国を特定するのに、"region" なら${countryName}の中の地域を特定するのに、どれだけ役立つか。
 - why は、その score を付けた理由を、日本語で、簡潔に（20〜40 字程度、1 文）。例: 「この国だけの色の組み合わせで、ほぼ特定できる」「近隣の数か国でも同じ」「多くの国で見られる一般的な形」。国名を出してよい。
 - score は、その手がかりが、この国だと特定するのに、どれだけ役立つかを、1〜5 の整数で（5: これが見えれば、ほぼ、この国だと決まる / 4: 候補が数か国に絞れる / 3: 地域が絞れる程度 / 2: 多くの国で見られる / 1: ほとんど役に立たない）。多くの国で使われている手がかり（シェブロン・一般的な標識・よくある植生・ありふれた建物など）は、その国だけのものではないので、2 以下にする。本文に「ほかの国でも使われる」とあれば、同様に低くする。
-- also は、その項目の本文に、「全く同じものが、ほかの国にもある」と、はっきり書かれているときだけ、その国の国コード（ISO 3166-1 の 2 文字の大文字。例: ドイツ DE・フランス FR・イギリス GB・アメリカ US。${countryName}は入れない）を並べる。国名では書かない。他の国への言及があっても、「全く同じ」と明記されていない限り（「似ている」「同様」「少し違う」「〜でも見られる」「〜と混同しやすい」「〜と比べて」などの言及だけ）は、入れない。推測も入れない。迷ったときは、入れない。書かれていなければ、空の配列にする。
+- also は、scope が "world" のときだけ。scope が "region" のときは、必ず空の配列にする（国の地域のカードには、他の国を入れない）。その項目の本文に、「全く同じものが、ほかの国にもある」と、はっきり書かれているときだけ、その国の国コード（ISO 3166-1 の 2 文字の大文字。例: ドイツ DE・フランス FR・イギリス GB・アメリカ US。${countryName}は入れない）を並べる。国名では書かない。他の国への言及があっても、「全く同じ」と明記されていない限り（「似ている」「同様」「少し違う」「〜でも見られる」「〜と混同しやすい」「〜と比べて」などの言及だけ）は、入れない。推測も入れない。迷ったときは、入れない。書かれていなければ、空の配列にする。
 - front（表面）には、国や場所を特定できる情報を、書かない。国名・地域名・都市名・州名・地名・国旗・国のドメイン・その国だけの言語名や固有名詞・「〇〇に多い」といった表現も、書かない。答えが分かってしまうため。何の手がかりか（例: 「黄色い電柱のプレート」「左側通行の道路」）だけを、書く。国や場所の情報は、back（裏面）にだけ書く。
 - tip は、[T番号] の数字だけ。同じ番号は 1 回だけ。front・back・area の文章には、[T10] のような番号や印は、書かない。
 - category は、次の中から 1 つ選ぶ（合うものがなければ空）: ${catNames.join('、')}
@@ -201,7 +201,7 @@ export async function proposeCards(deps) {
           <div class="aic-fields">
             <div class="aic-score small" title="この国だと特定するのに、どれだけ役立つか（AI の判断）">国の特定に役立つ度: <b>${'★'.repeat(p.score)}${'☆'.repeat(5 - p.score)}</b>${p.why ? ` <span class="muted aic-why">― ${esc(p.why)}</span>` : ''}</div>
             <input class="input aic-front" value="${esc(p.front)}" placeholder="表面の説明">
-            <label class="aic-also small"><span class="muted">他の国（ガイドに「同じものがある」とある国。カードの国に足します）</span><input class="input aic-countries" value="${esc(p.alsoText || '')}" placeholder="例: ドイツ、フランス（なければ空）"></label>
+            <label class="aic-also small" ${p.scope === 'region' ? 'hidden' : ''}><span class="muted">他の国（ガイドに「同じものがある」とある国。カードの国に足します）</span><input class="input aic-countries" value="${esc(p.alsoText || '')}" placeholder="例: ドイツ、フランス（なければ空）"></label>
             <textarea class="input aic-back" rows="3" placeholder="裏面の解説">${esc(p.back)}</textarea>
             <div class="aic-row">
               <select class="select select-sm aic-cat"><option value="">カテゴリーなし</option>${cats.map((c) => `<option value="${esc(c.id)}" ${c.id === p.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
@@ -237,7 +237,7 @@ export async function proposeCards(deps) {
     });
     const count = () => { const n = cards.filter((c) => c.querySelector('.aic-check input').checked).length; body.querySelector('#aic-count').textContent = `${n} 件を作成`; body.querySelector('#aic-make').disabled = !n; };
     cards.forEach((c) => c.querySelector('.aic-check input').addEventListener('change', count));
-    cards.forEach((c) => c.querySelector('.aic-scope').addEventListener('change', (e) => { c.querySelector('.aic-regions').hidden = e.target.value !== 'region'; }));
+    cards.forEach((c) => c.querySelector('.aic-scope').addEventListener('change', (e) => { c.querySelector('.aic-regions').hidden = e.target.value !== 'region'; c.querySelector('.aic-also').hidden = e.target.value === 'region'; }));
     count();
     body.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', close));
     body.querySelectorAll('.aic-imgline').forEach((b) => b.addEventListener('click', async () => {
@@ -272,7 +272,7 @@ export async function proposeCards(deps) {
       const el = b.closest('.aic-card');
       const p = list[Number(el.dataset.i)];
       b.disabled = true;
-      try { const f = fieldsOf(el); const blob = p.blob || await deps.fetchImage(p.item); const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; close(); deps.openEditor({ countries: countriesOf(f.alsoText).codes, blob, ...f, scope: f.scope === 'region' ? [code] : [], places: f.scope === 'region' ? (await regionPlaces(f.regionsText)) : [], svIds: svId ? [svId] : [] }); } catch (ex) { toast(`画像を取り込めませんでした: ${ex.message}`, 'error'); b.disabled = false; }
+      try { const f = fieldsOf(el); const blob = p.blob || await deps.fetchImage(p.item); const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; close(); deps.openEditor({ countries: f.scope === 'region' ? [code] : countriesOf(f.alsoText).codes, blob, ...f, scope: f.scope === 'region' ? [code] : [], places: f.scope === 'region' ? (await regionPlaces(f.regionsText)) : [], svIds: svId ? [svId] : [] }); } catch (ex) { toast(`画像を取り込めませんでした: ${ex.message}`, 'error'); b.disabled = false; }
     }));
     body.querySelector('#aic-make').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
@@ -289,7 +289,8 @@ export async function proposeCards(deps) {
           if (!p.mapChecked && getRect() != null && eligible(p)) { blob = await eraseRegions(blob, lineRegions()); p.mapChecked = true; mapsRemoved++; } // 位置を決めてあるのに、まだ消していない画像
           const svId = f.sv && p.sv ? await deps.addSv(p.sv).catch(() => null) : null; // ストリートビューは、取れなくても、カードは作る
           if (f.sv && p.sv && !svId) svFail++;
-          const cs = countriesOf(f.alsoText); unknown += cs.unknown.length;
+          const cs = f.scope === 'region' ? { codes: [code], unknown: [] } : countriesOf(f.alsoText); // 「国の地域」のカードは、その国だけ（他の国は入れない）
+          unknown += cs.unknown.length;
           // 「国の地域」のカード: AI が判定した地域（編集できる）を、境界データと照らして、地名（代表点の座標）として登録する。どの地域のカードかは、この座標で判断される
           let places = []; let area = f.area; let missed = [];
           if (f.scope === 'region' && f.regionsText && deps.resolveRegions) {
