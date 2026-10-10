@@ -259,7 +259,7 @@ function openSettings() {
     <section class="set-group">
       ${item('最初に見る面', '「裏」から始めると、国名から特徴を思い出す練習に', seg('studyStart', [['front', '表（画像）'], ['back', '裏（国名）']]), true)}
       ${item('表面に説明文を表示', 'オフにすると画像だけで答える練習に', sw('showDesc'))}
-      ${item('ナンバープレートをぼかす', '「ナンバープレート」カテゴリーのカードの画像を、暗記・クイズで、全体ぼかします（答えを見てもぼかしたまま。たとえば、ナンバーの文字が読めない状態で、色や形・位置から当てる練習に）', sw('blurPlates'))}
+      ${item('ナンバープレートをぼかす', '「ナンバープレート」カテゴリーのカードの画像を、暗記・クイズで、全体ぼかします（国モードと、「国の地域」のカードは、ぼかしません。答えを見てもぼかしたまま。たとえば、ナンバーの文字が読めない状態で、色や形・位置から当てる練習に）', sw('blurPlates'))}
       ${item('ぼかしの強さ', 'ナンバープレートのぼかしの強さ。大きいほど、文字が読めなくなります（値が見えるプレビューつき）', `<span class="blur-range"><input type="range" id="set-blur" min="2" max="40" step="1" value="${Number(settings.blurStrength) || 16}" aria-label="ぼかしの強さ"><span class="blur-sample" aria-hidden="true">AB 12-34</span><output id="set-blur-n">${Number(settings.blurStrength) || 16}</output></span>`, true)}
       ${item('正解したら自動で次へ', 'クイズで ○ のとき 1.2 秒後に次の問題へ', sw('autoNext'))}
     </section>
@@ -1318,7 +1318,8 @@ function svFrontHtml(card) {
 const svInfoHtml = (card) => (card.refSrc ? `<figure class="sv-ref-answer"><img src="${esc(card.refSrc)}" alt="この地点の参考写真" loading="lazy"><figcaption class="muted small">GeoHints の参考写真（${esc(modeDef(card.refTopic).name)}）</figcaption></figure>${photoInfoHtml(card.refTopic, card.refSrc, card.countries[0])}` : '') + `<div class="photo-info"><a class="btn btn-sm photo-map" href="${esc(svOpenUrl(card.lat, card.lng))}" target="_blank" rel="noopener">📍 Google マップ（ストリートビュー）で開く ↗</a></div>`;
 const cardInfoHtml = (card) => (card.sv ? svInfoHtml(card) : card.photo ? photoInfoHtml(card.topic, card.src, card.countries[0]) : '');
 // 暗記・クイズで、設定がオンのとき、「ナンバープレート」カテゴリーのカードの画像は、全体をぼかす
-const isPlateCard = (card) => !card.sv && (card.photo ? card.topic === 'plate' : /ナンバー|plate/i.test(catOf(card).name)); // 参考写真は、種類がナンバープレートのもの
+// 「国の地域」のカードや、国モードのときは、ぼかさない（国は分かっていて、地域の見分けには、ナンバープレートの文字を見る必要があるため）
+const isPlateCard = (card) => !card.sv && state.mode.kind !== 'country' && !scopeOf(card).length && (card.photo ? card.topic === 'plate' : /ナンバー|plate/i.test(catOf(card).name)); // 参考写真は、種類がナンバープレートのもの
 const faceImgAttrs = (card, src, reveal = false) => `src="${esc(src)}"${isPlateCard(card) && !reveal ? ' data-plate="1"' : ''}`; // reveal: 答え合わせ・裏面では、ぼかさない // ぼかすかどうかは、設定（html の plate-blur-on）で切り替わる。設定を変えると、すぐに反映される
 function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
   if (card.sv) return svFrontHtml(card);
