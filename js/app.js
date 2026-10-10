@@ -5787,7 +5787,7 @@ function openPopoutContent(e) {
   else if (e.kind === 'country') openCountryInfo(e.code, null, e.lang);
   else if (e.kind === 'photo') openPhotoModal(e.topic, e.code, e.srcs, e.i);
   else if (e.kind === 'plonkit') openPlonkitWindow(e.code, null, e.slug);
-  else if (e.kind === 'article' || e.kind === 'article-edit') loadGuides().catch(() => {}).then(() => navModal(e.kind === 'article' ? { kind: 'article', id: e.id } : { kind: 'article-edit', id: e.id, draftKey: e.draftKey })); // ガイドの記事・書きかけの記事
+  else if (e.kind === 'article' || e.kind === 'article-edit') loadGuides().catch(() => {}).then(() => { navModal(e.kind === 'article' ? { kind: 'article', id: e.id } : { kind: 'article-edit', id: e.id, draftKey: e.draftKey }); setTimeout(() => { if (!wins.some((x) => x.el.open)) window.close(); }, 1500); }); // ガイドの記事・書きかけの記事（開けなかったら、透明な窓を残さず閉じる）
   else if (e.kind === 'sv') { openSvWindow(e.lat, e.lng, { heading: e.heading, pitch: e.pitch, fov: e.fov }); if (POPOUT) { document.title = 'ストリートビュー'; window.desktop?.setWinMeta?.({ kind: 'sv' }); iconDataUrl(null, '🧍').then((u) => window.desktop?.setWinIcon?.(u)).catch(() => {}); } }
 }
 
