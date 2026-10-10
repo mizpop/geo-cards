@@ -289,7 +289,7 @@ export async function renderRegionMap(view, ctx) {
       <label class="rm-modes"><span class="muted small">表示</span>
         <select class="select select-sm" id="rm-mode" aria-label="表示する情報">${MODES.map((id) => `<option value="${id}" ${id === mode ? 'selected' : ''}>${modeInfo(id).icon} ${esc(modeInfo(id).name)}</option>`).join('')}</select></label>
       ${mode === 'cards' ? ctx.filterPicksHtml() : ''}
-      ${ctx.isEditor() ? '<button type="button" class="btn btn-ghost btn-sm" id="rm-flagcards" title="旗が見つかった地域の旗を、まとめてカードにします（ラベルは、その国の「地域」。すでに旗のカードがある地域は除きます）">🚩 地域の旗をカードに</button>' : ''}
+      ${ctx.isEditor() ? '<button type="button" class="btn btn-ghost btn-sm" id="rm-flagcards" title="選んだ国の、地域ごとの旗・ナンバープレートを、まとめてカードにします（ラベルは、その国の「地域」。すでにカードがある地域は除きます）">🗂 旗・ナンバーをまとめてカードに</button>' : ''}
       <button class="btn btn-ghost btn-sm" id="rm-all" aria-label="選んだ国の全体" title="選んだ国の全体を表示">🌐<span class="tab-long"> 国全体</span></button>
       <span class="rm-countries">${countries.map((c) => `<span class="chip">${flagImg(c)} ${esc(countryName(c))}</span>`).join('')}</span>
       <span class="muted small map-hint" id="rm-status">地域の境界を読み込んでいます…</span>
@@ -627,24 +627,7 @@ export async function renderRegionMap(view, ctx) {
 
   // ---- 地域の旗をカードにする（編集者）----
   function setupFlagCards() {
-    view.querySelector('#rm-flagcards')?.addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
-      if (!S.cardRegions) computeCardRegions();
-      const have = new Set();
-      for (const c of ctx.cards) if (ctx.isFlagCard(c)) for (const r of S.cardRegions.get(c.id)?.regions || []) have.add(r);
-      const todo = [...S.byCode.keys()].filter((rc) => regionFlagReadable(rc) && !have.has(rc));
-      if (!todo.length) { ctx.toast('カードにできる旗がありません（旗がまだ読み込まれていないか、すべてカードにしてあります）'); return; }
-      if (!confirm(`${todo.length} 地域の旗を、カードにします（ラベルは、その国の「地域」。カテゴリーは「国旗」）。よろしいですか？`)) return;
-      btn.disabled = true;
-      let ok = 0; let ng = 0;
-      for (const rc of todo) {
-        btn.textContent = `作成中… ${ok + ng + 1} / ${todo.length}`;
-        try { await createFlagCard(rc); ok++; } catch { ng++; }
-      }
-      btn.disabled = false; btn.textContent = '🚩 地域の旗をカードに';
-      ctx.toast(ng ? `${ok} 枚を作りました（${ng} 枚は、できませんでした）` : `${ok} 枚の旗のカードを作りました`, ng ? 'error' : undefined);
-      await ctx.reloadCards();
-    });
+    view.querySelector('#rm-flagcards')?.addEventListener('click', () => ctx.openBulkCards({ scope: 'region', countries: ctx.countries, kinds: ['flag', 'plate'] }));
   }
 }
 
@@ -923,3 +906,19 @@ function renderList() {
 
 /** 値を保存したあと・カードが変わったあとなどに、地図と横のパネルを描き直す */
 export function refreshRegionMap() { if (!S?.map) return; S.cardRegions = null; restyle(); }
+
+/** 国の地域の一覧（代表点・旗つき）と、座標からどの地域かを調べる関数。まとめてカードを作る画面で使う（地図を開かなくても使える） */
+export async function getRegionIndex(code, iso3) {
+  const fc = await loadRegions(code, iso3);
+  const regions = fc.features.map((f) => { const ix = indexRegion(f); return { rc: f.properties.code, name: f.properties.name, center: ix.center, ix }; });
+  await loadRegionFlags(code, regions.map((r) => r.rc));
+  const at = (lat, lng) => {
+    for (const r of regions) {
+      const [w, s, e, n] = r.ix.bbox;
+      if (lng < w || lng > e || lat < s || lat > n) continue;
+      if (r.ix.polys.some((poly) => polyHas(poly, lng, lat))) return r.rc;
+    }
+    return null;
+  };
+  return { regions, at };
+}

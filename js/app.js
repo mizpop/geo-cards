@@ -1,4 +1,5 @@
 import { pickCountries } from './countrypick.js';
+import { openBulkCards } from './bulkcards.js';
 import { renderRegionMap, refreshRegionMap, teardownRegionMap, resolveRegions, isRegionCode, regionName, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
@@ -4628,6 +4629,7 @@ function renderManage() {
     ${ed ? `<div class="toolbar toolbar-sub">
       <button class="btn btn-ghost btn-sm" id="m-cats">🏷 カテゴリー管理</button>
       <button class="btn btn-ghost btn-sm" id="m-bulk" title="複数の画像からまとめてカードを作る">📥 まとめて追加</button>
+      <button class="btn btn-ghost btn-sm" id="m-bulkflag" title="国ごとに、旗・ナンバープレートを、まとめてカードにします（国の旗 / 国の地域ごとの旗・ナンバープレート）">🚩 旗・ナンバーをまとめて</button>
       ${api.mode === 'supabase' && state.cards.some((c) => !c.thumb_path) ? `<button class="btn btn-ghost btn-sm" id="m-thumbs" title="一覧・地図で読み込む画像を軽くします（まだ低画質版のないカード ${state.cards.filter((c) => !c.thumb_path).length} 枚）">🖼 軽量画像を作成 <b class="badge-n">${state.cards.filter((c) => !c.thumb_path).length}</b></button>` : ''}
       <button class="btn btn-ghost btn-sm" id="m-export">バックアップを書き出し</button>
       <label class="btn btn-ghost btn-sm">バックアップから読み込み<input type="file" id="m-import" accept="application/json,.json" hidden></label>
@@ -4678,6 +4680,7 @@ function renderManage() {
     }
   });
   $('#m-bulk')?.addEventListener('click', openBulkAdd);
+  $('#m-bulkflag')?.addEventListener('click', () => openBulkFlagPlate({ scope: state.mode.kind === 'country' ? 'region' : 'world', countries: state.mode.kind === 'country' ? state.mode.countries : [] }));
   $('#m-cats')?.addEventListener('click', openCategoryManager);
   $('#m-import')?.addEventListener('change', (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
   $('#m-sel-all')?.addEventListener('click', () => { for (const c of manageFiltered()) m.sel.add(c.id); updateSelUI(); });
@@ -6053,6 +6056,7 @@ const regionCtx = {
   isEditor: () => !!state.user?.isEditor,
   animations: () => settings.animations,
   toast: (msg, kind) => toast(msg, kind),
+  openBulkCards: (preset) => openBulkFlagPlate(preset),
   // カードの場所（座標）: 登録した地名と、関連付けた保存済みストリートビュー
   cardPoints: (card) => [
     ...(card.places || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), label: p.name || '' })),
@@ -6063,6 +6067,27 @@ const regionCtx = {
   svView: (r) => rowView(r),
   openSv: (lat, lng, view) => openSvWindow(lat, lng, view),
 };
+// 国ごとに、旗・ナンバープレートを、まとめてカードにする（js/bulkcards.js）
+function openBulkFlagPlate(preset = {}) {
+  if (!state.user?.isEditor) { toast('編集できるのは、編集者のみです', 'error'); return; }
+  openBulkCards({
+    esc, countryName, flagImg,
+    countries: COUNTRIES.map((c) => ({ code: c.code, ja: c.ja })),
+    cards: () => state.cards,
+    isKindCard: (c, k) => regionCtx.isKindCard(c, k),
+    cardPoints: (c) => regionCtx.cardPoints(c),
+    iso3Of: (c) => regionCtx.iso3Of(c),
+    countryEn: (c) => regionCtx.countryEn(c),
+    createRegionCard: (p) => regionCtx.createRegionCard(p),
+    createNationalFlag: async ({ blob, code }) => {
+      const cat = state.categories.find((k) => /国旗|flag/i.test(k.name));
+      await api.createCard({ description: '', countries: [code], area: '', notes: `${countryName(code)}の国旗（画像: flagcdn.com）`, category_id: cat?.id || null, related: [], places: [], sv_ids: [], scope_countries: [] }, blob, null);
+    },
+    reloadCards: () => regionCtx.reloadCards(),
+    pickCountries: (selected) => pickCountries({ selected, title: 'まとめてカードにする国を選ぶ', resolve: resolveCountryCode, countryName, flagImg, esc, attachComplete: attachInlineComplete }),
+    toast: (m, k) => toast(m, k),
+  }, preset);
+}
 function renderMap(view, ctx) { if (!regionMapOn()) teardownRegionMap(); return regionMapOn() ? renderRegionMap(view, regionCtx) : renderWorldMap(view, ctx); }
 function refreshMap(view, ctx) { return regionMapOn() ? refreshRegionMap() : refreshWorldMap(view, ctx); }
 const mapCtx = {
