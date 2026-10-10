@@ -21,6 +21,24 @@ function cleanSv(f) {
   return out;
 }
 
+// ガイド（記事・フォルダ）の項目（決まった列だけを通す）
+function cleanArticle(f) {
+  const out = {};
+  if (f.title !== undefined) out.title = String(f.title ?? '').slice(0, 200);
+  if (f.body !== undefined) out.body = String(f.body ?? '').slice(0, 200000);
+  if (f.folder_id !== undefined) out.folder_id = f.folder_id || null;
+  if (f.related !== undefined) out.related = Array.from(f.related || []);
+  return out;
+}
+function cleanFolder(f) {
+  const out = {};
+  if (f.name !== undefined) out.name = String(f.name ?? '').slice(0, 80);
+  if (f.icon !== undefined) out.icon = String(f.icon ?? '').slice(0, 60000);
+  if (f.sort_order !== undefined) out.sort_order = Number(f.sort_order) || 0;
+  return out;
+}
+const ARTICLES_MISSING = '記事の表を作る必要があります。Supabase の SQL Editor で supabase/articles.sql を実行してください';
+
 function cleanFields(f) {
   const out = {
     description: f.description ?? '',
@@ -271,6 +289,57 @@ function createSupabaseApi(sb) {
       const { error } = await sb.from('saved_streetviews').delete().eq('id', id);
       if (error) throw error;
     },
+    // ガイド（記事・フォルダ）
+    async listArticles() {
+      const { data, error } = await sb.from('articles').select('*').order('updated_at', { ascending: false }).limit(2000);
+      if (error) throw new Error(/articles/.test(error.message || '') ? ARTICLES_MISSING : error.message);
+      return data;
+    },
+    async saveArticle(fields, id = null) {
+      const row = { ...cleanArticle(fields), updated_at: new Date().toISOString() };
+      const q = id ? sb.from('articles').update(row).eq('id', id) : sb.from('articles').insert(row);
+      const { data, error } = await q.select('*').single();
+      if (error) throw new Error(/articles/.test(error.message || '') ? ARTICLES_MISSING : error.message);
+      return data;
+    },
+    async deleteArticle(id) {
+      const { error } = await sb.from('articles').delete().eq('id', id);
+      if (error) throw error;
+    },
+    async listFolders() {
+      const { data, error } = await sb.from('article_folders').select('*').order('sort_order').order('created_at').limit(500);
+      if (error) throw new Error(/article_folders/.test(error.message || '') ? ARTICLES_MISSING : error.message);
+      return data;
+    },
+    async saveFolder(fields, id = null) {
+      const q = id ? sb.from('article_folders').update(cleanFolder(fields)).eq('id', id) : sb.from('article_folders').insert(cleanFolder(fields));
+      const { data, error } = await q.select('*').single();
+      if (error) throw new Error(/article_folders/.test(error.message || '') ? ARTICLES_MISSING : error.message);
+      return data;
+    },
+    async deleteFolder(id) {
+      const { error } = await sb.from('article_folders').delete().eq('id', id);
+      if (error) throw error;
+    },
+    // 記事の画像: 圧縮して、ストレージの articles/ に保存する。戻り値: 記事の中で使う参照（img:パス）
+    async uploadArticleImage(blob) {
+      const small = await compressImage(blob, 1600, 0.8);
+      const path = `articles/${uuid()}.${extFromType(small.type)}`;
+      const up = await bucket().upload(path, small, { contentType: small.type, upsert: false });
+      if (up.error) throw up.error;
+      return `img:${path}`;
+    },
+    async articleImageUrls(refs) {
+      const paths = [...new Set(refs.map((r) => String(r).replace(/^img:/, '')))];
+      const now = Date.now();
+      const need = paths.filter((p) => { const hit = urlCache.get(p); return !hit || now - hit.at > (SIGNED_URL_TTL - 3600) * 1000; });
+      for (let i = 0; i < need.length; i += 200) {
+        const { data, error } = await bucket().createSignedUrls(need.slice(i, i + 200), SIGNED_URL_TTL);
+        if (error) throw error;
+        for (const row of data) if (row.signedUrl) urlCache.set(row.path, { url: row.signedUrl, at: now });
+      }
+      return new Map(paths.map((p) => [`img:${p}`, urlCache.get(p)?.url || '']));
+    },
     async listMemos() {
       const { data, error } = await sb.from('memos').select('id, user_id, author, body, created_at')
         .order('created_at', { ascending: false }).limit(500);
@@ -421,6 +490,9 @@ function createDemoApi() {
   const NOTES_KEY = 'geo-cards-demo-country-notes-v1';
   const MEMOS_KEY = 'geo-cards-demo-memos-v1';
   const SAVED_SV_KEY = 'geo-cards-demo-saved-sv-v1';
+  const ARTICLES_KEY = 'geo-cards-demo-articles-v1';
+  const FOLDERS_KEY = 'geo-cards-demo-article-folders-v1';
+  const ARTICLE_IMGS_KEY = 'geo-cards-demo-article-imgs-v1';
   const FACTS_KEY = 'geo-cards-demo-facts-v1';
   const loadCats = () => {
     try {
@@ -522,6 +594,47 @@ function createDemoApi() {
     },
     async deleteSavedSv(id) {
       localStorage.setItem(SAVED_SV_KEY, JSON.stringify((await this.listSavedSv()).filter((x) => x.id !== id)));
+    },
+    // ガイド（記事・フォルダ）: このブラウザの中に保存
+    async listArticles() { try { return (JSON.parse(localStorage.getItem(ARTICLES_KEY)) || []).sort((x, y) => (y.updated_at || '').localeCompare(x.updated_at || '')); } catch { return []; } },
+    async saveArticle(fields, id = null) {
+      const list = await this.listArticles();
+      const now = new Date().toISOString();
+      let row = id ? list.find((x) => x.id === id) : null;
+      if (row) Object.assign(row, cleanArticle(fields), { updated_at: now });
+      else { row = { id: uuid(), user_id: 'demo', title: '', body: '', folder_id: null, related: [], created_at: now, updated_at: now, ...cleanArticle(fields) }; list.push(row); }
+      try { localStorage.setItem(ARTICLES_KEY, JSON.stringify(list)); } catch { throw new Error('ブラウザの保存容量が不足しています'); }
+      return row;
+    },
+    async deleteArticle(id) { localStorage.setItem(ARTICLES_KEY, JSON.stringify((await this.listArticles()).filter((x) => x.id !== id))); },
+    async listFolders() { try { return (JSON.parse(localStorage.getItem(FOLDERS_KEY)) || []).sort((a, b) => (a.sort_order - b.sort_order) || (a.created_at || '').localeCompare(b.created_at || '')); } catch { return []; } },
+    async saveFolder(fields, id = null) {
+      const list = await this.listFolders();
+      let row = id ? list.find((x) => x.id === id) : null;
+      if (row) Object.assign(row, cleanFolder(fields));
+      else { row = { id: uuid(), user_id: 'demo', name: '', icon: '', sort_order: list.length, created_at: new Date().toISOString(), ...cleanFolder(fields) }; list.push(row); }
+      try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(list)); } catch { throw new Error('ブラウザの保存容量が不足しています'); }
+      return row;
+    },
+    async deleteFolder(id) {
+      localStorage.setItem(FOLDERS_KEY, JSON.stringify((await this.listFolders()).filter((x) => x.id !== id)));
+      const arts = await this.listArticles();
+      for (const a of arts) if (a.folder_id === id) a.folder_id = null;
+      localStorage.setItem(ARTICLES_KEY, JSON.stringify(arts));
+    },
+    async uploadArticleImage(blob) {
+      const url = await blobToDataUrl(await compressImage(blob, 1200, 0.75));
+      const id = `demo-${uuid()}`;
+      let all = {};
+      try { all = JSON.parse(localStorage.getItem(ARTICLE_IMGS_KEY)) || {}; } catch { /* 空 */ }
+      all[id] = url;
+      try { localStorage.setItem(ARTICLE_IMGS_KEY, JSON.stringify(all)); } catch { throw new Error('ブラウザの保存容量が不足しています（デモモードは数枚まで）'); }
+      return `img:${id}`;
+    },
+    async articleImageUrls(refs) {
+      let all = {};
+      try { all = JSON.parse(localStorage.getItem(ARTICLE_IMGS_KEY)) || {}; } catch { /* 空 */ }
+      return new Map(refs.map((r) => [r, all[String(r).replace(/^img:/, '')] || '']));
     },
     async listMemos() {
       try { return JSON.parse(localStorage.getItem(MEMOS_KEY)) || []; } catch { return []; }

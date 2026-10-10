@@ -116,6 +116,7 @@ function rowHtml(r) {
     ? [country, r.name, r.admin && r.admin !== r.name ? r.admin : '', ...alts].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).map(esc).join(' · ')
     : [r.admin && r.admin !== r.name ? esc(r.admin) : '', ...alts.map(esc)].filter(Boolean).join(' · ');
   const cards = (deps.cardsFor?.(r.id) || []);
+  const arts = deps.articlesFor?.(r.id) || []; // この場所にリンクしている記事
   return `<article class="sv-item${sel.has(r.id) ? ' is-selected' : ''}" data-id="${esc(r.id)}">
     ${deps.isEditor() ? `<label class="sv-check" title="選択（Shift で範囲・Ctrl でひとつずつ）"><input type="checkbox" aria-label="この場所を選択" ${sel.has(r.id) ? 'checked' : ''}></label>` : ''}
     <button type="button" class="sv-item-main" data-open="${esc(r.id)}" title="ストリートビューをウィンドウで開く">
@@ -127,6 +128,7 @@ function rowHtml(r) {
       </span>
     </button>
     ${cards.length ? `<div class="sv-item-cards"><span class="muted small">🔗 関連カード</span>${cards.map((c) => `<button type="button" class="sv-card-chip" data-card-open="${esc(c.id)}" title="${esc(c.description || '')}">${c.countries?.[0] ? deps.flagImg(c.countries[0]) : ''}<span>${esc(deps.cardLabel(c))}</span></button>`).join('')}</div>` : ''}
+    ${arts.length ? `<div class="sv-item-cards"><span class="muted small">📝 関連記事</span>${arts.map((a) => `<button type="button" class="sv-card-chip" data-article-open="${esc(a.id)}" title="${esc(a.title || '')}">${esc(a.title || '無題')}</button>`).join('')}</div>` : ''}
     <div class="sv-item-actions">
       <button type="button" class="btn btn-sm btn-primary" data-open="${esc(r.id)}">開く</button>
       ${deps.isEditor() ? `<button type="button" class="btn btn-sm" data-rename="${esc(r.id)}" title="名前を変える（地名は別に表示されます）">✏ 名前</button>

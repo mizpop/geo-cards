@@ -2849,3 +2849,96 @@ ul .pk-callout { list-style-position: inside; }
 .answer-sub-country { display: inline-flex; align-items: center; gap: 5px; background: none; border: 0; padding: 0; color: inherit; font: inherit; }
 button.answer-sub-country { cursor: pointer; text-decoration: underline dotted; }
 .answer-sub-country .flag { width: 18px; height: auto; }
+
+/* ===== ガイド（ユーザーが書く記事） ===== */
+.gd-view { max-width: 920px; margin: 0 auto; }
+.gd-toolbar { gap: 8px; }
+.gd-hint { margin: 0 0 10px; }
+.gd-warn { margin: 6px 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn-text); font-size: 13px; }
+.gd-selbar { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; }
+.gd-selbar[hidden] { display: none; }
+.gd-list { display: flex; flex-direction: column; gap: 10px; }
+.gd-folder { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.gd-folder-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; background: var(--surface-2); }
+.gd-fold-toggle, .gd-fold-static { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.gd-fold-static { cursor: default; }
+.gd-caret { display: inline-block; transition: transform .15s; color: var(--muted); }
+.gd-folder.is-open .gd-caret { transform: rotate(90deg); }
+.fold-ico { font-size: 20px; line-height: 1; }
+.fold-ico-img, .fold-ico-img img { width: 22px; height: 22px; object-fit: contain; border-radius: 4px; }
+.gd-folder-body { display: flex; flex-direction: column; }
+.gd-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 4px; border-top: 1px solid var(--border); }
+.gd-row:hover { background: var(--surface-2); }
+.gd-row.is-selected { background: var(--accent-soft); }
+.gd-check { display: grid; place-items: center; width: 34px; flex: none; }
+.gd-check input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+.gd-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 9px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.gd-row-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-row-snip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-empty { padding: 10px 14px; margin: 0; }
+.gd-loose .gd-folder-body .gd-row:first-child { border-top: 0; }
+/* 編集 */
+.modal-guide-ed { width: min(1200px, calc(100vw - 24px)); }
+.gd-ed { display: flex; flex-direction: column; gap: 10px; }
+.gd-ed-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.gd-title { flex: 1; min-width: 200px; font-size: 18px; font-weight: 700; }
+.gd-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.gd-tools button { min-width: 32px; height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.gd-tools button:hover { border-color: var(--accent); }
+.gd-sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+.gd-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 340px; }
+.gd-body { min-height: 340px; height: min(56vh, 520px); resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; line-height: 1.6; }
+.gd-preview { height: min(56vh, 520px); overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; background: var(--surface); }
+@media (max-width: 900px) { .gd-split { grid-template-columns: 1fr; } .gd-preview { height: 280px; } }
+.gd-rel .related-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.art-rel-item { display: inline-flex; align-items: center; gap: 4px; }
+/* 選ぶ画面 */
+.gd-pick { width: min(520px, calc(100vw - 24px)); }
+.gd-pick-q { width: 100%; margin-bottom: 8px; }
+.gd-pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 56vh; overflow-y: auto; }
+.gd-pick-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.gd-pick-row:hover { border-color: var(--accent); }
+.gd-pick-thumb { width: 52px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 5px; overflow: hidden; background: var(--surface); }
+.gd-pick-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.gd-pick-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* フォルダの編集 */
+.fd-icon-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.fd-now { width: 40px; height: 40px; display: grid; place-items: center; font-size: 26px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.fd-now .fold-ico-img, .fd-now img { width: 32px; height: 32px; }
+.fd-icon-row .input { width: 130px; }
+.fd-emojis { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 4px; max-height: 150px; overflow-y: auto; }
+.fd-emojis button { height: 36px; font-size: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); cursor: pointer; }
+.fd-emojis button:hover { border-color: var(--accent); }
+/* 記事の本文（読む・プレビュー） */
+.art-content, .gd-preview { line-height: 1.8; font-size: 15px; overflow-wrap: anywhere; }
+.art-title { font-size: 26px; margin: 4px 0 2px; }
+.art-date { margin: 0 0 14px; }
+.art-content h2, .gd-preview h2 { font-size: 22px; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+.art-content h3, .gd-preview h3 { font-size: 18px; margin: 20px 0 8px; }
+.art-content h4, .gd-preview h4 { font-size: 16px; margin: 16px 0 6px; }
+.art-content h5, .gd-preview h5 { font-size: 15px; margin: 14px 0 6px; color: var(--muted); }
+.art-content p, .gd-preview p { margin: 0 0 12px; }
+.art-content ul, .art-content ol, .gd-preview ul, .gd-preview ol { margin: 0 0 12px; padding-left: 24px; }
+.art-content li, .gd-preview li { margin-bottom: 3px; }
+.art-content blockquote, .gd-preview blockquote { margin: 0 0 12px; padding: 8px 14px; border-left: 4px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; color: var(--muted); }
+.art-content code, .gd-preview code { padding: 1px 6px; border-radius: 5px; background: var(--surface-2); font-family: ui-monospace, Consolas, monospace; font-size: .9em; }
+.art-content pre, .gd-preview pre { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: var(--surface-2); overflow-x: auto; }
+.art-content pre code, .gd-preview pre code { padding: 0; background: none; }
+.art-content hr, .gd-preview hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+.art-content a, .gd-preview a { color: var(--accent); }
+.art-table { overflow-x: auto; margin: 0 0 12px; }
+.art-table table { border-collapse: collapse; min-width: 50%; }
+.art-table th, .art-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.art-table th { background: var(--surface-2); }
+.art-fig { margin: 0 0 14px; }
+.art-fig figcaption { margin-top: 4px; font-size: 13px; color: var(--muted); text-align: center; }
+.art-zoom { display: block; position: relative; overflow: hidden; border-radius: 10px; background: #0b0f12; margin: 4px 0; max-width: 100%; }
+.art-zoom img { position: static !important; width: 100%; height: auto; max-height: 78vh; object-fit: contain; display: block; }
+p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); vertical-align: middle; }
+.art-img-missing { color: var(--muted); font-size: 13px; }
+.art-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.art-content p .related-item, .gd-preview p .related-item, .art-content p .sv-link { vertical-align: middle; margin: 2px 4px 2px 0; }
+.art-link-gone { color: var(--muted); font-size: 13px; }
+.art-chip-ico { display: grid; place-items: center; font-size: 20px; background: var(--surface-2); }
+.art-chip-ico .fold-ico-img, .art-chip-ico img { width: 28px; height: 28px; }
+.art-related, .art-backlinks { margin-top: 18px; }

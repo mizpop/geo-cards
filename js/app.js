@@ -1,5 +1,6 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
+import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, articlesLinking } from './guides.js';
 import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
@@ -641,7 +642,7 @@ const assistantDeps = {
 let POPOUT = (() => { try { return JSON.parse(new URLSearchParams(location.search).get('popout') || 'null'); } catch { return null; } })();
 if (POPOUT) document.documentElement.classList.add('is-popout');
 // 外に出したタブ（地図・比較など）: そのタブの画面を、独立した Windows のウィンドウに表示する
-const TAB_NAMES = { study: '暗記カード', quiz: 'クイズ', map: '地図', manage: 'カード', compare: '比較', lang: '言語', sv: 'ストリートビュー' };
+const TAB_NAMES = { study: '暗記カード', quiz: 'クイズ', map: '地図', manage: 'カード', compare: '比較', lang: '言語', sv: 'ストリートビュー', guide: 'ガイド' };
 const TAB_EMOJI = { study: '🃏', quiz: '🎯', map: '🗺', manage: '🗂', compare: '⚖', lang: '🔤', sv: '🧍' };
 if (POPOUT?.kind === 'tab' && TAB_NAMES[POPOUT.tab]) { document.documentElement.classList.add('is-tabwin'); history.replaceState(null, '', `#${POPOUT.tab}`); }
 // 画面（タブ）を切り替える。外のウィンドウの中なら、そのウィンドウは変えずに、外の新しいウィンドウでそのタブを開く
@@ -800,10 +801,24 @@ async function enterApp() {
     createCard: (p) => cardFromSv({ lat: p.lat, lng: p.lng, svId: p.svId, codePromise: p.codePromise || countryAt(p.lat, p.lng) }),
     openSv: (lat, lng, v, opts) => openSvWindow(lat, lng, { ...(v || {}), ...(opts || {}) }),
     cardsFor: (svId) => state.cards.filter((c) => (c.sv_ids || []).includes(svId)),
+    articlesFor: (svId) => articlesLinking('sv', svId),
     cardLabel: (c) => c.description || catOf(c).name,
     openCard: (id, src) => { const c = cardById(id); if (c) openCardModal(c, src); },
     confirmDialog: async (m) => confirm(m),
   });
+  initGuides({
+    api, esc, toast, isEditor: () => !!state.user?.isEditor, attachZoom,
+    cards: () => state.cards, cardById, cardImg: (id) => { const c = cardById(id); return c ? imgUrl(c) : ''; }, cardThumb: (c) => thumbUrl(c) || imgUrl(c),
+    cardLabel: (c) => `${c.countries[0] ? countryName(c.countries[0]) : ''} ${c.description || catOf(c).name}`.trim(),
+    cardSearch: (text) => matchCards(text.toLowerCase()),
+    cardChipHtml: (c) => relatedItemHtml(c),
+    svList: () => savedSvList(), svById: savedSvById, svLabel, svChipHtml: (r) => svLinkBtnHtml(r),
+    openArticle: (id, src) => openArticleWindow(id, src), openCard: (c, src) => openCardModal(c, src),
+    openModal: (html, cls) => { openModal(html, cls); return { el: W.el }; }, closeModal: () => closeModal(),
+    confirm: async (m) => confirm(m),
+  });
+  loadGuides().then(() => { if (state.view === 'guide') renderGuideView($('#view'), setFit); }).catch(() => {});
+  onGuidesChange(() => { refreshGuideView(); });
   setSvHooks({
     listSaved: () => savedSvList(), savedAt: savedSvAt, nearSaved: nearestSavedSv, deleteSaved: (r) => deleteSv(r.id), renameSaved: (r, t) => renameSv(r.id, t), placeName: placeLabel, label: svLabel, flag: (code) => (code ? flagImg(code) : '🧍'),
     sub: (r) => [r.code ? countryName(r.code) : '', r.title ? placeLabel(r) : r.admin].filter(Boolean).join(' · '),
@@ -1027,6 +1042,14 @@ function bindGlobal() {
   window.addEventListener('beforeunload', snapshotSession);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') snapshotSession(); });
   setInterval(() => { if (document.visibilityState === 'visible') snapshotSession(); }, 4000);
+  // 記事へのリンク（カード・ストリートビューの詳細の「関連記事」など）を押したら、記事をウィンドウで開く
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest?.('[data-article-open]');
+    if (!b || b.closest('.gd-ed')) return; // 編集画面の中では開かない
+    e.preventDefault();
+    e.stopPropagation();
+    openArticleWindow(b.dataset.articleOpen, b);
+  }, true);
   // カードの地名を押したら、地図でその場所を見る
   document.addEventListener('click', (e) => {
     const b = e.target.closest?.('[data-place-card]');
@@ -1108,7 +1131,7 @@ async function route() {
     view = state.view || 'study';
     setTimeout(openSpotlight, 0);
   }
-  if (!['study', 'quiz', 'map', 'manage', 'compare', 'lang', 'sv'].includes(view)) view = 'study';
+  if (!['study', 'quiz', 'map', 'manage', 'compare', 'lang', 'sv', 'guide'].includes(view)) view = 'study';
   state.view = view;
   $$('#tabs a').forEach((a) => a.classList.toggle('active', a.dataset.view === view));
   // 狭い画面で、開いているタブ（名前つき）がヘッダーの外に出ないようにタブの列を動かす
@@ -1149,6 +1172,7 @@ function renderView() {
   else if (v === 'compare') renderCompare();
   else if (v === 'lang') renderLang();
   else if (v === 'sv') renderSavedSvView($('#view'), setFit);
+  else if (v === 'guide') renderGuideView($('#view'), setFit);
 }
 
 // ---- キーボード操作（キーは設定で変更可能。e.code で判定するので日本語入力中でも動く）
@@ -1194,7 +1218,7 @@ function updateSearchKeyHint() {
 let capturingKey = false;
 
 function switchTab(delta) {
-  const tabs = ['study', 'quiz', 'map', 'manage', 'compare', 'lang', 'sv'];
+  const tabs = ['study', 'quiz', 'map', 'manage', 'compare', 'lang', 'sv', 'guide'];
   const i = Math.max(0, tabs.indexOf(state.view));
   goTab(tabs[(i + delta + tabs.length) % tabs.length]);
 }
@@ -1217,7 +1241,7 @@ function onKeydown(e) {
     return;
   }
   // タブへ直接移動（初期設定は Ctrl+1〜4）: 組み合わせキーなら入力中でも
-  const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare', tab6: 'lang', tab7: 'sv' }[act];
+  const tabTo = { tab1: 'study', tab2: 'quiz', tab3: 'map', tab4: 'manage', tab5: 'compare', tab6: 'lang', tab7: 'sv', tab8: 'guide' }[act];
   if (state.user && tabTo && (mod || !['input', 'textarea', 'select'].includes((e.target.tagName || '').toLowerCase())) && !blockingDialogOpen()) {
     e.preventDefault();
     goTab(tabTo);
@@ -1398,20 +1422,29 @@ function svLinksHtml(card) {
   if (!rows.length || card.photo) return '';
   return `<div class="related sv-links">
     <div class="related-head">🧍 関連ストリートビュー <span class="muted">${rows.length}</span></div>
-    <div class="sv-link-list">${rows.map((r) => { const v = rowView(r); return `<button type="button" class="btn btn-sm sv-link" data-sv-open="${r.lat},${r.lng},${v.heading},${v.pitch},${v.fov}" title="ストリートビューをウィンドウで開く">${r.code ? flagImg(r.code) : '📍'}<b>${esc(svLabel(r))}</b>${r.title ? `<span class="muted">${esc(placeLabel(r))}</span>` : ''}</button>`; }).join('')}</div>
+    <div class="sv-link-list">${rows.map(svLinkBtnHtml).join('')}</div>
   </div>`;
+}
+// 関連カード・関連ストリートビューの 1 つぶんの見た目（記事のリンクも、同じ見た目で出す）
+function relatedItemHtml(c) {
+  return `<button type="button" class="related-item" data-related="${c.id}" style="${catStyle(c)}" title="${esc(c.description || catOf(c).name)}">
+      <span class="related-thumb">${thumbUrl(c) ? `<img src="${esc(thumbUrl(c))}" alt="" loading="lazy">` : ''}</span>
+      <span class="related-text"><span class="related-country">${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}</span></span>
+    </button>`;
+}
+function svLinkBtnHtml(r) {
+  const v = rowView(r);
+  return `<button type="button" class="btn btn-sm sv-link" data-sv-open="${r.lat},${r.lng},${v.heading},${v.pitch},${v.fov}" title="ストリートビューをウィンドウで開く">${r.code ? flagImg(r.code) : '📍'}<b>${esc(svLabel(r))}</b>${r.title ? `<span class="muted">${esc(placeLabel(r))}</span>` : ''}</button>`;
 }
 function relatedHtml(card) {
   const list = relatedCards(card);
   const sv = svLinksHtml(card);
-  if (!list.length) return sv;
+  const arts = card.photo || card.sv ? '' : backlinksHtml('card', card.id); // このカードにリンクしている記事
+  if (!list.length) return sv + arts;
   return sv + `<div class="related">
     <div class="related-head">🔗 関連カード <span class="muted">${list.length}</span></div>
-    <div class="related-list">${list.map((c) => `<button type="button" class="related-item" data-related="${c.id}" style="${catStyle(c)}" title="${esc(c.description || catOf(c).name)}">
-      <span class="related-thumb">${thumbUrl(c) ? `<img src="${esc(thumbUrl(c))}" alt="" loading="lazy">` : ''}</span>
-      <span class="related-text"><span class="related-country">${flagImg(c.countries[0])}${esc(countryName(c.countries[0]))}${c.countries.length > 1 ? ` +${c.countries.length - 1}` : ''}</span><span class="related-cat">${esc(catOf(c).name)}</span></span>
-    </button>`).join('')}</div>
-  </div>`;
+    <div class="related-list">${list.map(relatedItemHtml).join('')}</div>
+  </div>` + arts;
 }
 function bindRelated(root) {
   root.querySelectorAll('[data-related]').forEach((b) => b.addEventListener('click', (e) => {
@@ -1500,6 +1533,8 @@ function showNav(entry) {
     renderCardModal(card, entry);
   } else if (entry.kind === 'photo') {
     renderPhotoModal(entry);
+  } else if (entry.kind === 'article') {
+    renderArticleModal(entry);
   } else if (entry.kind === 'plonkit') {
     renderPlonkitModal(entry);
   } else if (entry.kind === 'panel') {
@@ -1522,7 +1557,7 @@ function modalBack() {
 function backBtnHtml() {
   const prev = W.stack[W.stack.length - 1];
   if (!prev) return '';
-  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'plonkit' ? 'Plonkit' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
+  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'plonkit' ? 'Plonkit' : prev.kind === 'article' ? '記事' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
   return `<button class="btn btn-ghost btn-sm modal-back" id="modal-back" type="button">← ${esc(label)}</button>`;
 }
 function bindModalNav() {
@@ -2438,6 +2473,7 @@ function dockLabel(w) {
   if (e?.kind === 'photo') return `写真: ${countryName(e.code)}`;
   if (e?.kind === 'panel') return e.which === 'ai' ? 'AI' : 'メモ';
   if (e?.kind === 'plonkit') return `Plonkit: ${e.code ? countryName(e.code) : e.slug}`;
+  if (e?.kind === 'article') return `記事: ${articleById(e.id)?.title || ''}`;
   return 'ウィンドウ';
 }
 function dockThumb(w) {
@@ -2447,6 +2483,7 @@ function dockThumb(w) {
   if (e?.kind === 'photo') return { src: e.srcs?.[e.i] };
   if (e?.kind === 'panel') return { emoji: e.which === 'ai' ? '✨' : '📝' };
   if (e?.kind === 'plonkit') return e.code ? { src: flagUrl(e.code) } : { emoji: '📖' };
+  if (e?.kind === 'article') return { emoji: '📝' };
   return { emoji: '🗂' };
 }
 
@@ -4200,7 +4237,7 @@ async function cmdWins(force = false) { // 外に出たウィンドウの一覧�
   return list;
 }
 const cmdOutside = () => SEARCH_WIN; // 外の検索ウィンドウで実行したコマンドは、外のウィンドウで開く
-const TAB_OF = { memorize: 'study', quiz: 'quiz', map: 'map', cards: 'manage', comparison: 'compare', languages: 'lang', streetviews: 'sv' };
+const TAB_OF = { memorize: 'study', quiz: 'quiz', map: 'map', cards: 'manage', comparison: 'compare', languages: 'lang', streetviews: 'sv', guide: 'guide', guides: 'guide', articles: 'guide' };
 const cmdSyntax = (name) => {
   const d = COMMANDS[name];
   if (!d) return `!${name}`;
@@ -5783,6 +5820,58 @@ function openPlonkitWindow(code, src = null, slug = null) {
   navModal({ kind: 'plonkit', slug, code });
   if (src && fresh) popFrom(W.el, src);
 }
+// ---- ガイド（ユーザーが書く記事）を読む: PC はウィンドウ。見出しの目次・画像の拡大縮小・カード・ストリートビューへのリンク・関連記事 ----
+function openArticleWindow(id, src = null) {
+  if (!articleById(id)) { toast('記事が見つかりません', 'error'); return; }
+  claimNewWin();
+  const fresh = !W.el.open;
+  navModal({ kind: 'article', id });
+  if (src && fresh) popFrom(W.el, src);
+}
+function renderArticleModal(entry) {
+  const a = articleById(entry.id);
+  if (!a) { closeModal(); return; }
+  const ed = !!state.user?.isEditor;
+  openModal(`
+    <div class="modal-head">
+      ${backBtnHtml()}
+      <h2 class="pk-title">📝 ${esc(a.title || '無題')}</h2>
+      ${ed ? '<button class="icon-btn" id="art-edit" type="button" aria-label="記事を編集" title="記事を編集">✏</button>' : ''}
+      <button class="icon-btn pk-toc-btn" type="button" aria-label="目次" aria-expanded="false" title="目次を開く・閉じる">☰</button>
+      <button class="icon-btn" data-close aria-label="閉じる">✕</button>
+      <nav class="pk-toc" hidden aria-label="目次"></nav>
+    </div>
+    <div class="pk-body art-reader"><div class="pk-state muted">読み込み中…</div></div>
+  `, 'modal-plonkit modal-article', true);
+  bindModalNav();
+  const w = W;
+  const el = w.el;
+  const tocBtn = el.querySelector('.pk-toc-btn');
+  const tocEl = el.querySelector('.pk-toc');
+  const setToc = (on) => { tocEl.hidden = !on; tocBtn.setAttribute('aria-expanded', String(on)); tocBtn.classList.toggle('is-on', on); };
+  tocBtn.addEventListener('click', () => setToc(tocEl.hidden));
+  tocEl.addEventListener('click', (e) => {
+    const x = e.target.closest('[data-pk-to]');
+    if (!x) return;
+    e.preventDefault();
+    el.querySelector(`#${x.dataset.pkTo}`)?.scrollIntoView({ behavior: settings.animations ? 'smooth' : 'auto', block: 'start' });
+    setToc(false);
+  });
+  el.querySelector('#art-edit')?.addEventListener('click', () => openArticleEditor(a, { onSaved: (row) => { openArticleWindow(row.id); }, onDeleted: () => { closeModal(); } }));
+  const body = el.querySelector('.pk-body');
+  buildArticle(a).then(({ html, toc }) => {
+    if (!el.contains(body) || w.current !== entry) return;
+    const rel = relatedArticles(a);
+    body.innerHTML = `<h1 class="art-title">${esc(a.title || '無題')}</h1><p class="muted small art-date">${a.updated_at ? `更新 ${fmtTime(a.updated_at)}` : ''}</p>
+      <div class="art-content">${html || '<p class="muted">（本文がありません）</p>'}</div>
+      ${rel.length ? `<div class="related art-related"><div class="related-head">🔗 関連記事 <span class="muted">${rel.length}</span></div><div class="related-list">${rel.map(articleChipHtml).join('')}</div></div>` : ''}`;
+    tocEl.innerHTML = articleTocHtml(toc);
+    tocBtn.hidden = !toc.length;
+    bindArticle(body);
+    bindRelated(body); // 関連カードのリンク
+  }).catch(() => { body.innerHTML = '<div class="pk-state is-error">記事を読み込めませんでした</div>'; });
+}
+
 function renderPlonkitModal(entry) {
   const { slug, code } = entry;
   const name = code ? countryName(code) : slug;
