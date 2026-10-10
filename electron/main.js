@@ -102,8 +102,13 @@ function createWindow() {
   ipcMain.on('presence', (e, data) => {
     if (e.sender !== wc) return;
     const str = (t) => (typeof t === 'string' && t.trim().length >= 2 ? t.trim().slice(0, 120) : undefined);
-    presence.set(data && str(data.details) ? { details: str(data.details), state: str(data.state), timestamps: { start: appStart }, assets: { large_image: DISCORD_IMAGE, large_text: 'GeoChecker（GeoGuessr 学習アプリ）' } } : null);
+    lastPresence = data && str(data.details) ? { details: str(data.details), state: str(data.state), timestamps: { start: appStart }, assets: { large_image: DISCORD_IMAGE, large_text: 'GeoChecker（GeoGuessr 学習アプリ）' } } : null;
+    applyPresence();
   });
+  // ウィンドウを閉じて（隠して）バックグラウンドで待機しているとき・最小化しているときは、Discord に出さない。開いたら、また出す
+  let lastPresence = null;
+  const applyPresence = () => presence.set(anyOpen() ? lastPresence : null);
+  ['show', 'hide', 'minimize', 'restore'].forEach((ev) => win.on(ev, applyPresence));
   ipcMain.handle('presence-status', (e) => (e.sender === wc ? presence.status : null)); // 設定の画面に、Discord につながっているかを出す
   ipcMain.handle('app-version', (e) => (e.sender === wc ? app.getVersion() : null)); // 更新の通知用（Windows 版アプリ本体の版）
   ipcMain.handle('sv-position', async (e, hint) => {

@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v149',
+    date: '2026-10-10',
+    sections: [
+      {
+        title: 'Windows 版',
+        items: ['ウィンドウを閉じて（タスクトレイで）バックグラウンドで待機しているときと、最小化しているときは、Discord の表示（Rich Presence）を消すように。ウィンドウを開く・元に戻すと、また表示する（Windows 版 1.10.1）'],
+      },
+    ],
+  },
+  {
     version: 'v148',
     date: '2026-10-10',
     sections: [
