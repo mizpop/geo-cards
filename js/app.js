@@ -5999,6 +5999,16 @@ const regionCtx = {
   openCard: (id, src) => { const c = cardById(id); if (c) openCardModal(c, src); },
   editFact: (m, code) => openFactEditor(m, code),
   isEditor: () => !!state.user?.isEditor,
+  toast: (msg, kind) => toast(msg, kind),
+  // カードの場所（座標）: 登録した地名と、関連付けた保存済みストリートビュー
+  cardPoints: (card) => [
+    ...(card.places || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), label: p.name || '' })),
+    ...(card.sv_ids || []).map((id) => savedSvById(id)).filter(Boolean).map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), label: svLabel(r) })),
+  ],
+  savedSv: () => savedSvList(),
+  svLabel: (r) => svLabel(r),
+  svView: (r) => rowView(r),
+  openSv: (lat, lng, view) => openSvWindow(lat, lng, view),
 };
 function renderMap(view, ctx) { return regionMapOn() ? renderRegionMap(view, regionCtx) : renderWorldMap(view, ctx); }
 function refreshMap(view, ctx) { return regionMapOn() ? refreshRegionMap() : refreshWorldMap(view, ctx); }
