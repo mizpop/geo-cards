@@ -2825,3 +2825,6 @@ ul .pk-callout { list-style-position: inside; }
 .rm-plate { margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .rm-plate img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); display: block; }
 .rm-flagbox img { max-height: 84px; }
+
+/* 国モードの地図: サムネイルのまとまりの真ん中を、地域の中心に置く */
+.map-thumbs.rm-c { transform-origin: 50% 50%; }

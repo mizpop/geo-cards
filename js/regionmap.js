@@ -192,9 +192,14 @@ function labelPoint(polys) {
     if (Math.abs(a) > ba) { ba = Math.abs(a); big = poly; }
   }
   if (!big) return null;
-  const r = big[0]; let cx = 0; let cy = 0;
-  for (const [x, y] of r) { cx += x; cy += y; }
-  cx /= r.length; cy /= r.length;
+  const r = big[0];
+  // 面積で重みをつけた重心（頂点の平均だと、海岸線の点が多い側に寄ってしまう）
+  let a2 = 0; let cx = 0; let cy = 0;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const f = r[j][0] * r[i][1] - r[i][0] * r[j][1];
+    a2 += f; cx += (r[j][0] + r[i][0]) * f; cy += (r[j][1] + r[i][1]) * f;
+  }
+  if (Math.abs(a2) > 1e-12) { cx /= 3 * a2; cy /= 3 * a2; } else { cx = r[0][0]; cy = r[0][1]; }
   if (polyHas(big, cx, cy)) return [cy, cx];
   for (let i = 0; i < r.length; i += Math.max(1, Math.floor(r.length / 40))) {
     const x = (r[i][0] + cx) / 2; const y = (r[i][1] + cy) / 2;
@@ -711,7 +716,7 @@ function drawMarks() {
         ? `<div class="map-thumb" data-card="${esc(it.card.id)}" style="${S.ctx.catVars(S.ctx.catOf(it.card))}" title="${esc(S.ctx.catOf(it.card).name)}">${S.ctx.thumbUrl(it.card) ? `<img src="${esc(S.ctx.thumbUrl(it.card))}" alt="">` : ''}</div>`
         : `<div class="map-thumb is-pseudo" data-rc="${esc(rc)}" style="${(S.ctx.catOfKind(it.kind) ? S.ctx.catVars(S.ctx.catOfKind(it.kind)) : '')}" title="${esc(it.title)}（カード未作成・Wikimedia Commons）"><img src="${esc(it.src)}" alt=""></div>`);
       icon = L.divIcon({ className: 'map-thumbs-icon', iconSize: [w, 0], iconAnchor: [w / 2, 20], html: `
-        <div class="map-thumbs${active ? '' : ' is-dim'}" data-rc="${esc(rc)}" data-rz="${rz}" style="transform:scale(${scale.toFixed(2)})">
+        <div class="map-thumbs rm-c${active ? '' : ' is-dim'}" data-rc="${esc(rc)}" data-rz="${rz}" style="transform:translateY(-50%) scale(${scale.toFixed(2)})">
           <div class="map-thumbs-head" data-rc="${esc(rc)}">${flagImg(parent)}<span>${esc(regionName(rc))}</span><span class="map-thumbs-n">${items.length}</span></div>
           <div class="map-thumbs-grid" style="grid-template-columns:repeat(${cols},1fr)">${show.map(thumb).join('')}</div>
           ${more > 0 ? `<div class="map-thumbs-more" data-rc="${esc(rc)}">ほか ${more} 枚</div>` : ''}
@@ -745,7 +750,7 @@ function refreshThumbs() {
     const rz = Number(el.dataset.rz) || 6;
     const active = rc === S.selected || rc === S.hover;
     const scale = Math.min(1.44, Math.max(0.58, 0.58 * 2 ** ((z - rz) * 0.5))) * (active ? 1 : 0.78);
-    el.style.transform = `scale(${scale.toFixed(2)})`;
+    el.style.transform = `translateY(-50%) scale(${scale.toFixed(2)})`; // 地域の中心に、まとまりの真ん中が来るように
     el.classList.toggle('is-dim', !active);
     m.setZIndexOffset(active ? 1000 : 0);
   }
@@ -763,7 +768,7 @@ function focusRegion(rc) {
   const l = S.byCode.get(rc);
   renderPanel();
   refreshThumbs();
-  if (l) { try { S.map.flyToBounds(l.getBounds(), { padding: [40, 40], maxZoom: 8, duration: 0.6 }); } catch { /* 無視 */ } }
+  if (l) { try { S.map.flyToBounds(l.getBounds(), { padding: [40, 40], maxZoom: 11, duration: 0.6 }); } catch { /* 無視 */ } }
 }
 function clearFocus() {
   const prev = S.selected;
