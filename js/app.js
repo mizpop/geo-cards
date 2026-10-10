@@ -5996,7 +5996,27 @@ const regionCtx = {
   esc, countryName, flagImg, setFit: (v) => setFit(v),
   iso3Of: (c) => (ALIASES[c] || []).find((a) => /^[A-Z]{3}$/.test(a)) || null,
   thumb: (c) => thumbUrl(c),
-  openCard: (id, src) => { const c = cardById(id); if (c) openCardModal(c, src); },
+  thumbUrl, allCats, catKey, catOf, catVars,
+  openCard: (card, src, list) => openCardModal(card, src, list),
+  tileHtml: (card) => tileHtml(card),
+  bindTiles: () => bindTiles(),
+  panelWidth: () => Number(settings.mapPanelWidth) || 360,
+  panelSplit: () => Number(settings.mapPanelSplit) || 0.36,
+  // 地図の「地域・カテゴリー」の絞り込み（世界モードの地図と共通）
+  filterPicksHtml: () => mapCtx.filterPicksHtml(),
+  bindFilterPicks: (onChange) => mapCtx.bindFilterPicks(onChange),
+  filterMatch: (c) => mapCtx.filterMatch(c),
+  isFlagCard: (c) => /国旗|flag/i.test(catOf(c).name),
+  reloadCards: async () => { await reloadCards(); render(); },
+  // 地域の旗のカード: 表面は旗の画像だけ・ラベルはその国の「地域」・場所は地域の代表点（どの地域のカードかは、この座標で判断する）
+  createRegionFlagCard: async ({ blob, parent, name, lat, lng }) => {
+    const cat = state.categories.find((k) => /国旗|flag/i.test(k.name));
+    await api.createCard({
+      description: '', countries: [parent], area: name, notes: `${name}の旗（画像: Wikimedia Commons）`, category_id: cat?.id || null, related: [], sv_ids: [],
+      places: Number.isFinite(lat) && Number.isFinite(lng) ? [{ name, en: name, local: '', sub: '', code: parent, lat, lng, zoom: 8 }] : [],
+      scope_countries: [parent],
+    }, blob, null);
+  },
   editFact: (m, code) => openFactEditor(m, code),
   isEditor: () => !!state.user?.isEditor,
   toast: (msg, kind) => toast(msg, kind),

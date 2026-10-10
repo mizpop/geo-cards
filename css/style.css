@@ -2804,3 +2804,16 @@ ul .pk-callout { list-style-position: inside; }
 .cp-map.map-dark.leaflet-container { background: #1d2c33; }
 .cp-map .leaflet-tooltip, .rm-map .leaflet-tooltip { background: var(--surface); color: var(--text); border-color: var(--border); }
 .map-dark .leaflet-control-zoom a { background: #2b3640; color: #e6edf2; border-color: #46535d; }
+
+/* 国モードの地図: 世界モードと同じ並び（左に地図、右にパネル） */
+.rm-layout { min-height: 460px; }
+.rm-box { height: 100%; }
+.rm-layout .rm-map { position: absolute; inset: 0; height: auto; min-height: 0; border: 0; border-radius: 0; }
+.rm-layout .map-top { z-index: 1050; }
+.rm-layout .rm-legend { position: absolute; left: 10px; bottom: 28px; z-index: 900; margin: 0; }
+.rm-info { padding: 12px 14px; }
+.rm-flagbox { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 8px 0; }
+.rm-flagbox img { max-width: 100%; max-height: 120px; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
+.rm-flag-icon { background: none !important; border: 0 !important; }
+.rm-flag-icon img { display: block; height: auto; border: 1px solid rgba(0, 0, 0, .45); border-radius: 2px; box-shadow: 0 2px 6px rgba(0, 0, 0, .4); cursor: pointer; background: #fff; }
+.rm-flag-s { height: 14px; width: auto; border: 1px solid rgba(0, 0, 0, .3); border-radius: 2px; }
