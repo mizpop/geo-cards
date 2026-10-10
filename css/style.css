@@ -2758,3 +2758,4 @@ ul .pk-callout { list-style-position: inside; }
 .bmr-thumb img { height: 96px; max-width: 200px; object-fit: contain; display: block; background: #0b0f12; }
 .bmr-box { position: absolute; box-sizing: border-box; border: 2px solid #ff3b30; background: rgba(255, 59, 48, .18); }
 .bmr-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bt-voicebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); }

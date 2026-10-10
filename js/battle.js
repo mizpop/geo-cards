@@ -3,6 +3,7 @@
 // 通信は Supabase Realtime の Broadcast / Presence（テーブルは使わない）。デモモードでは同じブラウザの別タブどうしで試せる
 // ホストが問題を出す合図（q）と答え合わせ（reveal）を送り、得点は各自が出して（ans）全員で足し合わせる
 import { placeSvBubble } from './svbubble.js';
+import { createVoice } from './voice.js';
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({ length: 5 }, () => ROOM_CHARS[Math.floor(Math.random() * ROOM_CHARS.length)]).join('');
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -50,13 +51,15 @@ export function mountBattle(host, ctx) {
   host.innerHTML = '<div id="bt-main"></div><aside class="bt-chat" id="bt-chat" hidden></aside>';
   const main = host.querySelector('#bt-main');
   const chat = host.querySelector('#bt-chat');
+  const voiceHost = document.createElement('div'); voiceHost.hidden = true; host.appendChild(voiceHost); // 通話の音声（<audio>）を置く場所
+  const voice = createVoice({ send: (m) => ch?.send(m), meId: me.id, host: voiceHost, onChange: () => { if (alive() && phase !== 'entry') renderChatKeep(); } });
   const chatLog = []; // { name, text, mine, sys }
   let chatOpen = false;
   let unread = 0;
   const clearHostTimers = () => { timers.forEach(clearTimeout); timers = []; };
   const clearTimers = () => { clearInterval(tick); tick = null; clearHostTimers(); };
   const later = (ms, fn) => { timers.push(setTimeout(() => { if (alive()) fn(); }, ms)); };
-  function leave() { cfg.public = false; if (pubTimer) stopPublic(); clearTimers(); chat.hidden = true; ctx.setSvHide(false); try { ch?.leave(); } catch { /* 無視 */ } ch = null; }
+  function leave() { voice.stop(); cfg.public = false; if (pubTimer) stopPublic(); clearTimers(); chat.hidden = true; ctx.setSvHide(false); try { ch?.leave(); } catch { /* 無視 */ } ch = null; }
   const send = (m) => ch?.send(m);
 
   async function join(code, asHost, spec = false) {
@@ -105,6 +108,7 @@ export function mountBattle(host, ctx) {
   function onPresence(list) {
     const prev = players;
     players = new Map(list.map((p) => [p.id, p]));
+    voice.prune(new Set(players.keys())); // 部屋を出た人との通話を片付ける
     list.forEach((p) => { names.set(p.id, p.name); if (p.spec) specIds.add(p.id); else specIds.delete(p.id); if (p.team) lastTeam.set(p.id, p.team); });
     if (!alive()) return;
     if (phase !== 'entry' && players.has(me.id)) { // 部屋にいた人が抜けたら、部屋の全員に知らせる
@@ -171,13 +175,19 @@ export function mountBattle(host, ctx) {
     if (!alive() || phase === 'entry') return;
     const list = [...players.values()];
     chat.classList.toggle('open', chatOpen);
-    chat.innerHTML = `<button type="button" class="bt-chat-toggle" id="bt-chat-toggle">💬<span class="bt-chat-label"> チャット・参加者</span>${unread && !chatOpen ? ` <b class="bt-unread">${unread}</b>` : ''}<span class="bt-chat-arrow">${chatOpen ? '▾' : '▴'}</span></button>
+    chat.innerHTML = `<button type="button" class="bt-chat-toggle" id="bt-chat-toggle">💬<span class="bt-chat-label"> チャット・参加者</span>${voice.on ? ' 🎙' : ''}${unread && !chatOpen ? ` <b class="bt-unread">${unread}</b>` : ''}<span class="bt-chat-arrow">${chatOpen ? '▾' : '▴'}</span></button>
       <div class="bt-chat-body" ${chatOpen ? '' : 'hidden'}>
+      <div class="bt-voicebar"><button type="button" class="btn btn-sm ${voice.on ? 'btn-primary' : ''}" id="bt-voice" title="${voice.on ? '通話をやめる' : 'マイクを使って、部屋の人と話します（ボイスチャットに入っている人どうしがつながります）'}">🎙 ${voice.on ? 'ボイス ON' : 'ボイスチャット'}</button>${voice.on ? `<button type="button" class="btn btn-sm" id="bt-mute" title="マイクのオン・オフ">${voice.muted ? '🔇 ミュート中' : '🎤 マイク ON'}</button><span class="small muted bt-voicestat">${voice.total() ? `${voice.count()} / ${voice.total()} 人と接続` : '相手を待っています…'}</span>` : ''}</div>
         <ul class="bt-members">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}"><span class="bt-mname">${p.id === hostId ? '👑 ' : ''}${p.spec ? '👁 ' : ''}${esc(p.name)}</span>${isHost && p.id !== me.id ? `${p.spec ? '' : `<button type="button" class="bt-mbtn" data-act="host" data-id="${p.id}" title="ホストを譲る">👑 譲る</button>`}<button type="button" class="bt-mbtn bt-kick" data-act="kick" data-id="${p.id}" title="退出させる">✕ キック</button>` : ''}</li>`).join('')}</ul>
         <div class="bt-msgs" id="bt-msgs">${chatLog.map((m) => (m.sys ? `<div class="bt-sys">${esc(m.text)}</div>` : `<div class="bt-msg ${m.mine ? 'mine' : ''}"><b>${esc(m.name)}</b> ${esc(m.text)}</div>`)).join('')}</div>
         <form class="bt-chat-form" id="bt-chat-form"><input class="input" id="bt-chat-input" maxlength="200" placeholder="メッセージ（Enter で送信）" autocomplete="off"><button class="btn btn-sm" type="submit">送信</button></form>
       </div>`;
     chat.querySelector('#bt-chat-toggle').addEventListener('click', () => { chatOpen = !chatOpen; if (chatOpen) unread = 0; renderChat(); if (chatOpen) chat.querySelector('#bt-chat-input')?.focus(); });
+    chat.querySelector('#bt-voice').addEventListener('click', async () => {
+      if (voice.on) { voice.stop(); return; }
+      try { await voice.start(); sys('ボイスチャットに入りました'); } catch (e) { toast(e.message || 'ボイスチャットを始められませんでした', 'error'); }
+    });
+    chat.querySelector('#bt-mute')?.addEventListener('click', () => voice.setMuted(!voice.muted));
     const box = chat.querySelector('#bt-msgs');
     if (box) box.scrollTop = box.scrollHeight;
     chat.querySelectorAll('.bt-mbtn').forEach((b) => b.addEventListener('click', () => {
@@ -228,6 +238,7 @@ export function mountBattle(host, ctx) {
   // ---- 受信（全員） ----
   async function onMsg(m) {
     if (!alive()) { leave(); return; }
+    if (m.t === 'vc') { voice.onMsg(m); return; }
     if (m.t === 'start') {
       if (phase !== 'lobby') return;
       phase = 'play';
