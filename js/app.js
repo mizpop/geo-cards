@@ -1561,7 +1561,7 @@ function modalBack() {
 function backBtnHtml() {
   const prev = W.stack[W.stack.length - 1];
   if (!prev) return '';
-  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'plonkit' ? 'Plonkit' : prev.kind === 'article' ? '記事' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
+  const label = prev.kind === 'country' ? countryName(prev.code) : prev.kind === 'photo' ? '写真' : prev.kind === 'plonkit' ? 'Plonkit' : prev.kind === 'article' ? '記事' : prev.kind === 'article-edit' ? '記事の下書き' : prev.kind === 'editor' ? '編集中のカード' : 'カード';
   return `<button class="btn btn-ghost btn-sm modal-back" id="modal-back" type="button">← ${esc(label)}</button>`;
 }
 function bindModalNav() {

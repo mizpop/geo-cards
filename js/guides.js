@@ -418,6 +418,12 @@ export async function buildArticleEditor(article = null, opts = {}) {
     if (!(await deps.confirm(`「${a.title || '無題'}」を削除しますか？（元に戻せません）`))) return;
     try { await deps.api.deleteArticle(a.id); saved = true; deleteDraft(draftKey); articles = articles.filter((x) => x.id !== a.id); changed(); deps.closeModal(); deps.toast('削除しました'); opts.onDeleted?.(a.id); } catch (ex) { deps.toast(`削除できませんでした: ${ex.message}`, 'error'); }
   });
+  // プレビューのカード・ストリートビュー・記事を開く前に、今の内容を下書きに保存して、戻ってきたときに、そのまま続きから書けるようにする
+  $('#gd-preview').addEventListener('click', () => {
+    clearTimeout(autoTimer); autosave();
+    opts.draft = { title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related] };
+    opts.draftKey = draftKey;
+  }, true);
   m.el.addEventListener('close', () => { clearTimeout(autoTimer); autosave(); refreshGuideView(); }, { once: true }); // 閉じるときにも、下書きを保存して、一覧に出す
   preview();
   $('#gd-title').focus();
