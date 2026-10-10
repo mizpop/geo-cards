@@ -519,7 +519,7 @@ function paintMode() {
   pick.title = n ? `選んでいる国: ${m.countries.map(countryName).join('、')}（押して変更）` : 'どの国のモードにするか選ぶ';
 }
 async function chooseModeCountries() {
-  const res = await pickCountries({ selected: state.mode.countries, title: 'モードにする国を選ぶ', resolve: resolveCountryCode, countryName, flagImg, esc });
+  const res = await pickCountries({ selected: state.mode.countries, title: 'モードにする国を選ぶ', resolve: resolveCountryCode, countryName, flagImg, esc, attachComplete: attachInlineComplete });
   if (res === null) return false;
   state.mode.countries = res;
   if (!res.length) state.mode.kind = 'world'; // 国がひとつもないときは、世界に戻す
@@ -4729,7 +4729,7 @@ async function bulkSetScope(kind) {
   if (!ids.length) return;
   let codes = [];
   if (kind === 'country') {
-    const res = await pickCountries({ selected: state.mode.kind === 'country' ? state.mode.countries : [], title: `選択した ${ids.length} 枚を「国の地域」にする国を選ぶ`, resolve: resolveCountryCode, countryName, flagImg, esc });
+    const res = await pickCountries({ selected: state.mode.kind === 'country' ? state.mode.countries : [], title: `選択した ${ids.length} 枚を「国の地域」にする国を選ぶ`, resolve: resolveCountryCode, countryName, flagImg, esc, attachComplete: attachInlineComplete });
     if (!res?.length) return;
     codes = res;
   }
@@ -5228,7 +5228,7 @@ function openEditor(card, preset = {}) {
     $('#ed-scope-chips').innerHTML = ed.scope.size ? [...ed.scope].map((c) => `<span class="chip">${flagImg(c)} ${esc(countryName(c))}の地域</span>`).join('') : '<span class="muted small">国を選んでください</span>';
   };
   const pickScope = async () => {
-    const res = await pickCountries({ selected: [...ed.scope], title: '「国の地域」にする国を選ぶ', resolve: resolveCountryCode, countryName, flagImg, esc });
+    const res = await pickCountries({ selected: [...ed.scope], title: '「国の地域」にする国を選ぶ', resolve: resolveCountryCode, countryName, flagImg, esc, attachComplete: attachInlineComplete });
     if (res === null) return false;
     ed.scope = new Set(res);
     if (!res.length) ed.scopeKind = 'world';

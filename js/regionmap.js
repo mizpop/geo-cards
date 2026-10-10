@@ -80,8 +80,9 @@ export async function renderRegionMap(view, ctx) {
   await loadLibs();
   if (S.seq !== seq || !view.isConnected) return;
   const L = window.L;
-  const map = L.map(view.querySelector('#rm-map'), { zoomSnap: 0.25, minZoom: 1, maxZoom: 14, worldCopyJump: false }).setView([20, 10], 2);
+  const map = L.map(view.querySelector('#rm-map'), { zoomSnap: 0.25, minZoom: 1, maxZoom: 14, worldCopyJump: false, keyboard: false }).setView([20, 10], 2);
   S.map = map;
+  view.querySelector('#rm-map').classList.toggle('map-dark', isDark()); // ダークモード: 背景の地図の色を反転（地図タブと同じ）
   addBaseTiles(map);
   map.attributionControl.addAttribution('地域の境界 &copy; <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a>');
   map.on('zoomend', () => scalePatterns(map.getPane('overlayPane').querySelector('svg'), map.getZoom()));

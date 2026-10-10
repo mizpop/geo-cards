@@ -1,8 +1,8 @@
 // 国を選ぶポップアップ: 上に検索バー（地図タブと同じ、補完つき）、その下に地図。検索で選ぶか、地図の国を押すと、追加・解除できる（複数選択）。
-// 使い方: const codes = await pickCountries({ selected, resolve, countryName, flagImg, esc }) → 決定した国コードの配列（キャンセルなら null）
+// 使い方: const codes = await pickCountries({ selected, resolve, countryName, flagImg, esc, attachComplete }) → 決定した国コードの配列（キャンセルなら null）
 import { loadLibs, loadWorld, isDark } from './map.js';
 
-export async function pickCountries({ selected = [], title = '国を選ぶ', resolve, countryName, flagImg, esc }) {
+export async function pickCountries({ selected = [], title = '国を選ぶ', resolve, countryName, flagImg, esc, attachComplete = null }) {
   const sel = new Set(selected);
   const d = document.createElement('dialog');
   d.className = 'modal cp-dialog';
@@ -40,6 +40,7 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
     const code = resolve(input.value);
     if (code) { toggle(code, true); input.value = ''; } else if (input.value.trim()) input.select();
   };
+  if (attachComplete) { try { attachComplete(input, { regions: false, ja: true }); } catch { /* 補完なしでも使える */ } } // 地図タブの検索と同じ補完
   input.addEventListener('keydown', (e) => { if (e.isComposing) return; if (e.key === 'Enter') { e.preventDefault(); enter(); } });
   input.addEventListener('change', () => { if (resolve(input.value)) enter(); }); // 候補を選んだとき
   paintChips();
@@ -56,8 +57,8 @@ export async function pickCountries({ selected = [], title = '国を選ぶ', res
         const L = window.L;
         const { fc } = await loadWorld('110m');
         const box = d.querySelector('.cp-map');
-        map = L.map(box, { minZoom: 1, maxZoom: 8, worldCopyJump: true, zoomControl: true, attributionControl: false }).setView([20, 10], 2);
-        box.style.background = isDark() ? '#15202a' : '#cfe3f1';
+        map = L.map(box, { minZoom: 1, maxZoom: 8, worldCopyJump: true, zoomControl: true, attributionControl: false, keyboard: false }).setView([20, 10], 2);
+        box.classList.toggle('map-dark', isDark());
         L.geoJSON(fc, {
           style: (f) => style(f.properties.code),
           onEachFeature: (f, layer) => {

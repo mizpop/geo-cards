@@ -2797,3 +2797,10 @@ ul .pk-callout { list-style-position: inside; }
 .rm-legend { margin-top: 10px; }
 .rm-legend .map-legend { position: static; display: block; max-width: 420px; }
 @media (max-width: 760px) { .rm-body { grid-template-columns: 1fr; } .rm-map { height: 50vh; min-height: 280px; } .rm-side { max-height: none; } }
+
+/* 国・地域をクリックしたときの四角い枠（フォーカスの枠）を出さない */
+.cp-map .leaflet-interactive, .rm-map .leaflet-interactive, .cp-map path, .rm-map path { outline: none !important; }
+.cp-map.leaflet-container { background: #aad3df; }
+.cp-map.map-dark.leaflet-container { background: #1d2c33; }
+.cp-map .leaflet-tooltip, .rm-map .leaflet-tooltip { background: var(--surface); color: var(--text); border-color: var(--border); }
+.map-dark .leaflet-control-zoom a { background: #2b3640; color: #e6edf2; border-color: #46535d; }
