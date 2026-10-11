@@ -16,6 +16,7 @@ import { attachZoom } from './zoom.js';
 import { editImage } from './annotate.js';
 import { COMMANDS, parseCommand, complete as cmdComplete, syntaxHint, optionMap, unq as cmdUnq, commandNames } from './commands.js';
 import { proposeCards, guideToContext } from './aicards.js';
+import { fixMojibake } from './textfix.js';
 import { buildContext as buildAskContext, findCountries } from './askctx.js';
 import { loadGuide, guideHtml, tocHtml, bindGuide, loadImages, imgSrc as heroSrc, parseStreetView } from './plonkit.js';
 import { initChat, teardownChat, raiseChat, chatIsOpen, reopenChat, embedChat } from './chat.js';
@@ -1382,14 +1383,14 @@ function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
 // 地名（都市・町）: 日本語に続けて英語・現地の言語の名前。押すと地図でその場所を見る
 function placesHtml(card) {
   if (!card.places?.length) return '';
-  return `<div class="answer-places">${card.places.map((p, i) => `<button type="button" class="place-link" data-place-card="${card.id}" data-place="${i}" title="地図でこの場所を見る">📍${p.code ? flagImg(p.code) : ''}<b>${esc(p.name)}</b>${altNames(p).map((n) => `<em>${esc(n)}</em>`).join('')}</button>`).join('')}</div>`;
+  return `<div class="answer-places">${card.places.map((p, i) => `<button type="button" class="place-link" data-place-card="${card.id}" data-place="${i}" title="地図でこの場所を見る">📍${p.code ? flagImg(p.code) : ''}<b>${esc(fixMojibake(p.name))}</b>${altNames(p).map((n) => `<em>${esc(fixMojibake(n))}</em>`).join('')}</button>`).join('')}</div>`;
 }
 function answerHtml(card, size = 'lg', linkCountries = false) {
   // 「国の地域」のカード: 地名（詳細エリア・登録した地名）を大きく、国名を小さく出す（国は分かっていて、地域を当てるカードなので）
   const where = scopeOf(card).length ? (() => {
-    const pl = (card.places || []).map((p) => String(p.name || '').trim()).filter(Boolean);
+    const pl = (card.places || []).map((p) => fixMojibake(String(p.name || '').trim())).filter(Boolean);
     const known = new Set((card.places || []).flatMap((p) => [p.name, p.en, p.local]).map((x) => String(x || '').trim().toLowerCase()).filter(Boolean));
-    const a = String(card.area || '').trim();
+    const a = fixMojibake(String(card.area || '').trim());
     const cc = scopeOf(card)[0];
     const names = [...new Set([...pl, ...(a && !known.has(a.toLowerCase()) ? [a] : [])].map((n) => regionJaFor(cc, n) || n))];
     // 日本語の地名を優先する: 日本語の名前があるとき、同じ場所を指す英語（ローマ字）の名前は、出さない

@@ -1,6 +1,7 @@
 // 国モードの地図: 選んだ国だけを、州・県などの地域ごとに分けて表示する。
 // 地域の境界は geoBoundaries（ADM1: 州・県・省など。名前は英語）を、国ごとに、必要になったとき取得する。
 // 地域は「国コード:地域コード」（例: JP:JP-13）で区別し、国ごとの情報（シェブロン・ガードレールなど）と同じ仕組みで、値を保存・表示する。
+import { fixMojibake } from './textfix.js';
 import { createHoverBubble } from './hoverbubble.js';
 import { loadLibs, addBaseTiles, isDark, svFind, mapIsLite } from './map.js';
 import { suggestCities, searchCitiesOSM, fillNames, altNames } from './cities.js';
@@ -87,7 +88,7 @@ export function loadGhStateByName(country, rc, name) {
 const registry = new Map(); // 地域コード → { name, parent }
 export const isRegionCode = (c) => typeof c === 'string' && c.includes(':');
 // 表示する名前: 日本語（Wikidata のラベル）があれば日本語、なければ英語（境界データの名前）。照合・保存には、英語（regionNameEn）を使う
-export const regionName = (c) => registry.get(c)?.ja || registry.get(c)?.name || String(c).split(':')[1] || c;
+export const regionName = (c) => registry.get(c)?.ja || fixMojibake(registry.get(c)?.name) || fixMojibake(String(c).split(':')[1]) || c;
 /** 国と英語の地域名から、日本語名（読み込み済みのとき）。なければ空 */
 export const regionJaFor = (country, en) => { const k = String(en || '').trim().toLowerCase(); for (const v of registry.values()) if (v.parent === country && v.ja && String(v.name).toLowerCase() === k) return v.ja; return ''; };
 export const regionNameEn = (c) => registry.get(c)?.name || String(c).split(':')[1] || c;
@@ -177,7 +178,7 @@ export function loadRegions(code, iso3) {
         while (seen.has(id)) id += '_';
         seen.add(id);
         f.geometry = simplifyGeometry(f.geometry);
-        f.properties = { code: id, name: p.shapeName || id, parent: code };
+        f.properties = { code: id, name: fixMojibake(p.shapeName) || id, parent: code }; // 地名は、文字化け（RegiÃ³n など）を直す。id は、そのまま
         registry.set(id, { name: f.properties.name, parent: code });
       }
       await loadRegionJa(code, fc.features.map((f) => f.properties.code)); // 地域の日本語名（なければ、英語のまま）
