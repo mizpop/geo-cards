@@ -3022,3 +3022,6 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 .bt-ro button:disabled, .bt-ro input:disabled, .bt-ro select:disabled { opacity: 1; color: inherit; cursor: default; }
 .bt-ro .seg button:not(.on), .bt-ro .region-check:not(:has(input:checked)) { opacity: .6; }
 .bt-ro input[type="range"] { opacity: .8; }
+/* ストリートビューの問題: 解答用の地図を、ストリートビューのコンパス・ズームのボタン（右下）に重ねない。地図は、左下に置く */
+.qm-layout.qm-float:has(.sv-front) .qm-side { right: auto; left: 14px; }
+@media (max-width: 900px), (pointer: coarse) { .qm-layout.qm-float:has(.sv-front) .qm-maptoggle { right: auto; left: 10px; } }
