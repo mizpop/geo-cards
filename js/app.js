@@ -1391,7 +1391,14 @@ function answerHtml(card, size = 'lg', linkCountries = false) {
     const known = new Set((card.places || []).flatMap((p) => [p.name, p.en, p.local]).map((x) => String(x || '').trim().toLowerCase()).filter(Boolean));
     const a = String(card.area || '').trim();
     const cc = scopeOf(card)[0];
-    return [...new Set([...pl, ...(a && !known.has(a.toLowerCase()) ? [a] : [])].map((n) => regionJaFor(cc, n) || n))]; // 地名（日本語）を先に。詳細エリアが、地名と同じもの（英語名）なら、重ねない。英語の地域名は、読み込み済みなら、日本語に
+    const names = [...new Set([...pl, ...(a && !known.has(a.toLowerCase()) ? [a] : [])].map((n) => regionJaFor(cc, n) || n))];
+    // 日本語の地名を優先する: 日本語の名前があるとき、同じ場所を指す英語（ローマ字）の名前は、出さない
+    // （同じ場所 = カードの地域の英語名、または、登録した地名の英語名・現地の名前と同じ）
+    const isLatin = (s) => !/[぀-ヿ㐀-鿿]/.test(s) && /[A-Za-z]/.test(s);
+    const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\b(region|province|prefecture|state|county|district|oblast|voivodeship)\b/g, '').replace(/[^a-z0-9]+/g, '');
+    const same = new Set([...(card.places || []).flatMap((p) => [p.en, p.local]), ...card.countries.filter(isRegionCode).map(regionNameEn)].map(norm).filter(Boolean));
+    const hasJa = names.some((n) => !isLatin(n));
+    return hasJa ? names.filter((n) => !isLatin(n) || !same.has(norm(n))) : names; // 地名（日本語）を先に。詳細エリアが、地名と同じもの（英語名）なら、重ねない。英語の地域名は、読み込み済みなら、日本語に
   })() : [];
   if (where.length) {
     const sub = card.countries.map((c) => (linkCountries
