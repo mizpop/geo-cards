@@ -3016,3 +3016,9 @@ p .art-zoom, li .art-zoom { max-width: min(100%, 420px); max-width: min(100%, cl
   .art-zoom .zoom-ctrls { padding: 2px; gap: 0; opacity: .75; }
   .art-zoom .zoom-ctrls button { width: 28px; height: 28px; font-size: 14px; }
 }
+/* 対戦: ホスト以外が見る、部屋の設定（編集できない。ホストの変更が、すぐ反映される） */
+fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-inline: 0; min-width: 0; }
+.bt-ro { pointer-events: none; }
+.bt-ro button:disabled, .bt-ro input:disabled, .bt-ro select:disabled { opacity: 1; color: inherit; cursor: default; }
+.bt-ro .seg button:not(.on), .bt-ro .region-check:not(:has(input:checked)) { opacity: .6; }
+.bt-ro input[type="range"] { opacity: .8; }

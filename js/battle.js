@@ -45,6 +45,15 @@ export function mountBattle(host, ctx) {
   const lastTeam = new Map(); // 退出した人のチーム（合計点に残す）
   const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, teams: false, hints: false, rush: false, password: '', pwh: '', regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
   try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
+  // ホストの部屋の設定: ホストが変えるたびに、全員に送る。ホスト以外は、同じ画面で、見るだけ（編集はできない）
+  let remoteCfg = null;
+  let pushAt = 0;
+  const pushCfg = (counts = null) => {
+    if (!isHost || !ch) return;
+    pushAt = Date.now();
+    send({ t: 'cfg', from: me.id, cfg: { kind: cfg.kind, mode: cfg.mode, topic: cfg.topic, svSource: cfg.svSource, qn: cfg.qn, perQ: cfg.perQ, max: cfg.max, autoNext: cfg.autoNext, teams: !!cfg.teams, hints: !!cfg.hints, rush: !!cfg.rush, locked: !!cfg.pwh, regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] }, counts: counts ? { regions: [...counts.regions], cats: [...counts.cats] } : null });
+  };
+  const fromSnap = (s, counts) => ({ ...s, regions: new Set(s.regions || []), catsOff: new Set(s.catsOff || []), photoTopics: new Set(s.photoTopics || []), counts: { regions: new Map(counts?.regions || []), cats: new Map(counts?.cats || []) } });
   const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
   let hostId = '';
   const alive = () => host.isConnected;
@@ -310,6 +319,10 @@ export function mountBattle(host, ctx) {
     } else if (m.t === 'host') {
       if (m.from !== hostId) return;
       setHost(m.id);
+    } else if (m.t === 'cfg') {
+      if (m.from !== hostId || isHost) return;
+      remoteCfg = fromSnap(m.cfg, m.counts);
+      if (phase === 'lobby') renderLobby();
     } else if (m.t === 'lobby') {
       clearTimers();
       game = null;
@@ -476,39 +489,41 @@ export function mountBattle(host, ctx) {
     ctx.setFit('scroll');
     const list = [...players.values()];
     if (!modesOf(cfg.kind).includes(cfg.mode)) cfg.mode = modesOf(cfg.kind)[0];
-    const counts = isHost ? ctx.scopeCounts(cfg) : { regions: new Map(), cats: new Map() };
+    const counts = isHost ? ctx.scopeCounts(cfg) : (remoteCfg?.counts || { regions: new Map(), cats: new Map() });
+    const v = isHost ? cfg : remoteCfg; // ホスト以外は、ホストの設定を、見るだけ
+    if (isHost) pushCfg(counts);
     main.innerHTML = `${head(`部屋 <span class="bt-room">${esc(room)}</span>`, isHost ? `<button type="button" class="btn btn-sm ${cfg.public ? 'btn-primary' : ''}" id="bt-public" title="${cfg.public ? '今このサイトを開いている全員に、参加用のポップアップを出しています（押すと非公開）' : '押すと、このサイトを開いている全員に「参加する」ポップアップが出ます'}">${cfg.public ? '📢 公開中' : '📢 部屋を公開する'}</button>` : '')}
       <p class="muted small">このコードを友達に伝えてください。${isHost ? '全員そろったら「開始」を押します。' : 'ホストが開始するのを待っています。'}</p>
       <ul class="bt-players">${list.map((p) => `<li class="${p.id === me.id ? 'me' : ''}">${p.host ? '👑 ' : ''}${p.spec ? '👁 ' : (teamsOn() && p.team ? `${TEAMS[p.team].dot} ` : '')}${esc(p.name)}</li>`).join('') || '<li class="muted">接続中…</li>'}</ul>
       ${teamsOn() && !me.spec ? `<div class="bt-row"><span class="muted small">あなたのチーム:</span>${['A', 'B'].map((k) => `<button type="button" class="btn btn-sm ${me.team === k ? 'btn-primary' : ''}" data-team="${k}">${TEAMS[k].dot} ${TEAMS[k].name}</button>`).join('')}</div>` : ''}
-      ${isHost ? `<div class="bt-settings quiz-setup">
-        <h3 class="bt-sub">部屋の設定</h3>
-        <div class="setup-block"><div class="setup-label"><span>出題内容</span></div>${segHtml('bt-kind', KINDS, cfg.kind)}</div>
-        ${cfg.kind === 'photo' ? `<div class="setup-block"><div class="setup-label"><span>写真の種類</span></div>
-          <div class="seg seg-wrap" id="bt-ptopic">${ctx.photoTopics.map((t) => `<button type="button" class="${cfg.photoTopics.has(t.id) ? 'on' : ''}" data-id="${t.id}">${t.icon} ${esc(t.name)}</button>`).join('')}</div></div>` : ''}
-        ${cfg.kind === 'sv' ? `<div class="setup-block"><div class="setup-label"><span>出題する地点</span></div>${segHtml('bt-svsrc', [['random', '🎲 ランダムな道路'], ['ref', '📷 GeoHints の写真の地点だけ']], cfg.svSource)}</div>` : ''}
-        ${cfg.kind === 'fact' ? `<div class="setup-block"><div class="setup-label"><span>答える特徴</span></div>${segHtml('bt-topic', ctx.factTopics.map((t) => [t.id, `${t.icon} ${esc(t.name)}`]), cfg.topic)}
+      ${v ? `<fieldset class="bt-settings quiz-setup ${isHost ? '' : 'bt-ro'}" ${isHost ? '' : 'disabled'}>
+        <h3 class="bt-sub">部屋の設定${isHost ? '' : ' <span class="muted small">（ホストが決めています。見るだけです）</span>'}</h3>
+        <div class="setup-block"><div class="setup-label"><span>出題内容</span></div>${segHtml('bt-kind', KINDS, v.kind)}</div>
+        ${v.kind === 'photo' ? `<div class="setup-block"><div class="setup-label"><span>写真の種類</span></div>
+          <div class="seg seg-wrap" id="bt-ptopic">${ctx.photoTopics.map((t) => `<button type="button" class="${v.photoTopics.has(t.id) ? 'on' : ''}" data-id="${t.id}">${t.icon} ${esc(t.name)}</button>`).join('')}</div></div>` : ''}
+        ${v.kind === 'sv' ? `<div class="setup-block"><div class="setup-label"><span>出題する地点</span></div>${segHtml('bt-svsrc', [['random', '🎲 ランダムな道路'], ['ref', '📷 GeoHints の写真の地点だけ']], v.svSource)}</div>` : ''}
+        ${v.kind === 'fact' ? `<div class="setup-block"><div class="setup-label"><span>答える特徴</span></div>${segHtml('bt-topic', ctx.factTopics.map((t) => [t.id, `${t.icon} ${esc(t.name)}`]), v.topic)}
           <p class="muted small">国旗と国名を見て、その国の特徴を 4 択で答えます</p></div>` : ''}
         <div class="setup-block">
           <div class="setup-label"><span>出題する地域</span><span class="setup-actions"><button type="button" class="link-btn" id="bt-rall">すべて選択</button><button type="button" class="link-btn" id="bt-rnone">すべて解除</button></span></div>
-          <div class="region-grid">${ctx.regions.map((r) => `<label class="region-check ${counts.regions.get(r.id) ? '' : 'is-empty'}"><input type="checkbox" data-region="${r.id}" ${cfg.regions.has(r.id) ? 'checked' : ''}><span>${esc(r.name)}</span><span class="count">${counts.regions.get(r.id) || 0}</span></label>`).join('')}</div>
+          <div class="region-grid">${ctx.regions.map((r) => `<label class="region-check ${counts.regions.get(r.id) ? '' : 'is-empty'}"><input type="checkbox" data-region="${r.id}" ${v.regions.has(r.id) ? 'checked' : ''}><span>${esc(r.name)}</span><span class="count">${counts.regions.get(r.id) || 0}</span></label>`).join('')}</div>
         </div>
-        ${cfg.kind === 'cards' ? `<div class="setup-block">
+        ${v.kind === 'cards' ? `<div class="setup-block">
           <div class="setup-label"><span>カテゴリー</span><span class="setup-actions"><button type="button" class="link-btn" id="bt-call">すべて選択</button><button type="button" class="link-btn" id="bt-cnone">すべて解除</button></span></div>
-          <div class="region-grid cat-grid">${ctx.categories.map((c) => `<label class="region-check cat-check ${counts.cats.get(c.key) ? '' : 'is-empty'}" style="${c.vars}"><input type="checkbox" data-cat="${esc(c.key)}" ${cfg.catsOff.has(c.key) ? '' : 'checked'}><span class="cat-dot"></span><span>${esc(c.name)}</span><span class="count">${counts.cats.get(c.key) || 0}</span></label>`).join('')}</div>
+          <div class="region-grid cat-grid">${ctx.categories.map((c) => `<label class="region-check cat-check ${counts.cats.get(c.key) ? '' : 'is-empty'}" style="${c.vars}"><input type="checkbox" data-cat="${esc(c.key)}" ${v.catsOff.has(c.key) ? '' : 'checked'}><span class="cat-dot"></span><span>${esc(c.name)}</span><span class="count">${counts.cats.get(c.key) || 0}</span></label>`).join('')}</div>
         </div>` : ''}
         <div class="setup-row">
-          <div class="setup-block"><div class="setup-label"><span>最大人数</span></div>${sliderHtml('bt-max', 2, 20, 1, cfg.max)}</div>
-          <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${sliderHtml('bt-qn', 3, 50, 1, cfg.qn)}</div>
-          ${cfg.kind === 'fact' ? '' : `<div class="setup-block"><div class="setup-label"><span>回答方式</span></div>${segHtml('bt-mode', modesOf(cfg.kind).map((m) => [m, MODES[m]]), cfg.mode)}</div>`}
-          <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, cfg.perQ)}</div>
-          <div class="setup-block"><div class="setup-label"><span>答え合わせから次の問題へ</span></div>${sliderHtml('bt-an', 0, 60, 5, cfg.autoNext)}</div>
-          <div class="setup-block"><div class="setup-label"><span>対戦の形式</span></div>${segHtml('bt-teams', [[0, '個人戦'], [1, 'チーム戦（赤 vs 青）']], cfg.teams ? 1 : 0)}</div>
-          <div class="setup-block"><div class="setup-label"><span>先に答えた人がいたら</span></div>${segHtml('bt-rush', [[0, '変わらない'], [1, 'ほかの人は残り 15 秒']], cfg.rush ? 1 : 0)}</div>
-          <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（全員が要求すると表示）']], cfg.hints ? 1 : 0)}</div>
-          <div class="setup-block"><div class="setup-label"><span>パスワード（空なら誰でも入れる）</span></div><input id="bt-pw" class="input" type="text" maxlength="20" placeholder="なし" value="${esc(cfg.password)}" autocomplete="off"></div>
+          <div class="setup-block"><div class="setup-label"><span>最大人数</span></div>${sliderHtml('bt-max', 2, 20, 1, v.max)}</div>
+          <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${sliderHtml('bt-qn', 3, 50, 1, v.qn)}</div>
+          ${v.kind === 'fact' ? '' : `<div class="setup-block"><div class="setup-label"><span>回答方式</span></div>${segHtml('bt-mode', modesOf(v.kind).map((m) => [m, MODES[m]]), v.mode)}</div>`}
+          <div class="setup-block"><div class="setup-label"><span>1 問の制限時間</span></div>${sliderHtml('bt-pq', 5, 120, 5, v.perQ)}</div>
+          <div class="setup-block"><div class="setup-label"><span>答え合わせから次の問題へ</span></div>${sliderHtml('bt-an', 0, 60, 5, v.autoNext)}</div>
+          <div class="setup-block"><div class="setup-label"><span>対戦の形式</span></div>${segHtml('bt-teams', [[0, '個人戦'], [1, 'チーム戦（赤 vs 青）']], v.teams ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>先に答えた人がいたら</span></div>${segHtml('bt-rush', [[0, '変わらない'], [1, 'ほかの人は残り 15 秒']], v.rush ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（全員が要求すると表示）']], v.hints ? 1 : 0)}</div>
+          <div class="setup-block"><div class="setup-label"><span>パスワード（空なら誰でも入れる）</span></div>${isHost ? `<input id="bt-pw" class="input" type="text" maxlength="20" placeholder="なし" value="${esc(cfg.password)}" autocomplete="off">` : `<span class="muted">${v.locked ? '🔒 あり' : 'なし'}</span>`}</div>
         </div>
-        <button type="button" class="btn btn-primary btn-lg" id="bt-start" ${act().length && !building && cfg.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${act().length} 人）`}</button></div>` : ''}`;
+        ${isHost ? `<button type="button" class="btn btn-primary btn-lg" id="bt-start" ${act().length && !building && v.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${act().length} 人）`}</button>` : ''}</fieldset>` : '<p class="muted small">ホストの設定を待っています…</p>'}`;
     bindExit();
     main.querySelectorAll('[data-team]').forEach((x) => x.addEventListener('click', () => { me.team = x.dataset.team; ch?.setMe(meInfo()); renderLobby(); }));
     if (!isHost) return;
@@ -517,7 +532,7 @@ export function mountBattle(host, ctx) {
     for (const [id, key] of [['bt-max', 'max'], ['bt-qn', 'qn'], ['bt-pq', 'perQ'], ['bt-an', 'autoNext']]) {
       const r = main.querySelector(`#${id}`);
       if (!r) continue;
-      r.addEventListener('input', () => { main.querySelector(`#${id}-v`).textContent = sliderFmt[id](Number(r.value)); });
+      r.addEventListener('input', () => { main.querySelector(`#${id}-v`).textContent = sliderFmt[id](Number(r.value)); cfg[key] = Number(r.value); if (Date.now() - pushAt > 120) pushCfg(ctx.scopeCounts(cfg)); }); // 動かしている間も、見ている人の画面に、すぐ反映する
       r.addEventListener('change', () => {
         cfg[key] = Number(r.value);
         if (key === 'max') { ch?.setMe(meInfo()); if (pubTimer) announce(); }
