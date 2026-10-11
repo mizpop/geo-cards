@@ -61,7 +61,7 @@ export function mountBattle(host, ctx) {
   const main = host.querySelector('#bt-main');
   const chat = host.querySelector('#bt-chat');
   const voiceHost = document.createElement('div'); voiceHost.hidden = true; host.appendChild(voiceHost); // 通話の音声（<audio>）を置く場所
-  const voice = createVoice({ send: (m) => ch?.send(m), meId: me.id, host: voiceHost, onChange: () => { if (alive() && phase !== 'entry') renderChatKeep(); } });
+  const voice = createVoice({ send: (m) => ch?.send(m), meId: me.id, host: voiceHost, turn: async () => { try { const token = await api.getAccessToken(); const r = await fetch('/api/turn', { headers: token ? { authorization: `Bearer ${token}` } : {} }); return r.ok ? (await r.json()).iceServers || [] : []; } catch { return []; } }, onChange: () => { if (alive() && phase !== 'entry') renderChatKeep(); } });
   const chatLog = []; // { name, text, mine, sys }
   let chatOpen = false;
   let unread = 0;

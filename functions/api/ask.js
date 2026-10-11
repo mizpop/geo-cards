@@ -91,7 +91,7 @@ async function supabaseConfig(origin) {
 }
 const okTokens = new Map(); // 確認できたトークン → { 有効な期限, 編集者か }（毎回 Supabase に問い合わせないように 1 分だけ覚える）
 // 戻り値: 'ok' / 'unauthorized'（ログインしていない）/ 'forbidden'（編集者ではない）
-async function authorized(request, env) {
+export async function authorized(request, env) {
   const { url, key } = await supabaseConfig(new URL(request.url).origin);
   if (!url) return env.CHAT_ALLOW_ANON === '1' ? 'ok' : 'unauthorized'; // Supabase 未設定（デモ）は、明示したときだけ許可
   const token = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();

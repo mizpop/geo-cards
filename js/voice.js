@@ -1,15 +1,20 @@
 // 対戦のボイスチャット: WebRTC で、参加者どうしを直接つなぐ（音声は、サーバーを通らない）。
 // つなぐための情報（offer / answer / ICE）は、対戦の通信（Realtime の Broadcast）で、{ t: 'vc', … } として送りあう。
-// 経路の確認には、公開の STUN サーバーだけを使う（TURN は使わない）ので、厳しいネットワーク（一部の会社・学校・携帯回線）では、つながらないことがある。
-const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+// 経路の確認には、公開の STUN サーバーを使う。厳しいネットワーク（一部の会社・学校・携帯回線）では、STUN だけではつながらないので、
+// サーバー側（/api/turn）に TURN（Cloudflare）が設定されているときは、それも使う（音声が中継される）。つながらなかったときは、自動で、数回やり直す。
+const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
+const CONNECT_MS = 15000; // この時間でつながらなければ、やり直す
+const RETRIES = 4;
 
 /** send(m): 全員へ送る / meId: 自分の id / host: 音声の <audio> を置く要素 / onChange(): 状態が変わったとき */
-export function createVoice({ send, meId, host, onChange }) {
+export function createVoice({ send, meId, host, onChange, turn }) {
   const pcs = new Map(); // 相手の id → { pc, audio, pending: [ICE の候補], state }
   let stream = null;
   let on = false;
   let muted = false;
   let busy = false;
+  let ice = STUN;
+  const tries = new Map(); // 相手の id → やり直した回数
   const emit = () => { try { onChange?.(); } catch { /* 無視 */ } };
   const to = (id, op, extra = {}) => send({ t: 'vc', op, from: meId, to: id, ...extra });
 
@@ -17,6 +22,7 @@ export function createVoice({ send, meId, host, onChange }) {
     const p = pcs.get(id);
     if (!p) return;
     pcs.delete(id);
+    clearTimeout(p.timer);
     try { p.pc.close(); } catch { /* 無視 */ }
     p.audio?.remove();
     emit();
@@ -25,9 +31,10 @@ export function createVoice({ send, meId, host, onChange }) {
   function link(id) {
     let p = pcs.get(id);
     if (p) return p;
-    const pc = new RTCPeerConnection({ iceServers: ICE });
-    p = { pc, audio: null, pending: [], state: 'connecting' };
+    const pc = new RTCPeerConnection({ iceServers: ice });
+    p = { pc, audio: null, pending: [], state: 'connecting', timer: null };
     pcs.set(id, p);
+    p.timer = setTimeout(() => { if (pcs.get(id) === p && p.state !== 'connected') retry(id); }, CONNECT_MS); // つながらないままなら、やり直す
     for (const tr of stream.getTracks()) pc.addTrack(tr, stream);
     pc.onicecandidate = (e) => { if (e.candidate) to(id, 'ice', { c: e.candidate.toJSON() }); };
     pc.ontrack = (e) => {
@@ -42,7 +49,12 @@ export function createVoice({ send, meId, host, onChange }) {
     };
     pc.onconnectionstatechange = () => {
       p.state = pc.connectionState;
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') { if (pcs.get(id) === p) drop(id); } else emit();
+      clearTimeout(p.dis);
+      if (pc.connectionState === 'connected') { tries.delete(id); clearTimeout(p.timer); emit(); }
+      else if (pc.connectionState === 'failed') { if (pcs.get(id) === p) retry(id); }
+      else if (pc.connectionState === 'closed') { if (pcs.get(id) === p) drop(id); }
+      else if (pc.connectionState === 'disconnected') { p.dis = setTimeout(() => { if (pcs.get(id) === p && p.pc.connectionState !== 'connected') retry(id); }, 5000); emit(); } // 一時的な切れは、少し待つ
+      else emit();
     };
     emit();
     return p;
@@ -54,10 +66,20 @@ export function createVoice({ send, meId, host, onChange }) {
     to(id, 'offer', { sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
   }
 
+  // つながらなかったとき: 作り直して、もう一度つなぐ（何回か。それでもだめなら、あきらめる）
+  function retry(id) {
+    if (!on) return;
+    const n = (tries.get(id) || 0) + 1;
+    tries.set(id, n);
+    drop(id);
+    if (n > RETRIES) { emit(); return; }
+    setTimeout(() => { if (on && !pcs.has(id)) { to(id, 'join'); meet(id); } }, 800 * n); // 相手にも、もう一度、知らせる（相手が古い接続を捨てて、つなぎ直せるように）
+  }
+
   // 相手が通話に入っている（join / here）と分かったとき: id の小さい方が offer を出す（同時に出し合わないように）
   function meet(id) {
     if (pcs.has(id)) return;
-    if (meId < id) offerTo(id).catch(() => drop(id)); else to(id, 'need');
+    if (meId < id) offerTo(id).catch(() => retry(id)); else to(id, 'need');
   }
 
   async function onMsg(m) {
@@ -65,9 +87,9 @@ export function createVoice({ send, meId, host, onChange }) {
     if (m.to && m.to !== meId) return;
     const id = m.from;
     try {
-      if (m.op === 'join') { to(id, 'here'); meet(id); }
+      if (m.op === 'join') { if (pcs.get(id)?.state === 'connected') { to(id, 'here'); return; } drop(id); to(id, 'here'); meet(id); } // 相手が入り直した・やり直しているときは、古い接続を捨てる
       else if (m.op === 'here') meet(id);
-      else if (m.op === 'need') { if (!pcs.has(id)) await offerTo(id); }
+      else if (m.op === 'need') { const q = pcs.get(id); if (q && q.pc.signalingState === 'have-local-offer') return; /* もう offer を出して、答えを待っている */ drop(id); await offerTo(id); }
       else if (m.op === 'offer') {
         drop(id);
         const p = link(id);
@@ -86,7 +108,7 @@ export function createVoice({ send, meId, host, onChange }) {
         if (!p) return;
         if (p.pc.remoteDescription) await p.pc.addIceCandidate(m.c).catch(() => {}); else p.pending.push(m.c);
       } else if (m.op === 'leave') drop(id);
-    } catch { drop(id); }
+    } catch { retry(id); }
   }
 
   async function start() {
@@ -98,7 +120,10 @@ export function createVoice({ send, meId, host, onChange }) {
     } catch (e) {
       throw new Error(e?.name === 'NotAllowedError' ? 'マイクの使用が許可されていません（ブラウザの設定で許可してください）' : 'マイクを使えませんでした');
     } finally { busy = false; }
+    ice = STUN;
+    try { const extra = await Promise.race([turn?.() || [], new Promise((r) => setTimeout(() => r([]), 3000))]); if (Array.isArray(extra) && extra.length) ice = [...STUN, ...extra]; } catch { /* STUN だけで続ける */ }
     on = true; muted = false;
+    tries.clear();
     send({ t: 'vc', op: 'join', from: meId });
     emit();
   }
@@ -108,6 +133,7 @@ export function createVoice({ send, meId, host, onChange }) {
     on = false;
     send({ t: 'vc', op: 'leave', from: meId });
     for (const id of [...pcs.keys()]) drop(id);
+    tries.clear();
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
     emit();
