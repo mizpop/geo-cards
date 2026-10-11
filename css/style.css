@@ -3010,3 +3010,9 @@ p .art-zoom, li .art-zoom { display: inline-block; max-width: min(100%, 420px); 
 .art-fig > .art-zoom:not([style]) { width: min(100%, 760px); margin-left: auto; margin-right: auto; }
 .art-zoom img { max-height: 78vh; max-height: min(78vh, 78dvh); }
 p .art-zoom, li .art-zoom { max-width: min(100%, 420px); max-width: min(100%, clamp(140px, 50cqw, 420px)); }
+/* スマホ（タッチ）: 記事の画像に、拡大・縮小のボタンを重ねない（ピンチで拡大できる）。全画面のボタンだけを、小さく薄く残す */
+@media (hover: none), (pointer: coarse) {
+  .art-zoom .zoom-ctrls button:not([data-z="full"]) { display: none; }
+  .art-zoom .zoom-ctrls { padding: 2px; gap: 0; opacity: .75; }
+  .art-zoom .zoom-ctrls button { width: 28px; height: 28px; font-size: 14px; }
+}

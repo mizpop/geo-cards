@@ -18,6 +18,7 @@ export function createHoverBubble(host = document.body) {
   return {
     /** html: 吹き出しの中身（.hb-body の中）。ev: マウスのイベント（位置の初期値） */
     show(html, ev) {
+      if (window.matchMedia?.('(hover: none), (pointer: coarse)').matches) return; // スマホ・タブレット（タッチ）では、出さない（タップするたびに出て、じゃまになる）
       const oe = ev?.originalEvent || ev;
       if (oe?.clientX != null) { mouse.x = oe.clientX; mouse.y = oe.clientY; }
       b.className = 'hover-bubble is-compact show';
