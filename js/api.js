@@ -678,7 +678,7 @@ function createDemoApi() {
         else if (e.data.bye) { peers.delete(e.data.bye); emit(); }
         else if (e.data.m) on.msg(e.data.m);
       };
-      const beat = setInterval(() => { peers.get(me.id).seen = Date.now(); hello(); emit(); }, 1000);
+      const beat = setInterval(() => { peers.set(me.id, { ...me, seen: Date.now() }); hello(); emit(); }, 1000); // 背景のタブで、タイマーが遅れても、自分を消さない
       hello();
       setTimeout(emit, 50);
       return {

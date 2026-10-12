@@ -1,5 +1,5 @@
 // 地図で答えるクイズ用の小さな世界地図（国をクリックして回答）
-import { loadLibs, loadWorld, isDark, addBaseTiles } from './map.js';
+import { loadLibs, loadWorld, isDark, addBaseTiles, addNoLabelTiles } from './map.js';
 import { GEO } from './geo.js';
 
 let lastView = null; // 同じ問題の中（答えた後の再描画など）では表示位置を引き継ぐ
@@ -30,7 +30,7 @@ export function nearestKm(given, answers) {
 
 // el に地図を作る。answered があれば正解（緑）と答えた国（赤）を塗って両方が見えるように移動
 // onPick(code): 国がクリックされたとき（回答前だけ）
-export async function mountQuizMap(el, { answers, answered, onPick, animate = true, qid = null }) {
+export async function mountQuizMap(el, { answers, answered, onPick, animate = true, qid = null, highlight = null, noLabels = false }) { // highlight: 答える前から、この国を色づけして見せる（「場所から名前を当てる」用。クリックでは答えない）
   await loadLibs();
   const world = await loadWorld('50m');
   if (!el.isConnected) return null;
@@ -42,7 +42,7 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
   window.__quizMap = map; // 動作確認用
   el.classList.toggle('map-dark', isDark());
   L.control.attribution({ prefix: false }).addTo(map);
-  addBaseTiles(map);
+  if (noLabels) addNoLabelTiles(map); else addBaseTiles(map); // noLabels: 地名のない地図（名前を当てるクイズ用）
   if (qid !== lastQ) { lastView = null; lastQ = qid; }
   if (lastView) map.setView(lastView.center, lastView.zoom, { animate: false });
   else map.setView([25, 10], 1.5, { animate: false });
@@ -50,11 +50,13 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
 
   const given = answered ? new Set(answered.given) : new Set();
   const correct = new Set(answers);
+  const hl = new Set(highlight || []);
   const accent = '#2f9e44';
   const style = (f) => {
     const code = f.properties.code;
     if (answered && correct.has(code)) return { stroke: true, color: accent, weight: 2, fillColor: accent, fillOpacity: 0.55 };
     if (answered && given.has(code)) return { stroke: true, color: '#e03131', weight: 2, fillColor: '#e03131', fillOpacity: 0.5 };
+    if (hl.has(code)) return { stroke: true, color: '#f08c00', weight: 2.5, fillColor: '#f59f00', fillOpacity: 0.6 };
     return { stroke: false, fillColor: '#3b82f6', fillOpacity: 0 };
   };
   const features = [...world.fc.features, ...world.copyFc.features].filter((f) => f.properties.code);
@@ -62,13 +64,27 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
     style,
     smoothFactor: 1.5,
     onEachFeature: (f, lyr) => {
-      if (answered) return;
+      if (answered || highlight) return;
       lyr.on('mouseover', () => lyr.setStyle({ fillOpacity: 0.28, stroke: true, color: '#3b82f6', weight: 1.5 }));
       lyr.on('mouseout', () => layer.resetStyle(lyr));
       lyr.on('click', () => onPick?.(f.properties.code));
     },
   }).addTo(map);
 
+  if (highlight?.length && !answered) { // 見せる国が見えるように、その国へ寄る。小さい国は、丸い印も付ける
+    let b = null;
+    layer.eachLayer((lyr) => {
+      if (!hl.has(lyr.feature.properties.code)) return;
+      const lb = lyr.getBounds();
+      if (Math.abs(lb.getCenter().lng - map.getCenter().lng) > 180) return;
+      b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast());
+    });
+    if (b) {
+      const span = Math.max(b.getNorth() - b.getSouth(), b.getEast() - b.getWest());
+      map.fitBounds(b, { padding: [40, 40], maxZoom: span < 2 ? 5 : 4, animate: false });
+      if (span < 3) L.circle(b.getCenter(), { radius: 120000, color: '#f08c00', weight: 2, fill: false, dashArray: '4 4' }).addTo(map);
+    }
+  }
   if (answered) {
     // 正解と答えた国が両方収まるように
     let b = null;

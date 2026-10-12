@@ -3025,3 +3025,38 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 /* ストリートビューの問題: 解答用の地図は、右下から少し左にずらして、ストリートビューのコンパス・ズームのボタン（右下）に重ねない */
 .qm-layout.qm-float:has(.sv-front) .qm-side { right: 96px; }
 @media (max-width: 900px), (pointer: coarse) { .qm-layout.qm-float:has(.sv-front) .qm-maptoggle { right: 84px; } }
+/* 今開いている人の数 */
+.online-btn { width: auto; min-width: 36px; padding: 0 8px; gap: 4px; display: inline-flex; align-items: center; }
+.online-btn[hidden] { display: none; }
+.online-btn .on-n { font-size: 13px; font-variant-numeric: tabular-nums; }
+.online-btn .on-away { font-size: 11px; color: var(--muted); }
+.on-pop { position: fixed; z-index: 2000; width: min(300px, calc(100vw - 16px)); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 32px rgba(0,0,0,.45); padding: 10px 12px; }
+.on-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.on-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.on-list li { display: flex; align-items: center; gap: 8px; }
+.on-list li.is-away { opacity: .65; }
+.on-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.on-name em { font-style: normal; color: var(--muted); font-size: 12px; }
+.on-note { margin: 8px 0 0; }
+/* 地図クイズ（名前 ↔ 地図の場所） */
+.gq { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.gq-bar { flex: none; }
+.gq-prompt { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.gq-q { font-size: 20px; display: inline-flex; align-items: center; gap: 8px; }
+.gq-q .flag { height: 20px; width: auto; }
+.gq-mapbox { flex: 1; min-height: 280px; position: relative; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.gq-map { position: absolute; inset: 0; }
+.gq-err { padding: 16px; }
+.gq-side { flex: none; }
+.gq-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.gq-choice { justify-content: flex-start; text-align: left; }
+.gq-choice kbd { margin-right: 6px; }
+.gq-input { display: flex; gap: 8px; }
+.gq-input .input { flex: 1; min-width: 0; }
+.gq-fb { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
+.gq-fb.ok { border-color: #2f9e44; background: color-mix(in srgb, #2f9e44 12%, var(--surface)); }
+.gq-fb.ng { border-color: #e03131; background: color-mix(in srgb, #e03131 10%, var(--surface)); }
+.gq-fb .btn { margin-left: auto; }
+.gq-result { max-width: 640px; margin: 0 auto; }
+.gq-score { font-size: 22px; }
+.gq-miss { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }

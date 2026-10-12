@@ -7,6 +7,8 @@ import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry
 import { initApi } from './api.js';
 import { initLoading } from './loading.js';
 import { startPresence, stopPresence } from './presence.js';
+import { startOnline, stopOnline } from './online.js';
+import { buildGeoPool, buildGeoQuestions, mountGeoQuiz, GEO_DIRS, GEO_ANS } from './geoquiz.js';
 import { showUpdateNoticeIfNeeded } from './updatenotice.js';
 import { initCardPreview } from './cardpreview.js';
 import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, svWindowView, openSvPop, closeSvPop } from './svwin.js';
@@ -121,7 +123,7 @@ const state = {
   urlsAt: 0,
   view: 'study',
   study: { regionsOff: new Set(), catsOff: new Set(), openPick: null, review: false, shuffled: false, deck: [], index: 0, flipped: false, enter: '' },
-  quiz: { photoTopics: new Set(['bollard', 'pole', 'chevron', 'plate']), timeLimit: 0, perQ: 0, kind: 'cards', factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, svSource: 'random', catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
+  quiz: { photoTopics: new Set(['bollard', 'pole', 'chevron', 'plate']), timeLimit: 0, perQ: 0, kind: 'cards', geoDir: 'both', geoAns: 'choice', geoN: 10, factTopic: 'chevron', factDir: 'forward', order: 'random', phase: 'setup', regions: new Set(REGIONS.map((r) => r.id)), count: 10, svSource: 'random', catsOff: new Set(), mode: 'choice', questions: [], i: 0, answers: [], answered: null },
   search: { q: '', cat: null },
   mapMatch: {}, // 地図の「条件で絞り込み」の条件 { topic: key }
   compare: { codes: [], closed: new Set() }, // 比較タブで並べる国・閉じている項目
@@ -229,6 +231,7 @@ async function doLogout() {
   teardownChat();
   teardownAssistant();
   stopLive();
+  stopOnline($('#online-btn'));
   state.user = null;
   state.cards = [];
   showLogin();
@@ -852,7 +855,7 @@ async function enterApp() {
     window.desktop?.onPopoutOpen?.((entry) => { POPOUT = entry; SEARCH_WIN = entry.kind === 'search'; openPopoutContent(entry); });
     window.desktop?.popoutReady?.();
   } else if (POPOUT) openPopoutContent(POPOUT);
-  else startPresence({ state, settings: () => settings }); // Windows 版: Discord Rich Presence
+  else { startPresence({ state, settings: () => settings }); startOnline({ api, user: state.user, esc, btn: $('#online-btn') }); } // Windows 版: Discord Rich Presence / 今開いている人の数
   if (window.desktop?.onFromOutside && !POPOUT && !desktopOutsideBound) { // 外の検索ウィンドウから、メインのウィンドウに頼まれたこと（!card create など）
     desktopOutsideBound = true;
     window.desktop.onGotoTab?.((tab) => { if (state.user && tab) location.hash = `#${tab}`; });
@@ -3104,11 +3107,71 @@ function bindMapToggle() {
     setTimeout(() => window.dispatchEvent(new Event('resize')), 50); // 地図の大きさを合わせ直す
   });
 }
+/* ---- 地図クイズ（名前 ↔ 地図の場所。世界モードは国、国モードは、選んだ国の地域）---- */
+const geoCountryCodes = (q) => (state.mode.kind === 'country' ? state.mode.countries : REGIONS.filter((r) => q.regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)));
+function renderGeoSetup() {
+  const q = state.quiz;
+  setFit('scroll');
+  const country = state.mode.kind === 'country';
+  const codes = geoCountryCodes(q);
+  const seg = (id, opts, cur, attr) => `<div class="seg ${Object.keys(opts).length > 3 ? 'seg-wrap' : ''}" id="${id}">${Object.entries(opts).map(([k, label]) => `<button class="${cur === k ? 'on' : ''}" data-${attr}="${k}">${label}</button>`).join('')}</div>`;
+  const kinds = [['cards', '🃏 カード（画像から国を当てる）'], ['photo', '📷 参考写真（GeoHints の写真から国を当てる）'], ['fact', '🗺 国の特徴・基本データ'], ['sv', '🧍 ストリートビュー（実際の道路から当てる）'], ['geo', '🗺 地図クイズ（名前 ↔ 地図の場所）'], ['battle', '👥 リアルタイム対戦（友達と同時に解く）']];
+  $('#view').innerHTML = `
+    <section class="panel quiz-setup is-geo">
+      <h2>クイズ設定</h2>
+      <div class="setup-block"><div class="setup-label"><span>出題内容</span></div>
+        <div class="seg" id="q-kind">${kinds.map(([k, l]) => `<button class="${q.kind === k ? 'on' : ''}" data-kind="${k}">${l}</button>`).join('')}</div></div>
+      <div class="setup-block"><div class="setup-label"><span>出し方</span></div>${seg('q-gdir', GEO_DIRS, q.geoDir, 'gdir')}
+        <p class="muted small">${country ? '国モード: 選んだ国の中の「地域（州・県・省など）」が出題されます' : '世界モード: 世界の「国」が出題されます'}。「名前 → 地図」は、名前を見て、地図で場所をクリック。「地図 → 名前」は、色のついた場所の名前を答えます</p></div>
+      ${q.geoDir !== 'toMap' ? `<div class="setup-block"><div class="setup-label"><span>名前の答え方（地図 → 名前のとき）</span></div>${seg('q-gans', GEO_ANS, q.geoAns, 'gans')}</div>` : ''}
+      <div class="setup-block"><div class="setup-label"><span>問題数</span></div>${qSlider('q-gn', 3, 50, 1, q.geoN, (n) => `${n} 問`)}</div>
+      ${country ? `<div class="setup-block"><div class="setup-label"><span>対象の国</span></div><div class="chips">${codes.map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join('') || '<span class="muted">国モードにする国を選んでください（上のモード切り替え）</span>'}</div></div>`
+    : `<div class="setup-block"><div class="setup-label"><span>出題する地域</span><span class="setup-actions"><button type="button" class="link-btn" id="q-all">すべて選択</button></span></div>
+        <div class="region-grid">${REGIONS.map((r) => `<label class="region-check"><input type="checkbox" value="${r.id}" ${q.regions.has(r.id) ? 'checked' : ''}><span>${esc(r.name)}</span><span class="count">${r.countries.length}</span></label>`).join('')}</div></div>`}
+      <div class="setup-foot"><span class="muted">${country ? `対象: <strong>${codes.length}</strong> か国の地域` : `対象: <strong>${codes.length}</strong> か国から ${q.geoN} 問`}</span>
+        <button class="btn btn-primary btn-lg" id="q-start" ${codes.length ? '' : 'disabled'}>スタート</button></div>
+    </section>`;
+  $$('#q-kind button').forEach((b) => b.addEventListener('click', () => { q.kind = b.dataset.kind; renderQuiz(); }));
+  $$('#q-gdir button').forEach((b) => b.addEventListener('click', () => { q.geoDir = b.dataset.gdir; renderQuiz(); }));
+  $$('#q-gans button').forEach((b) => b.addEventListener('click', () => { q.geoAns = b.dataset.gans; renderQuiz(); }));
+  bindSlider('q-gn', (v) => { q.geoN = v; renderQuiz(); }, (n) => `${n} 問`);
+  $$('.region-grid input').forEach((cb) => cb.addEventListener('change', () => { cb.checked ? q.regions.add(cb.value) : q.regions.delete(cb.value); renderQuiz(); }));
+  $('#q-all')?.addEventListener('click', () => { q.regions = new Set(REGIONS.map((r) => r.id)); renderQuiz(); });
+  $('#q-start').addEventListener('click', (e) => startGeoQuiz(e.currentTarget));
+}
+async function startGeoQuiz(btn) {
+  const q = state.quiz;
+  if (btn) { btn.disabled = true; btn.textContent = '地図を準備しています…'; }
+  const country = state.mode.kind === 'country';
+  try {
+    const pool = await buildGeoPool({ mode: country ? 'country' : 'world', codes: geoCountryCodes(q), iso3Of: regionCtx.iso3Of });
+    if (pool.length < 4) { toast(country ? '地域のデータを読み込めませんでした（地域の地図を一度開くと、読み込めることがあります）' : '出題できる国が足りません', 'error'); renderQuiz(); return; }
+    const questions = buildGeoQuestions(pool, { n: Math.min(q.geoN, pool.length), dir: q.geoDir, ans: q.geoAns });
+    q.geoRun = { questions, pool, i: 0 };
+    q.phase = 'geo';
+    renderQuiz();
+  } catch (ex) { toast(`始められませんでした: ${ex.message}`, 'error'); renderQuiz(); }
+}
+function renderGeoRun() {
+  const q = state.quiz;
+  setFit(true);
+  const host = $('#view');
+  mountGeoQuiz(host, q.geoRun, {
+    esc, flagImg, countryName, toast, iso3Of: regionCtx.iso3Of, resolveCountry: resolveCountryCode,
+    log: (ok, code) => { try { logActivity(ok, COUNTRY_BY_CODE.get(code)?.region); } catch { /* 記録できなくても続ける */ } },
+    onExit: () => { q.phase = 'setup'; q.geoRun = null; renderQuiz(); },
+    onRestart: () => startGeoQuiz(null),
+  });
+}
+
 function renderQuiz() {
   const q = state.quiz;
   setFit(q.phase === 'question' ? true : 'scroll');
   if (battle && (q.kind !== 'battle' || q.phase !== 'setup')) { battle.leave(); battle = null; } // 対戦の画面から離れたら、部屋を抜ける
   if (q.kind === 'battle' && q.phase === 'setup') return renderBattle();
+  if (q.phase === 'geo' && !q.geoRun) q.phase = 'setup'; // 再読み込みのあと
+  if (q.phase === 'geo') return renderGeoRun();
+  if (q.kind === 'geo' && q.phase === 'setup') return renderGeoSetup();
   if (q.phase === 'question') { armQuestionTimer(q); return renderQuestion(); }
   if (q.phase === 'result') return renderQuizResult();
 
@@ -3137,6 +3200,7 @@ function renderQuiz() {
           <button class="${isPhoto ? 'on' : ''}" data-kind="photo">📷 参考写真（GeoHints の写真から国を当てる）</button>
           <button class="${isFact ? 'on' : ''}" data-kind="fact">🗺 国の特徴・基本データ</button>
           <button class="${isSv ? 'on' : ''}" data-kind="sv">🧍 ストリートビュー（実際の道路から当てる）</button>
+          <button class="${q.kind === 'geo' ? 'on' : ''}" data-kind="geo">🗺 地図クイズ（名前 ↔ 地図の場所）</button>
           <button class="${q.kind === 'battle' ? 'on' : ''}" data-kind="battle">👥 リアルタイム対戦（友達と同時に解く）</button>
         </div>
       </div>
