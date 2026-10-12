@@ -1,7 +1,7 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
 import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, draftOf, articlesLinking } from './guides.js';
-import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionLabelFor, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionLabelFor, setRegionIso3Resolver, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -797,7 +797,14 @@ function restoreOverlays(sn) {
   }
 }
 
+let regionNamesTimer = null;
 async function enterApp() {
+  setRegionIso3Resolver((c) => regionCtx.iso3Of(c)); // 地域名が未読み込みのとき、自動で読み込む
+  if (!regionNamesTimer) window.addEventListener('regionnames-loaded', () => { clearTimeout(regionNamesTimer); regionNamesTimer = setTimeout(() => { // 読み込めたら、画面を、日本語の地域名で、描き直す
+    if (state.view === 'study' && !state.quiz?.answered) render();
+    else if (state.view === 'quiz' && state.quiz?.phase === 'question' && !state.quiz.answered && !document.querySelector('#q-input')?.value) renderQuiz();
+    else if (state.view === 'manage') render();
+  }, 500); });
   $('#login').hidden = true;
   $('#app').hidden = false;
   $('#user-label').textContent = api.mode === 'demo' ? 'デモ' : state.user.isEditor ? '' : '閲覧のみ';

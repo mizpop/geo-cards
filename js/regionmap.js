@@ -88,7 +88,23 @@ export function loadGhStateByName(country, rc, name) {
 const registry = new Map(); // 地域コード → { name, parent }
 export const isRegionCode = (c) => typeof c === 'string' && c.includes(':');
 // 表示する名前: 日本語（Wikidata のラベル）があれば日本語、なければ英語（境界データの名前）。照合・保存には、英語（regionNameEn）を使う
-export const regionName = (c) => registry.get(c)?.ja || fixMojibake(registry.get(c)?.name) || fixMojibake(String(c).split(':')[1]) || c;
+// 地域の名前がまだ読み込まれていないとき（暗記・クイズなどで、先に表示されるとき）に、「US-AZ」のような ISO コードを出さない。読み込みを始めて、終わったら、画面の描き直しを頼む（'regionnames-loaded'）
+let iso3Resolver = null;
+export const setRegionIso3Resolver = (f) => { iso3Resolver = f; };
+const missLoad = new Map(); // 国コード → 'loading' | 'failed'
+function loadMissing(parent) {
+  if (!iso3Resolver || missLoad.has(parent)) return;
+  missLoad.set(parent, 'loading');
+  loadRegions(parent, iso3Resolver(parent)).then(() => { missLoad.delete(parent); window.dispatchEvent(new Event('regionnames-loaded')); }).catch(() => missLoad.set(parent, 'failed'));
+}
+export const regionName = (c) => {
+  const e = registry.get(c);
+  const n = e?.ja || fixMojibake(e?.name);
+  if (n) return n;
+  const parent = String(c).split(':')[0];
+  loadMissing(parent);
+  return missLoad.get(parent) === 'failed' ? (fixMojibake(String(c).split(':')[1]) || c) : '地域名を読み込み中…';
+};
 /** 国と英語の地域名から、日本語名（読み込み済みのとき）。なければ空 */
 export const regionJaFor = (country, en) => { const k = String(en || '').trim().toLowerCase(); for (const v of registry.values()) if (v.parent === country && v.ja && String(v.name).toLowerCase() === k) return v.ja; return ''; };
 /** カードの地名・詳細エリアに書かれた、地域の名前（英語名・ISO コード「AU-QLD」など）を、表示用の名前にする。日本語名があれば日本語、なければ英語名。見つからなければ、そのまま */
