@@ -44,58 +44,60 @@ export function buildGeoQuestions(pool, { n, dir, ans }) {
 }
 
 // 国の中の地域の地図（クリックで選ぶ / 色づけして見せる）
-// 地図は、その国の周りだけ動かせる（左右に動かして世界を一周すると、枠線が消えることがあるため、世界の複製を見せない）
-async function mountRegionMap(el, { fc, target, show, answered, onPick }) {
+// 世界の地図と同じく、左右に敷き詰める（境界線も、左右に複製する）。答え合わせは、地図を作り直さず、滑らかに動かす
+const shiftCoords = (c, d) => (typeof c[0] === 'number' ? [c[0] + d, c[1]] : c.map((x) => shiftCoords(x, d)));
+const shiftFeature = (f, d) => ({ type: 'Feature', properties: f.properties, geometry: f.geometry ? { type: f.geometry.type, coordinates: shiftCoords(f.geometry.coordinates, d) } : null });
+async function mountRegionMap(el, { fc, target, show, onPick }) {
   await loadLibs();
   if (!el.isConnected) return null;
   const L = window.L;
-  const map = L.map(el, { zoomSnap: 0.5, maxZoom: 10, preferCanvas: true, attributionControl: false, zoomAnimation: false, fadeAnimation: false, worldCopyJump: false, maxBoundsViscosity: 1 });
+  const map = L.map(el, { zoomSnap: 0.5, maxZoom: 10, preferCanvas: true, attributionControl: false, worldCopyJump: true });
   el.classList.toggle('map-dark', isDark());
   L.control.attribution({ prefix: false }).addTo(map);
-  addNoLabelTiles(map, { noWrap: true }); // 地名が見えると、答えが分かってしまうので、地名のない地図
+  addNoLabelTiles(map); // 地名が見えると、答えが分かってしまうので、地名のない地図
   const base = { stroke: true, color: '#7a7268', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.07 };
-  const given = answered?.given || null;
+  let answered = null;
   const style = (f) => {
     const code = f.properties.code;
     if (answered && code === target) return { stroke: true, color: '#2f9e44', weight: 2.5, fillColor: '#2f9e44', fillOpacity: 0.6 };
-    if (answered && given && code === given) return { stroke: true, color: '#e03131', weight: 2.5, fillColor: '#e03131', fillOpacity: 0.5 };
+    if (answered?.given && code === answered.given) return { stroke: true, color: '#e03131', weight: 2.5, fillColor: '#e03131', fillOpacity: 0.5 };
     if (!answered && show && code === target) return { stroke: true, color: '#f08c00', weight: 2.5, fillColor: '#f59f00', fillOpacity: 0.65 };
     return base;
   };
-  const layers = new Map();
-  const layer = L.geoJSON(fc, {
+  const feats = fc.features.filter((f) => f.geometry);
+  const all = L.geoJSON({ type: 'FeatureCollection', features: feats }).getBounds(); // 本来の位置のぶんの範囲
+  const layer = L.geoJSON({ type: 'FeatureCollection', features: [...feats, ...feats.map((f) => shiftFeature(f, -360)), ...feats.map((f) => shiftFeature(f, 360))] }, {
     style,
     smoothFactor: 1.2,
     onEachFeature: (f, lyr) => {
-      layers.set(f.properties.code, lyr);
-      if (answered || show) return;
-      lyr.on('mouseover', () => lyr.setStyle({ fillOpacity: 0.3, color: '#3b82f6', weight: 1.5 }));
-      lyr.on('mouseout', () => layer.resetStyle(lyr));
-      lyr.on('click', () => onPick?.(f.properties.code));
+      lyr.on('mouseover', () => { if (!answered && !show) lyr.setStyle({ fillOpacity: 0.3, color: '#3b82f6', weight: 1.5 }); });
+      lyr.on('mouseout', () => { if (!answered && !show) layer.resetStyle(lyr); });
+      lyr.on('click', () => { if (!answered && !show) onPick?.(f.properties.code); });
     },
   }).addTo(map);
-  const all = layer.getBounds();
-  try { // 世界の外側（地図データのない、灰色の部分）が見えないように、縮小できる限界と、動かせる範囲を決める
-    const world = L.latLngBounds([-84, -180], [84, 180]);
-    const fitWorld = Math.log2(Math.max(el.clientWidth || 600, el.clientHeight || 400) / 256); // 世界が、枠いっぱいになる縮尺
-    map.setMinZoom(Math.min(10, Math.max(fitWorld, map.getBoundsZoom(all.pad(0.1)) - 1)));
-    const pad = all.pad(0.6);
-    const lim = answered ? world : L.latLngBounds([Math.max(-84, pad.getSouth()), Math.max(-180, pad.getWest())], [Math.min(84, pad.getNorth()), Math.min(180, pad.getEast())]); // 答えを見せるときは、動かす範囲を広く（正解と答えの両方が入るように）
-    map.setMaxBounds(lim);
-  } catch { /* 範囲を決められなくても使える */ }
-  const boundsOf = (code) => { const l = layers.get(code); return l ? L.latLngBounds(l.getBounds().getSouthWest(), l.getBounds().getNorthEast()) : null; };
-  const tb = boundsOf(target);
-  const gb = given ? boundsOf(given) : null;
-  try {
-    if (answered) { // 正解と、自分の答えが、両方見えるように、寄る
-      const u = gb ? L.latLngBounds(tb.getSouthWest(), tb.getNorthEast()).extend(gb) : tb;
-      map.fitBounds(u || all, { padding: [50, 50], maxZoom: 8, animate: false });
-    } else if (show && tb) map.fitBounds(tb, { padding: [60, 60], maxZoom: 7, animate: false }); // 当てる場所に、フォーカスして始める
-    else map.fitBounds(all, { padding: [16, 16], animate: false });
-  } catch { map.setView([20, 0], 2); }
-  // 画面の上で小さすぎて見えないときは、丸い印で
-  if (tb && (show || answered)) ringTiny(map, tb, answered ? '#2f9e44' : '#f08c00');
-  if (answered && gb) ringTiny(map, gb, '#e03131');
+  // 縮小は、世界の高さが枠に収まるところまで（上下の外側は、地図データがない）。左右は、敷き詰めるので、制限しない
+  map.setMinZoom(Math.min(10, Math.max(1, Math.log2((el.clientHeight || 400) / 256))));
+  map.setMaxBounds(L.latLngBounds([-84, -100000], [84, 100000]));
+  const own = (code) => { // 本来の位置の、その地域の範囲
+    const f = feats.find((x) => x.properties.code === code);
+    return f ? L.geoJSON(f).getBounds() : null;
+  };
+  const tb = own(target);
+  const rings = [];
+  const fitTo = (b, maxZoom, pad, smooth) => { try { if (smooth) map.flyToBounds(b, { padding: [pad, pad], maxZoom, duration: 0.9 }); else map.fitBounds(b, { padding: [pad, pad], maxZoom, animate: false }); } catch { /* 無視 */ } };
+  if (show && tb) { fitTo(tb, 7, 60, false); rings.push(ringTiny(map, tb, '#f08c00')); } // 当てる場所に、フォーカスして始める
+  else fitTo(all, 12, 16, false);
+  // 答え合わせ: 地図はそのまま、色を変えて、正解と自分の答えが両方入るところまで、滑らかに動かす
+  map.reveal = ({ given }) => {
+    answered = { given: given || null };
+    layer.setStyle(style);
+    rings.splice(0).forEach((r) => r.dispose());
+    const gb = given ? own(given) : null;
+    const u = tb ? (gb ? L.latLngBounds(tb.getSouthWest(), tb.getNorthEast()).extend(gb) : tb) : all;
+    fitTo(u, 8, 50, true);
+    if (tb) rings.push(ringTiny(map, tb, '#2f9e44'));
+    if (gb) rings.push(ringTiny(map, gb, '#e03131'));
+  };
   setTimeout(() => map.invalidateSize(), 50);
   new ResizeObserver(() => map.invalidateSize()).observe(el);
   return map;
@@ -129,19 +131,25 @@ export function mountGeoQuiz(host, run, deps) {
   const box = $('.gq-mapbox');
   const side = $('#gq-side');
   const freshMap = () => { box.innerHTML = ''; const el = document.createElement('div'); el.className = 'gq-map'; box.appendChild(el); return el; };
-  const showMap = async (answered) => {
+  let mapObj = null;
+  const showMap = async () => { // 問題ごとに、地図は 1 回だけ作る（答え合わせは、同じ地図を、滑らかに動かす）
     const el = freshMap();
     try {
       if (q.kind === 'region') {
         const fc = await loadRegions(q.parent, deps.iso3Of(q.parent));
-        await mountRegionMap(el, { fc, target: q.code, show: q.dir === 'toName', answered, onPick: (code) => answer(code === q.code, code) });
+        mapObj = await mountRegionMap(el, { fc, target: q.code, show: q.dir === 'toName', onPick: (code) => answer(code === q.code, code) });
       } else {
-        await mountQuizMap(el, {
-          answers: [q.code], answered: answered ? { given: answered.given ? [answered.given] : [] } : null, animate: false, qid: `gq${run.i}`,
+        mapObj = await mountQuizMap(el, {
+          answers: [q.code], answered: null, animate: true, qid: `gq${run.i}`,
           highlight: q.dir === 'toName' ? [q.code] : null, noLabels: true, onPick: (code) => answer(code === q.code, code),
         });
       }
+      if (q.done) revealMap(); // 読み込み中に答えたとき
     } catch (ex) { box.innerHTML = `<p class="muted gq-err">地図を読み込めませんでした: ${esc(ex.message || '')}</p>`; }
+  };
+  const revealMap = () => {
+    if (!mapObj?.reveal) return;
+    mapObj.reveal(q.kind === 'region' ? { given: q.givenCode || null } : { given: q.givenCode ? [q.givenCode] : [] });
   };
 
   let busy = false;
@@ -155,7 +163,7 @@ export function mountGeoQuiz(host, run, deps) {
     side.innerHTML = `<div class="gq-fb ${q.ok ? 'ok' : 'ng'}"><b>${q.ok ? '⭕ 正解！' : '❌ 不正解'}</b>
       <span>${q.dir === 'toMap' && !q.ok && q.given ? `あなたが選んだのは「${esc(q.kind === 'region' ? regionName(q.given) : countryName(q.given))}」。` : q.dir === 'toName' && !q.ok && q.given ? `あなたの答え: 「${esc(q.givenText || '')}」。` : ''}答えは ${flagOf(q)}<b>${esc(nameOf(q))}</b>${subOf(q) ? `（${esc(subOf(q))}）` : ''}${q.kind === 'region' && regionNameEn(q.code) !== nameOf(q) ? ` <span class="muted small">${esc(regionNameEn(q.code))}</span>` : ''}</span>
       <button type="button" class="btn btn-primary" id="gq-next">${last ? '結果を見る' : '次へ →'}</button></div>`;
-    showMap({ given: q.givenCode || null });
+    if (mapObj) revealMap(); // まだ読み込み中なら、読み込みが終わったときに、答え合わせの表示にする
     $('#gq-next').addEventListener('click', next);
     $('#gq-next').focus();
   }
@@ -193,7 +201,7 @@ export function mountGeoQuiz(host, run, deps) {
       document.addEventListener('keydown', onKey);
     }
   }
-  showMap(null);
+  showMap();
 
   function renderResult() {
     const ok = run.questions.filter((x) => x.ok).length;
