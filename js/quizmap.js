@@ -57,6 +57,7 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
     if (answered && correct.has(code)) return { stroke: true, color: accent, weight: 2, fillColor: accent, fillOpacity: 0.55 };
     if (answered && given.has(code)) return { stroke: true, color: '#e03131', weight: 2, fillColor: '#e03131', fillOpacity: 0.5 };
     if (hl.has(code)) return { stroke: true, color: '#f08c00', weight: 2.5, fillColor: '#f59f00', fillOpacity: 0.6 };
+    if (noLabels) return { stroke: true, color: '#8d8478', weight: 0.7, fillColor: '#3b82f6', fillOpacity: 0 }; // 地名のない地図では、国境の線だけ、うっすら出す
     return { stroke: false, fillColor: '#3b82f6', fillOpacity: 0 };
   };
   const features = [...world.fc.features, ...world.copyFc.features].filter((f) => f.properties.code);

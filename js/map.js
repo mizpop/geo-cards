@@ -329,11 +329,10 @@ export function addBaseTiles(map, opts = {}) {
   return layer;
 }
 
-/** 地名・国名が入っていない地図（答えが見えてしまうクイズ用）。CARTO の「ラベルなし」 */
+/** 地名・国名が入っていない地図（答えが見えてしまうクイズ用）。Esri の「シェイデッド リリーフ」（地形だけで、ラベルは入っていない。キー不要） */
 export function addNoLabelTiles(map) {
   const L = window.L;
-  const style = isDark() ? 'dark_nolabels' : 'light_nolabels';
-  const layer = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`, { subdomains: 'abcd', maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' });
+  const layer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 13, attribution: 'Tiles &copy; Esri &mdash; Source: Esri' });
   layer.addTo(map);
   return layer;
 }

@@ -50,7 +50,7 @@ async function mountRegionMap(el, { fc, target, show, answered, onPick }) {
   el.classList.toggle('map-dark', isDark());
   L.control.attribution({ prefix: false }).addTo(map);
   addNoLabelTiles(map); // 地名が見えると、答えが分かってしまうので、地名のない地図
-  const base = { stroke: true, color: '#6b7280', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.07 };
+  const base = { stroke: true, color: '#7a7268', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.07 };
   const style = (f) => {
     const code = f.properties.code;
     if (answered && code === target) return { stroke: true, color: '#2f9e44', weight: 2, fillColor: '#2f9e44', fillOpacity: 0.6 };
