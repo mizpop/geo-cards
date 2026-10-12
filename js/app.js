@@ -8,6 +8,7 @@ import { initApi } from './api.js';
 import { initLoading } from './loading.js';
 import { startPresence, stopPresence } from './presence.js';
 import { startOnline, stopOnline } from './online.js';
+import { installErrLog, errList, errClear, errText } from './errlog.js';
 import { buildGeoPool, buildGeoQuestions, mountGeoQuiz, GEO_DIRS, GEO_ANS } from './geoquiz.js';
 import { showUpdateNoticeIfNeeded } from './updatenotice.js';
 import { initCardPreview } from './cardpreview.js';
@@ -113,6 +114,7 @@ const cardRegions = (card) => new Set(card.countries.map((c) => COUNTRY_BY_CODE.
 
 /* ================= 状態 ================= */
 let api;
+installErrLog({ version: APP_VERSION, report: (r) => { try { return state.user ? api.reportError?.(r) : null; } catch { return null; } } }); // 画面のエラーを、記録に残す（設定 → 不具合の記録）
 const state = {
   user: null,
   cards: [],
@@ -309,6 +311,11 @@ function openSettings() {
       <p class="key-dup-warn" id="key-dup-warn" hidden>⚠ 同じキーが複数の操作に割り当てられています（赤枠）。上にある操作が優先されます</p>
       <p class="set-desc set-key-note">ボタンを押してから割り当てたいキーを押します（Esc で取り消し）。<br>Ctrl・Alt との組み合わせも使えます（Ctrl / Alt を押したまま割り当てたいキー）。<br>そのほか: スペース / Enter でめくる・← → で移動・4択は 1〜4・Ctrl+K でも検索・地図ではそのまま文字を打つと国の検索・入力欄では Esc でキー操作に戻る</p>
     </section>
+    <h3 class="set-group-title">🐞 不具合の記録</h3>
+    <section class="set-group">
+      ${item('このブラウザで起きたエラー', `${errList().length ? `${errList().length} 件の記録があります。不具合を報告するときは、「内容をコピー」して、貼り付けてください（エラーと、その直前の操作が入っています）` : 'いまのところ、記録はありません'}`, `<span class="set-btns"><button type="button" class="btn btn-sm" id="err-copy" ${errList().length ? '' : 'disabled'}>内容をコピー</button><button type="button" class="btn btn-ghost btn-sm" id="err-clear" ${errList().length ? '' : 'disabled'}>消す</button></span>`)}
+      ${state.user?.isEditor && api.mode !== 'demo' ? item('みんなの記録（編集者）', 'ほかの人の端末で起きたエラーも、自動で集まります（supabase/error_reports.sql を実行しているとき）', '<button type="button" class="btn btn-sm" id="err-all">見る</button>') : ''}
+    </section>
     <p class="muted small set-note">設定はこの端末のブラウザに保存されます</p>
     <p class="muted small set-note">GeoChecker ${APP_VERSION}（<button type="button" class="link-btn" id="set-changelog">更新履歴</button>）</p>
     <div class="modal-foot set-foot">
@@ -336,6 +343,20 @@ function openSettings() {
     drawOffline();
   }
   $('#set-changelog')?.addEventListener('click', () => openChangelog());
+  $('#err-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(errText()); toast('不具合の記録をコピーしました'); } catch { toast('コピーできませんでした', 'error'); } });
+  $('#err-clear')?.addEventListener('click', () => { errClear(); toast('記録を消しました'); closeModal(); openSettings(); });
+  $('#err-all')?.addEventListener('click', async () => {
+    try {
+      const rows = await api.listErrorReports();
+      const byMsg = new Map();
+      for (const r of rows) { const e = byMsg.get(r.message) || { r, n: 0, users: new Set(), last: r.created_at }; e.n++; e.users.add(r.user_id); byMsg.set(r.message, e); }
+      openModal(`<div class="modal-head"><h2>みんなの不具合の記録</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+        <p class="muted small">新しい順（同じメッセージは、まとめています）。最大 200 件</p>
+        <div class="err-list">${[...byMsg.values()].map((e) => `<details class="err-item"><summary><b>${esc(e.r.message)}</b> <span class="muted small">×${e.n}（${e.users.size} 人）・${esc(new Date(e.last).toLocaleString('ja-JP'))}・${esc(e.r.version || '')} ${esc(e.r.view || '')}</span></summary><pre class="err-pre">${esc([e.r.stack, '直前の操作: ' + (e.r.crumbs || []).map((c) => `${c.t} ${c.x}`).join(' → '), e.r.ua].filter(Boolean).join('\n'))}</pre></details>`).join('') || '<p class="muted">記録はありません</p>'}</div>
+        <div class="modal-foot"><button class="btn btn-danger" id="err-all-clear" type="button">すべて消す</button><span class="grow"></span><button class="btn btn-ghost" data-close type="button">閉じる</button></div>`, 'modal-wide');
+      $('#err-all-clear')?.addEventListener('click', async () => { if (!confirm('みんなの記録を、すべて消しますか？')) return; try { await api.clearErrorReports(); toast('消しました'); closeModal(); } catch (ex) { toast(`消せませんでした: ${ex.message}`, 'error'); } });
+    } catch (ex) { toast(/error_reports/.test(ex.message || '') ? '記録の表がありません（supabase/error_reports.sql を実行してください）' : `読み込めませんでした: ${ex.message}`, 'error'); }
+  });
   $('#set-logout')?.addEventListener('click', () => { closeModal(); doLogout(); });
   { // 左の目次: 見出しから作る。押すとその見出しへ動き、見ている位置を強調する（狭い画面では隠す）
     const m = W.el;

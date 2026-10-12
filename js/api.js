@@ -290,6 +290,10 @@ function createSupabaseApi(sb) {
       if (error) throw error;
     },
     // ガイド（記事・フォルダ）
+    // 不具合の記録（表は supabase/error_reports.sql。なければ、何もしない）
+    async reportError(row) { const { error } = await sb.from('error_reports').insert(row); if (error) throw error; },
+    async listErrorReports() { const { data, error } = await sb.from('error_reports').select('*').order('created_at', { ascending: false }).limit(200); if (error) throw error; return data; },
+    async clearErrorReports() { const { error } = await sb.from('error_reports').delete().not('id', 'is', null); if (error) throw error; },
     async listArticles() {
       const { data, error } = await sb.from('articles').select('*').order('updated_at', { ascending: false }).limit(2000);
       if (error) throw new Error(/articles/.test(error.message || '') ? ARTICLES_MISSING : error.message);
@@ -596,6 +600,9 @@ function createDemoApi() {
       localStorage.setItem(SAVED_SV_KEY, JSON.stringify((await this.listSavedSv()).filter((x) => x.id !== id)));
     },
     // ガイド（記事・フォルダ）: このブラウザの中に保存
+    async reportError() { /* デモは、このブラウザにだけ記録する */ },
+    async listErrorReports() { return []; },
+    async clearErrorReports() { /* なし */ },
     async listArticles() { try { return (JSON.parse(localStorage.getItem(ARTICLES_KEY)) || []).sort((x, y) => (y.updated_at || '').localeCompare(x.updated_at || '')); } catch { return []; } },
     async saveArticle(fields, id = null) {
       const list = await this.listArticles();

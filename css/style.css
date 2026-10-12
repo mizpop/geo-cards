@@ -3060,3 +3060,9 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 .gq-result { max-width: 640px; margin: 0 auto; }
 .gq-score { font-size: 22px; }
 .gq-miss { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+/* 不具合の記録 */
+.set-btns { display: inline-flex; gap: 6px; flex: none; }
+.err-list { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.err-item { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: var(--surface); }
+.err-item summary { cursor: pointer; }
+.err-pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; margin: 6px 0 0; max-height: 240px; overflow: auto; color: var(--muted); }
