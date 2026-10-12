@@ -2,7 +2,7 @@
 //   名前 → 場所: 名前を見て、地図で、その場所をクリックする
 //   場所 → 名前: 地図で色づけされた場所を見て、名前を当てる（4 択 / 入力）
 // 世界モードでは国、国モードでは、選んだ国の中の地域（geoBoundaries の ADM1）が出題される
-import { mountQuizMap } from './quizmap.js';
+import { mountQuizMap, ringTiny } from './quizmap.js';
 import { loadLibs, loadWorld, isDark, addNoLabelTiles } from './map.js';
 import { loadRegions, regionName, regionNameEn } from './regionmap.js';
 
@@ -26,7 +26,9 @@ export async function buildGeoPool({ mode, codes, iso3Of }) {
     for (const parent of codes) {
       let fc = null;
       try { fc = await loadRegions(parent, iso3Of(parent)); } catch { fc = null; }
-      for (const f of fc?.features || []) out.push({ kind: 'region', code: f.properties.code, parent });
+      const items = (fc?.features || []).map((f) => ({ kind: 'region', code: f.properties.code, parent }));
+      const iso = items.filter((x) => /^[A-Z]{2}-/.test(x.code.split(':')[1] || '')); // 「Other Territories」のような、ふつうの地域ではないもの（ISO コードがない）は、4 つ以上、ふつうの地域があるときは、出題しない
+      out.push(...(iso.length >= 4 ? iso : items));
     }
     return out;
   }
@@ -42,33 +44,54 @@ export function buildGeoQuestions(pool, { n, dir, ans }) {
 }
 
 // 国の中の地域の地図（クリックで選ぶ / 色づけして見せる）
+// 地図は、その国の周りだけ動かせる（左右に動かして世界を一周すると、枠線が消えることがあるため、世界の複製を見せない）
 async function mountRegionMap(el, { fc, target, show, answered, onPick }) {
   await loadLibs();
   if (!el.isConnected) return null;
   const L = window.L;
-  const map = L.map(el, { zoomSnap: 0.5, minZoom: 2, maxZoom: 10, preferCanvas: true, attributionControl: false, zoomAnimation: false, fadeAnimation: false });
+  const map = L.map(el, { zoomSnap: 0.5, maxZoom: 10, preferCanvas: true, attributionControl: false, zoomAnimation: false, fadeAnimation: false, worldCopyJump: false, maxBoundsViscosity: 1 });
   el.classList.toggle('map-dark', isDark());
   L.control.attribution({ prefix: false }).addTo(map);
-  addNoLabelTiles(map); // 地名が見えると、答えが分かってしまうので、地名のない地図
+  addNoLabelTiles(map, { noWrap: true }); // 地名が見えると、答えが分かってしまうので、地名のない地図
   const base = { stroke: true, color: '#7a7268', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.07 };
+  const given = answered?.given || null;
   const style = (f) => {
     const code = f.properties.code;
-    if (answered && code === target) return { stroke: true, color: '#2f9e44', weight: 2, fillColor: '#2f9e44', fillOpacity: 0.6 };
-    if (answered && code === answered.given) return { stroke: true, color: '#e03131', weight: 2, fillColor: '#e03131', fillOpacity: 0.5 };
+    if (answered && code === target) return { stroke: true, color: '#2f9e44', weight: 2.5, fillColor: '#2f9e44', fillOpacity: 0.6 };
+    if (answered && given && code === given) return { stroke: true, color: '#e03131', weight: 2.5, fillColor: '#e03131', fillOpacity: 0.5 };
     if (!answered && show && code === target) return { stroke: true, color: '#f08c00', weight: 2.5, fillColor: '#f59f00', fillOpacity: 0.65 };
     return base;
   };
+  const layers = new Map();
   const layer = L.geoJSON(fc, {
     style,
     smoothFactor: 1.2,
     onEachFeature: (f, lyr) => {
+      layers.set(f.properties.code, lyr);
       if (answered || show) return;
       lyr.on('mouseover', () => lyr.setStyle({ fillOpacity: 0.3, color: '#3b82f6', weight: 1.5 }));
       lyr.on('mouseout', () => layer.resetStyle(lyr));
       lyr.on('click', () => onPick?.(f.properties.code));
     },
   }).addTo(map);
-  try { map.fitBounds(layer.getBounds(), { padding: [16, 16], animate: false }); } catch { map.setView([20, 0], 2); }
+  const all = layer.getBounds();
+  try {
+    map.setMinZoom(Math.max(1, map.getBoundsZoom(all.pad(0.1)) - 1));
+    if (!answered) map.setMaxBounds(all.pad(0.6)); // 答えを見せるときは、動かす範囲を決めない（正解と答えの両方が入るように）
+  } catch { /* 範囲を決められなくても使える */ }
+  const boundsOf = (code) => { const l = layers.get(code); return l ? L.latLngBounds(l.getBounds().getSouthWest(), l.getBounds().getNorthEast()) : null; };
+  const tb = boundsOf(target);
+  const gb = given ? boundsOf(given) : null;
+  try {
+    if (answered) { // 正解と、自分の答えが、両方見えるように、寄る
+      const u = gb ? L.latLngBounds(tb.getSouthWest(), tb.getNorthEast()).extend(gb) : tb;
+      map.fitBounds(u || all, { padding: [50, 50], maxZoom: 8, animate: false });
+    } else if (show && tb) map.fitBounds(tb, { padding: [60, 60], maxZoom: 7, animate: false }); // 当てる場所に、フォーカスして始める
+    else map.fitBounds(all, { padding: [16, 16], animate: false });
+  } catch { map.setView([20, 0], 2); }
+  // 画面の上で小さすぎて見えないときは、丸い印で
+  if (tb && (show || answered)) ringTiny(map, tb, answered ? '#2f9e44' : '#f08c00');
+  if (answered && gb) ringTiny(map, gb, '#e03131');
   setTimeout(() => map.invalidateSize(), 50);
   new ResizeObserver(() => map.invalidateSize()).observe(el);
   return map;
@@ -121,13 +144,14 @@ export function mountGeoQuiz(host, run, deps) {
   function answer(ok, given) {
     if (q.done || busy) return;
     q.done = true; q.ok = !!ok; q.given = given;
+    q.givenCode = typeof given === 'string' && (q.dir === 'toMap' || (run.pool || []).some((x) => x.code === given)) ? given : null; // 自分の答えの場所（地図に出す）
     deps.log?.(q.ok, q.kind === 'region' ? q.parent : q.code);
     host.querySelectorAll('.gq-choice, #gq-input, #gq-send').forEach((b) => { b.disabled = true; });
     const last = run.i + 1 >= total;
     side.innerHTML = `<div class="gq-fb ${q.ok ? 'ok' : 'ng'}"><b>${q.ok ? '⭕ 正解！' : '❌ 不正解'}</b>
       <span>${q.dir === 'toMap' && !q.ok && q.given ? `あなたが選んだのは「${esc(q.kind === 'region' ? regionName(q.given) : countryName(q.given))}」。` : q.dir === 'toName' && !q.ok && q.given ? `あなたの答え: 「${esc(q.givenText || '')}」。` : ''}答えは ${flagOf(q)}<b>${esc(nameOf(q))}</b>${subOf(q) ? `（${esc(subOf(q))}）` : ''}${q.kind === 'region' && regionNameEn(q.code) !== nameOf(q) ? ` <span class="muted small">${esc(regionNameEn(q.code))}</span>` : ''}</span>
       <button type="button" class="btn btn-primary" id="gq-next">${last ? '結果を見る' : '次へ →'}</button></div>`;
-    showMap({ given: q.dir === 'toMap' ? given : null });
+    showMap({ given: q.givenCode || null });
     $('#gq-next').addEventListener('click', next);
     $('#gq-next').focus();
   }
@@ -144,7 +168,8 @@ export function mountGeoQuiz(host, run, deps) {
         const n = norm(text);
         const ok = q.kind === 'region' ? [regionName(q.code), regionNameEn(q.code)].some((x) => n && norm(x) === n)
           : deps.resolveCountry?.(text) === q.code || norm(countryName(q.code)) === n;
-        answer(ok, text);
+        const resolved = q.kind === 'region' ? (run.pool || []).find((x) => x.parent === q.parent && n && [regionName(x.code), regionNameEn(x.code)].some((nm) => norm(nm) === n))?.code : deps.resolveCountry?.(text);
+        answer(ok, resolved || text);
       });
       setTimeout(() => $('#gq-input')?.focus(), 50);
     } else {

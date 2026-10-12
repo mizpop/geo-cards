@@ -330,9 +330,9 @@ export function addBaseTiles(map, opts = {}) {
 }
 
 /** 地名・国名が入っていない地図（答えが見えてしまうクイズ用）。Esri の「シェイデッド リリーフ」（地形だけで、ラベルは入っていない。キー不要） */
-export function addNoLabelTiles(map) {
+export function addNoLabelTiles(map, opts = {}) {
   const L = window.L;
-  const layer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 13, attribution: 'Tiles &copy; Esri &mdash; Source: Esri' });
+  const layer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 13, attribution: 'Tiles &copy; Esri &mdash; Source: Esri', ...opts });
   layer.addTo(map);
   return layer;
 }

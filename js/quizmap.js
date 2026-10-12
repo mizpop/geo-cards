@@ -5,6 +5,22 @@ import { GEO } from './geo.js';
 let lastView = null; // 同じ問題の中（答えた後の再描画など）では表示位置を引き継ぐ
 let lastQ = null; // 問題が変わったら世界全体の表示に戻す
 
+/** 画面の上で、この範囲が小さすぎて見えない（約 26px 未満）ときだけ、丸い印を出す（拡大・縮小に合わせて、出し入れする） */
+export function ringTiny(map, bounds, color) {
+  const L = window.L;
+  const ring = L.circleMarker(bounds.getCenter(), { radius: 18, color, weight: 3, fill: false, dashArray: '5 4', interactive: false });
+  const upd = () => {
+    const a = map.latLngToContainerPoint(bounds.getSouthWest());
+    const b = map.latLngToContainerPoint(bounds.getNorthEast());
+    const tiny = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) < 26;
+    if (tiny && !map.hasLayer(ring)) ring.addTo(map);
+    else if (!tiny && map.hasLayer(ring)) ring.remove();
+  };
+  map.on('zoomend moveend', upd);
+  upd();
+  return ring;
+}
+
 // 2 点間の距離（km）
 function distanceKm(a, b) {
   const R = 6371;
@@ -81,25 +97,31 @@ export async function mountQuizMap(el, { answers, answered, onPick, animate = tr
       b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast());
     });
     if (b) {
-      const span = Math.max(b.getNorth() - b.getSouth(), b.getEast() - b.getWest());
-      map.fitBounds(b, { padding: [40, 40], maxZoom: span < 2 ? 5 : 4, animate: false });
-      if (span < 3) L.circle(b.getCenter(), { radius: 120000, color: '#f08c00', weight: 2, fill: false, dashArray: '4 4' }).addTo(map);
+      map.fitBounds(b, { padding: [40, 40], maxZoom: 5, animate: false });
+      ringTiny(map, b, '#f08c00'); // 小さくて見えない国は、丸い印で
     }
   }
   if (answered) {
-    // 正解と答えた国が両方収まるように
+    // 正解と答えた国が両方収まるように（小さくて見えないときは、丸い印も）
     let b = null;
+    const own = { ok: null, ng: null };
     layer.eachLayer((lyr) => {
       const code = lyr.feature.properties.code;
-      if (!correct.has(code) && !given.has(code)) return;
+      const isOk = correct.has(code);
+      if (!isOk && !given.has(code)) return;
       // 日付変更線の反対側の複製は、今の中心に近い方だけ使う
       const lb = lyr.getBounds();
       if (Math.abs(lb.getCenter().lng - map.getCenter().lng) > 180) return;
+      const box = L.latLngBounds(lb.getSouthWest(), lb.getNorthEast());
       b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast());
+      const k = isOk ? 'ok' : 'ng';
+      own[k] = own[k] ? own[k].extend(box) : box;
     });
     if (b) {
-      if (animate) map.flyToBounds(b, { padding: [30, 30], maxZoom: 5, duration: 0.7 });
-      else map.fitBounds(b, { padding: [30, 30], maxZoom: 5, animate: false });
+      if (animate) map.flyToBounds(b, { padding: [40, 40], maxZoom: 6, duration: 0.7 });
+      else map.fitBounds(b, { padding: [40, 40], maxZoom: 6, animate: false });
+      if (own.ok) ringTiny(map, own.ok, accent);
+      if (own.ng) ringTiny(map, own.ng, '#e03131');
     }
   }
   setTimeout(() => map.invalidateSize(), 50);
