@@ -75,9 +75,13 @@ async function mountRegionMap(el, { fc, target, show, answered, onPick }) {
     },
   }).addTo(map);
   const all = layer.getBounds();
-  try {
-    map.setMinZoom(Math.max(1, map.getBoundsZoom(all.pad(0.1)) - 1));
-    if (!answered) map.setMaxBounds(all.pad(0.6)); // 答えを見せるときは、動かす範囲を決めない（正解と答えの両方が入るように）
+  try { // 世界の外側（地図データのない、灰色の部分）が見えないように、縮小できる限界と、動かせる範囲を決める
+    const world = L.latLngBounds([-84, -180], [84, 180]);
+    const fitWorld = Math.log2(Math.max(el.clientWidth || 600, el.clientHeight || 400) / 256); // 世界が、枠いっぱいになる縮尺
+    map.setMinZoom(Math.min(10, Math.max(fitWorld, map.getBoundsZoom(all.pad(0.1)) - 1)));
+    const pad = all.pad(0.6);
+    const lim = answered ? world : L.latLngBounds([Math.max(-84, pad.getSouth()), Math.max(-180, pad.getWest())], [Math.min(84, pad.getNorth()), Math.min(180, pad.getEast())]); // 答えを見せるときは、動かす範囲を広く（正解と答えの両方が入るように）
+    map.setMaxBounds(lim);
   } catch { /* 範囲を決められなくても使える */ }
   const boundsOf = (code) => { const l = layers.get(code); return l ? L.latLngBounds(l.getBounds().getSouthWest(), l.getBounds().getNorthEast()) : null; };
   const tb = boundsOf(target);

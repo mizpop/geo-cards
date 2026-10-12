@@ -2,6 +2,16 @@
 // 先頭のバージョンが、アプリの現在のバージョンとして設定画面などに表示される
 export const CHANGELOG = [
   {
+    version: 'v189',
+    date: '2026-10-12',
+    sections: [
+      {
+        title: '地図クイズ',
+        items: ['国モードの地図を縮小すると、世界の外側に「Map data not yet available」（地図データなし）の灰色の部分が出ることがあったので、世界の外側が見えないところまでしか縮小・移動できないように'],
+      },
+    ],
+  },
+  {
     version: 'v188',
     date: '2026-10-12',
     sections: [
