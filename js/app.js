@@ -1,7 +1,7 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
 import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, draftOf, articlesLinking } from './guides.js';
-import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionLabelFor, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -543,6 +543,8 @@ function warmRegionNames() {
   todo.forEach((c) => warmedRegions.add(c));
   Promise.all(todo.map((code) => resolveRegions(code, regionCtx.iso3Of(code), []).catch(() => {}))).then(() => {
     if (state.view === 'study' && !state.quiz?.answered) render(); // 暗記の裏面の地名を、日本語にするため、1 回だけ描き直す
+    else if (state.view === 'quiz' && state.quiz?.phase === 'question' && !state.quiz.answered && !document.querySelector('#q-input')?.value) renderQuiz(); // クイズの問題文も、日本語の地名にする
+    else if (state.view === 'manage') render();
   });
 }
 function applyMode() {
@@ -1386,7 +1388,7 @@ function frontHtml(card, showDesc = settings.showDesc, withBack = false) {
 // 地名（都市・町）: 日本語に続けて英語・現地の言語の名前。押すと地図でその場所を見る
 function placesHtml(card) {
   if (!card.places?.length) return '';
-  return `<div class="answer-places">${card.places.map((p, i) => `<button type="button" class="place-link" data-place-card="${card.id}" data-place="${i}" title="地図でこの場所を見る">📍${p.code ? flagImg(p.code) : ''}<b>${esc(fixMojibake(p.name))}</b>${altNames(p).map((n) => `<em>${esc(fixMojibake(n))}</em>`).join('')}</button>`).join('')}</div>`;
+  return `<div class="answer-places">${card.places.map((p, i) => `<button type="button" class="place-link" data-place-card="${card.id}" data-place="${i}" title="地図でこの場所を見る">📍${p.code ? flagImg(p.code) : ''}<b>${esc(regionLabelFor(scopeOf(card)[0], fixMojibake(p.name)))}</b>${altNames(p).map((n) => `<em>${esc(fixMojibake(n))}</em>`).join('')}</button>`).join('')}</div>`;
 }
 function answerHtml(card, size = 'lg', linkCountries = false) {
   // 「国の地域」のカード: 地名（詳細エリア・登録した地名）を大きく、国名を小さく出す（国は分かっていて、地域を当てるカードなので）
@@ -1404,7 +1406,7 @@ function answerHtml(card, size = 'lg', linkCountries = false) {
     // 欄ぜんぶが英語で、日本語の地名と同じ数だけ並んでいるときは、日本語の地名の訳（同じ場所）として、出さない
     const areaIsTranslation = areaItems.length > 0 && areaItems.every(isLatin) && jaPl.length >= areaItems.length;
     const extra = areaIsTranslation ? [] : areaItems.filter((n) => !known.has(norm(n)));
-    const names = [...new Set([...pl, ...extra].map((n) => regionJaFor(cc, n) || n))];
+    const names = [...new Set([...pl, ...extra].map((n) => regionLabelFor(cc, n)))]; // 英語名・ISO コード（AU-QLD など）で書かれていても、日本語名（なければ英語名）で出す
     const hasJa = names.some((n) => !isLatin(n));
     return hasJa ? names.filter((n) => !isLatin(n) || !same.has(norm(n))) : names;
   })() : [];

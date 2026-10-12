@@ -91,6 +91,17 @@ export const isRegionCode = (c) => typeof c === 'string' && c.includes(':');
 export const regionName = (c) => registry.get(c)?.ja || fixMojibake(registry.get(c)?.name) || fixMojibake(String(c).split(':')[1]) || c;
 /** 国と英語の地域名から、日本語名（読み込み済みのとき）。なければ空 */
 export const regionJaFor = (country, en) => { const k = String(en || '').trim().toLowerCase(); for (const v of registry.values()) if (v.parent === country && v.ja && String(v.name).toLowerCase() === k) return v.ja; return ''; };
+/** カードの地名・詳細エリアに書かれた、地域の名前（英語名・ISO コード「AU-QLD」など）を、表示用の名前にする。日本語名があれば日本語、なければ英語名。見つからなければ、そのまま */
+export const regionLabelFor = (country, s) => {
+  const k = String(s || '').trim().toLowerCase();
+  if (!k) return s;
+  for (const [rc, v] of registry) {
+    if (v.parent !== country) continue;
+    const iso = String(rc.split(':')[1] || '').toLowerCase();
+    if (String(v.name).toLowerCase() === k || iso === k) return v.ja || fixMojibake(v.name) || s;
+  }
+  return s;
+};
 export const regionNameEn = (c) => registry.get(c)?.name || String(c).split(':')[1] || c;
 export const regionParent = (c) => registry.get(c)?.parent || String(c).split(':')[0];
 
