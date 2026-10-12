@@ -33,3 +33,6 @@ revoke all on public.articles from anon;
 grant select, insert, update, delete on public.article_folders to authenticated;
 grant select, insert, update, delete on public.articles to authenticated;
 notify pgrst, 'reload schema';
+
+-- タグ（あとから足した分。実行しなくても、記事は使える。実行すると、記事にタグを付けられる）
+alter table public.articles add column if not exists tags text[] not null default '{}';

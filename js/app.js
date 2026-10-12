@@ -6001,7 +6001,7 @@ function renderArticleModal(entry) {
   buildArticle(a).then(({ html, toc }) => {
     if (!el.contains(body) || w.current !== entry) return;
     const rel = relatedArticles(a);
-    body.innerHTML = `<h1 class="art-title">${esc(a.title || '無題')}</h1><p class="muted small art-date">${a.updated_at ? `更新 ${fmtTime(a.updated_at)}` : ''}</p>
+    body.innerHTML = `<h1 class="art-title">${esc(a.title || '無題')}</h1><p class="muted small art-date">${a.updated_at ? `更新 ${fmtTime(a.updated_at)}` : ''}</p>${(a.tags || []).length ? `<p class="art-tags">${a.tags.map((tg) => `<span class="gd-tag">#${esc(tg)}</span>`).join('')}</p>` : ''}
       <div class="art-content">${html || '<p class="muted">（本文がありません）</p>'}</div>
       ${rel.length ? `<div class="related art-related"><div class="related-head">🔗 関連記事 <span class="muted">${rel.length}</span></div><div class="related-list">${rel.map(articleChipHtml).join('')}</div></div>` : ''}`;
     tocEl.innerHTML = articleTocHtml(toc);

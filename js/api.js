@@ -28,6 +28,7 @@ function cleanArticle(f) {
   if (f.body !== undefined) out.body = String(f.body ?? '').slice(0, 200000);
   if (f.folder_id !== undefined) out.folder_id = f.folder_id || null;
   if (f.related !== undefined) out.related = Array.from(f.related || []);
+  if (f.tags !== undefined) out.tags = [...new Set(Array.from(f.tags || []).map((s) => String(s).trim().replace(/\s+/g, ' ').slice(0, 30)).filter(Boolean))].slice(0, 20);
   return out;
 }
 function cleanFolder(f) {
@@ -301,9 +302,14 @@ function createSupabaseApi(sb) {
     },
     async saveArticle(fields, id = null) {
       const row = { ...cleanArticle(fields), updated_at: new Date().toISOString() };
-      const q = id ? sb.from('articles').update(row).eq('id', id) : sb.from('articles').insert(row);
-      const { data, error } = await q.select('*').single();
-      if (error) throw new Error(/articles/.test(error.message || '') ? ARTICLES_MISSING : error.message);
+      const run = (r) => (id ? sb.from('articles').update(r).eq('id', id) : sb.from('articles').insert(r)).select('*').single();
+      let { data, error } = await run(row);
+      if (error && row.tags !== undefined && /tags/.test(error.message || '')) { // tags の列がまだないとき（supabase/articles.sql の追加分を実行していない）: タグなしで保存する
+        const { tags, ...rest } = row;
+        ({ data, error } = await run(rest));
+        if (!error && data) data._noTags = true;
+      }
+      if (error) throw new Error(/articles/.test(error.message || '') && !/tags/.test(error.message || '') ? ARTICLES_MISSING : error.message);
       return data;
     },
     async deleteArticle(id) {

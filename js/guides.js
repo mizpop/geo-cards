@@ -11,7 +11,7 @@ let folders = [];
 const listeners = new Set();
 const imgUrls = new Map(); // 画像の参照（img:… / card:…）→ URL
 const info = { missing: '' }; // 表がまだないときの案内
-const state = { q: '', sel: new Set(), openFolders: null };
+const state = { q: '', sel: new Set(), openFolders: null, tags: new Set() };
 
 export function initGuides(d) { deps = d; }
 
@@ -27,6 +27,8 @@ export const onGuidesChange = (fn) => { listeners.add(fn); return () => listener
 const changed = () => { buildIndex(); listeners.forEach((fn) => { try { fn(); } catch { /* 無視 */ } }); };
 export const guideArticles = () => articles;
 export const guideFolders = () => folders;
+/** すべてのタグ（多い順）: [[タグ, 記事数]] */
+export const allTags = () => { const m = new Map(); for (const a of articles) for (const tg of a.tags || []) m.set(tg, (m.get(tg) || 0) + 1); return [...m].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], 'ja')); };
 export const articleById = (id) => articles.find((a) => a.id === id) || null;
 export async function loadGuides() {
   try { [articles, folders] = await Promise.all([deps.api.listArticles(), deps.api.listFolders()]); } catch (e) { articles = []; folders = []; info.missing = e.message || String(e); }
@@ -338,7 +340,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
     }
   }
   const draftKey = opts.draftKey || a.id || `new-${Date.now()}`;
-  const draft = { title: seed?.title ?? (a.title || ''), body: seed?.body ?? (a.body || ''), folder_id: (seed ? seed.folder_id : a.folder_id) || '', related: new Set(seed ? seed.related || [] : a.related || []) };
+  const draft = { title: seed?.title ?? (a.title || ''), body: seed?.body ?? (a.body || ''), folder_id: (seed ? seed.folder_id : a.folder_id) || '', related: new Set(seed ? seed.related || [] : a.related || []), tags: new Set(seed ? seed.tags || [] : a.tags || []) };
   const original = { title: a.title || '', body: a.body || '' };
   const m = deps.openWindow(`
     <div class="modal-head"><h2>${a.id ? '記事を編集' : '新しい記事'}</h2><button class="icon-btn" id="gd-max" type="button" aria-label="入力欄だけにする・元に戻す" title="枠の中を、入力欄だけにする（タイトル・ツールバー・プレビュー・関連記事を隠す）・元に戻す">⤢</button><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
@@ -347,6 +349,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
         <input type="text" id="gd-title" class="input gd-title" maxlength="200" placeholder="タイトル" value="${deps.esc(draft.title)}">
         <label class="gd-folder-sel">📁 <select id="gd-folder" class="select select-sm"><option value="">フォルダなし</option>${folders.map((f) => `<option value="${deps.esc(f.id)}" ${f.id === draft.folder_id ? 'selected' : ''}>${deps.esc(f.icon && !/^data:/.test(f.icon) ? `${f.icon} ` : '')}${deps.esc(f.name)}</option>`).join('')}</select></label>
       </div>
+      <div class="gd-tags" id="gd-tags"><span class="muted small">🏷 タグ</span><span id="gd-tag-chips" class="gd-tag-chips"></span><input type="text" id="gd-tag-in" class="input input-sm gd-tag-in" list="gd-tag-list" maxlength="30" placeholder="タグを足す（Enter）" autocomplete="off"><datalist id="gd-tag-list">${allTags().map(([tg]) => `<option value="${deps.esc(tg)}"></option>`).join('')}</datalist></div>
       <div class="gd-tools" id="gd-tools">
         <button type="button" data-md="h1" title="大見出し（目次に出る）">H1</button><button type="button" data-md="h2" title="見出し（目次に出る）">H2</button><button type="button" data-md="h3" title="小見出し">H3</button>
         <button type="button" data-md="b" title="太字"><b>B</b></button><button type="button" data-md="i" title="斜体"><i>I</i></button><button type="button" data-md="s" title="取り消し線"><s>S</s></button><button type="button" data-md="code" title="コード">&lt;/&gt;</button>
@@ -379,7 +382,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
   const form = { title: draft.title, body: draft.body, folder_id: draft.folder_id || null }; // 入力欄の今の内容（閉じたあとに、画面が空になっていても、使える）
   const autosave = () => {
     if (saved || mySeq !== editorSeq) return;
-    const cur = { title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related], id: a.id || null };
+    const cur = { title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related], tags: [...draft.tags], id: a.id || null };
     if (!cur.title.trim() && !cur.body.trim()) { deleteDraft(draftKey); return; }
     if (cur.title === original.title && cur.body === original.body && a.id) { deleteDraft(draftKey); return; }
     status(saveDraft(draftKey, cur) ? `下書きを保存しました（${timeText(Date.now())}）` : '下書きを保存できませんでした（ブラウザの保存容量）');
@@ -491,6 +494,18 @@ export async function buildArticleEditor(article = null, opts = {}) {
     box.innerHTML = list.length ? list.map((r) => `<span class="art-rel-item">${articleChipHtml(r).replace('data-article-open', 'data-nope')}<button type="button" class="btn btn-sm btn-ghost" data-rel-rm="${deps.esc(r.id)}" title="関連から外す">✕</button></span>`).join('') : '<span class="muted small">まだありません</span>';
     box.querySelectorAll('[data-rel-rm]').forEach((b) => b.addEventListener('click', () => { draft.related.delete(b.dataset.relRm); paintRel(); scheduleAuto(); }));
   };
+  // タグ
+  const paintTags = () => {
+    $('#gd-tag-chips').innerHTML = [...draft.tags].map((tg) => `<span class="gd-tag">#${deps.esc(tg)}<button type="button" data-tag-rm="${deps.esc(tg)}" aria-label="${deps.esc(tg)} を外す">✕</button></span>`).join('');
+    $('#gd-tag-chips').querySelectorAll('[data-tag-rm]').forEach((b) => b.addEventListener('click', () => { draft.tags.delete(b.dataset.tagRm); paintTags(); scheduleAuto(); }));
+  };
+  const addTag = (raw) => { const tg = String(raw || '').trim().replace(/^#+/, '').replace(/\s+/g, ' ').slice(0, 30); if (tg && draft.tags.size < 20) { draft.tags.add(tg); paintTags(); scheduleAuto(); } $('#gd-tag-in').value = ''; };
+  $('#gd-tag-in').addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'Enter' || e.key === ',' || e.key === '、') { e.preventDefault(); addTag($('#gd-tag-in').value); } else if (e.key === 'Backspace' && !$('#gd-tag-in').value && draft.tags.size) { draft.tags.delete([...draft.tags].pop()); paintTags(); scheduleAuto(); }
+  });
+  $('#gd-tag-in').addEventListener('change', () => addTag($('#gd-tag-in').value)); // 候補を選んだとき・フォーカスが外れたとき
+  paintTags();
   $('#gd-rel-add').addEventListener('click', async () => { const id = await articlePick('関連記事を選ぶ', new Set([a.id, ...draft.related].filter(Boolean))); if (id) { draft.related.add(id); paintRel(); scheduleAuto(); } });
   paintRel();
   // 保存・削除
@@ -499,13 +514,13 @@ export async function buildArticleEditor(article = null, opts = {}) {
     if (!title) { deps.toast('タイトルを入れてください', 'error'); $('#gd-title').focus(); return; }
     e.currentTarget.disabled = true;
     try {
-      const row = await deps.api.saveArticle({ title, body: ta.value, folder_id: $('#gd-folder').value || null, related: [...draft.related] }, a.id);
+      const row = await deps.api.saveArticle({ title, body: ta.value, folder_id: $('#gd-folder').value || null, related: [...draft.related], tags: [...draft.tags] }, a.id);
       const i = articles.findIndex((x) => x.id === row.id);
       if (i >= 0) articles[i] = row; else articles.unshift(row);
       saved = true; clearTimeout(autoTimer); deleteDraft(draftKey);
       changed();
       deps.closeModal();
-      deps.toast('保存しました');
+      deps.toast(row._noTags ? '保存しました（タグの列がないので、タグは保存されていません。supabase/articles.sql の追加分を実行してください）' : '保存しました', row._noTags ? 'error' : undefined);
       opts.onSaved?.(row);
     } catch (ex) { deps.toast(`保存できませんでした: ${ex.message}`, 'error'); e.currentTarget.disabled = false; }
   });
@@ -557,7 +572,7 @@ export async function buildArticleEditor(article = null, opts = {}) {
   }, true);
   // 別の画面を開いて、戻ってきたとき（戻る・作り直し）に、いつも、直前の内容から続けられるように、今の入力欄の内容を、いつでも渡せるようにする（ボタンを押したときだけだと、直前の入力が、戻ってしまう）
   opts.draftKey = draftKey;
-  Object.defineProperty(opts, 'draft', { configurable: true, enumerable: true, get: () => ({ title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related] }) });
+  Object.defineProperty(opts, 'draft', { configurable: true, enumerable: true, get: () => ({ title: form.title, body: form.body, folder_id: form.folder_id, related: [...draft.related], tags: [...draft.tags] }) });
   m.el.addEventListener('close', () => { clearTimeout(autoTimer); autosave(); refreshGuideView(); }, { once: true }); // 閉じるときにも、下書きを保存して、一覧に出す
   preview();
   $('#gd-title').focus();
@@ -625,13 +640,57 @@ export function renderGuideView(view, setFit) {
 }
 export const refreshGuideView = () => { if (viewEl?.isConnected && viewEl.querySelector('.gd-view')) render(); };
 
+// ---- 検索: スペースで区切った言葉が、すべて入っている記事（タイトル・タグ・本文・リンクしたカードやストリートビューの名前）。タイトル・タグに入っているものを、上に出す
+let curTokens = [];
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hl = (text) => { // 見つかった言葉に、色をつける
+  const h = deps.esc(text);
+  if (!curTokens.length) return h;
+  const re = new RegExp(curTokens.map((x) => escRe(deps.esc(x))).sort((a, b) => b.length - a.length).join('|'), 'gi');
+  return h.replace(re, (m) => `<mark>${m}</mark>`);
+};
+const labelCache = new Map();
+const labelsOf = (a) => { // 本文でリンクしている、カード・ストリートビューの名前
+  const k = `${a.id}|${a.updated_at}`;
+  if (!labelCache.has(k)) {
+    const out = [];
+    for (const m of String(a.body || '').matchAll(/\[\[(card|sv):([\w-]+)\]\]|\]\((card):([\w-]+)\)/g)) {
+      const kind = m[1] || m[3]; const id = m[2] || m[4];
+      try { if (kind === 'card') { const c = deps.cardById(id); if (c) out.push(deps.cardLabel(c)); } else { const r = deps.svById(id); if (r) out.push(deps.svLabel(r)); } } catch { /* 無視 */ }
+    }
+    labelCache.set(k, out.join(' ').toLowerCase());
+  }
+  return labelCache.get(k);
+};
+function scoreOf(a) { // -1: 当てはまらない
+  for (const tg of state.tags) if (!(a.tags || []).includes(tg)) return -1;
+  if (!curTokens.length) return 0;
+  const title = String(a.title || '').toLowerCase(); const tags = (a.tags || []).join(' ').toLowerCase(); const body = String(a.body || '').toLowerCase(); const labels = labelsOf(a);
+  let total = 0;
+  for (const tk of curTokens) {
+    const s = (title.includes(tk) ? 10 : 0) + (tags.includes(tk) ? 6 : 0) + (labels.includes(tk) ? 3 : 0) + (body.includes(tk) ? 1 : 0);
+    if (!s) return -1;
+    total += s;
+  }
+  return total;
+}
+function hitSnippet(body) { // 検索した言葉の前後を、抜き出す
+  const plain = String(body || '').replace(/```[\s\S]*?```/g, ' ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\[\[[^\]]*\]\]/g, ' ').replace(/[#>*_`~|-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!curTokens.length) return plain.slice(0, 90);
+  const low = plain.toLowerCase();
+  const at = curTokens.map((tk) => low.indexOf(tk)).filter((i) => i >= 0).sort((x, y) => x - y)[0];
+  if (at === undefined) return plain.slice(0, 90);
+  const from = Math.max(0, at - 30);
+  return `${from ? '…' : ''}${plain.slice(from, from + 110)}`;
+}
 function rowHtml(a, ed) {
   const links = (linkIndexOf(a));
   return `<article class="gd-row ${state.sel.has(a.id) ? 'is-selected' : ''}" data-id="${deps.esc(a.id)}">
     ${ed ? `<label class="gd-check" title="選択（まとめてフォルダに入れる）"><input type="checkbox" ${state.sel.has(a.id) ? 'checked' : ''} aria-label="この記事を選択"></label>` : ''}
     <button type="button" class="gd-row-main" data-open="${deps.esc(a.id)}">
-      <span class="gd-row-title">${deps.esc(a.title || '無題')}</span>
-      <span class="gd-row-snip muted small">${deps.esc(snippet(a.body)) || '（本文なし）'}</span>
+      <span class="gd-row-title">${hl(a.title || '無題')}</span>
+      <span class="gd-row-snip muted small">${hl(hitSnippet(a.body)) || '（本文なし）'}</span>
+      ${(a.tags || []).length ? `<span class="gd-row-tags">${a.tags.map((tg) => `<span class="gd-tag ${state.tags.has(tg) ? 'on' : ''}">#${hl(tg)}</span>`).join('')}</span>` : ''}
       <span class="gd-row-meta muted small">更新 ${dateText(a.updated_at)}${links.cards ? ` ・ 🃏 ${links.cards}` : ''}${links.svs ? ` ・ 🧍 ${links.svs}` : ''}${(a.related || []).length ? ` ・ 🔗 ${(a.related || []).length}` : ''}</span>
     </button>
     ${ed ? `<button type="button" class="btn btn-sm gd-edit" data-edit="${deps.esc(a.id)}" title="編集">✏</button>` : ''}
@@ -658,9 +717,12 @@ function draftsHtml(ed) {
 function render() {
   if (!viewEl) return;
   const ed = deps.isEditor();
-  const q = state.q.trim().toLowerCase();
-  const match = (a) => !q || `${a.title}\n${a.body}`.toLowerCase().includes(q);
-  const list = articles.filter(match);
+  curTokens = state.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const q = curTokens.length || state.tags.size ? 'filter' : '';
+  const scored = articles.map((a) => [a, scoreOf(a)]).filter(([, s]) => s >= 0);
+  if (curTokens.length) scored.sort((x, y) => y[1] - x[1]);
+  const list = scored.map(([a]) => a);
+  const tagList = allTags();
   if (!state.openFolders) { try { state.openFolders = new Set(JSON.parse(localStorage.getItem('geo-guide-open-folders') || 'null') || folders.map((f) => f.id)); } catch { state.openFolders = new Set(folders.map((f) => f.id)); } }
   const byFolder = new Map(folders.map((f) => [f.id, []]));
   const loose = [];
@@ -678,10 +740,11 @@ function render() {
   viewEl.innerHTML = `<div class="gd-view">
     <div class="toolbar gd-toolbar">
       <h2 class="lang-title">📝 ガイド</h2>
-      <input type="search" id="gd-q" class="input grow" placeholder="記事を探す（タイトル・本文）" value="${deps.esc(state.q)}" autocomplete="off">
+      <input type="search" id="gd-q" class="input grow" placeholder="記事を探す（タイトル・タグ・本文・リンクしたカード。スペースで区切ると、すべてを含む記事）" value="${deps.esc(state.q)}" autocomplete="off">
       ${ed ? '<button class="btn btn-primary" id="gd-new">＋ 新しい記事</button><button class="btn btn-ghost" id="gd-newfolder">📁 新しいフォルダ</button>' : ''}
-      <span class="counter">${articles.length} 件</span>
+      <span class="counter">${q ? `${list.length} / ` : ''}${articles.length} 件</span>
     </div>
+    ${tagList.length ? `<div class="gd-tagbar" id="gd-tagbar"><span class="muted small">🏷 タグ</span>${tagList.slice(0, 40).map(([tg, n]) => `<button type="button" class="gd-tagchip ${state.tags.has(tg) ? 'on' : ''}" data-tagf="${deps.esc(tg)}">#${deps.esc(tg)} <span class="muted small">${n}</span></button>`).join('')}${state.tags.size ? '<button type="button" class="btn btn-ghost btn-sm" id="gd-tagclear">タグの絞り込みを解除</button>' : ''}</div>` : ''}
     ${missing ? `<p class="gd-warn">${deps.esc(missing)}</p>` : ''}
     ${ed ? `<div class="sel-bar gd-selbar" id="gd-selbar" ${state.sel.size ? '' : 'hidden'}><b>${state.sel.size} 件を選択中</b><span class="grow"></span>
       <select id="gd-moveto" class="select select-sm"><option value="">📁 フォルダに入れる…</option><option value="__none">（フォルダから出す）</option>${folders.map((f) => `<option value="${deps.esc(f.id)}">${deps.esc(f.icon && !/^data:/.test(f.icon) ? `${f.icon} ` : '')}${deps.esc(f.name)}</option>`).join('')}</select>
@@ -698,6 +761,8 @@ function render() {
 
 function bind(ed) {
   const v = viewEl;
+  v.querySelectorAll('[data-tagf]').forEach((b) => b.addEventListener('click', () => { const tg = b.dataset.tagf; if (state.tags.has(tg)) state.tags.delete(tg); else state.tags.add(tg); render(); }));
+  v.querySelector('#gd-tagclear')?.addEventListener('click', () => { state.tags.clear(); render(); });
   const q = v.querySelector('#gd-q');
   let composing = false;
   q.addEventListener('compositionstart', () => { composing = true; });
