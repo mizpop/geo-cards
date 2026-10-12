@@ -3166,7 +3166,7 @@ function renderGeoRun() {
   setFit(true);
   const host = $('#view');
   mountGeoQuiz(host, q.geoRun, {
-    esc, flagImg, countryName, toast, iso3Of: regionCtx.iso3Of, resolveCountry: resolveCountryCode,
+    esc, flagImg, countryName, toast, iso3Of: regionCtx.iso3Of, resolveCountry: resolveCountryCode, attachComplete: (input, opts) => attachInlineComplete(input, opts),
     log: (ok, code) => { try { logActivity(ok, COUNTRY_BY_CODE.get(code)?.region); } catch { /* 記録できなくても続ける */ } },
     onExit: () => { q.phase = 'setup'; q.geoRun = null; renderQuiz(); },
     onRestart: () => startGeoQuiz(null),
@@ -4755,6 +4755,19 @@ function topCandidate(text, opts = {}) {
   const { regions = true, ja = false } = opts;
   const t = text.trim();
   if (!t || t !== text) return null;
+  if (opts.names) { // 候補の名前の一覧が決まっているとき（地図クイズの、国の地域の名前など）: { ja, en } の一覧から探す
+    const plain = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const pl = plain(t);
+    const tkn = hasKana(t) ? normKana(t) : '';
+    const out = [];
+    for (const n of opts.names) {
+      if (n.ja.startsWith(t)) out.push({ value: n.ja, prefix: true, score: 0 });
+      else if (tkn && normKana(n.ja).startsWith(tkn)) out.push({ value: n.ja, prefix: false, score: 0.5 });
+      else if (n.en && plain(n.en).startsWith(pl)) out.push({ value: n.ja, prefix: false, score: 1 });
+    }
+    out.sort((a, b) => a.score - b.score || a.value.length - b.value.length);
+    return out.find((x) => x.value !== t) || null;
+  }
   const l = t.toLowerCase();
   // 略称・コードの完全一致（USA, UK, JP など）は日本語名へ
   const exact = findCountry(t);

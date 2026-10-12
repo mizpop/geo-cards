@@ -171,7 +171,9 @@ export function mountGeoQuiz(host, run, deps) {
 
   if (q.dir === 'toName') {
     if (q.ans === 'input') {
-      side.innerHTML = `<form class="gq-input" id="gq-form"><input id="gq-input" class="input" type="text" autocomplete="off" placeholder="${kindWord}の名前（日本語・英語）" ${q.done ? 'disabled' : ''}><button class="btn btn-primary" id="gq-send" type="submit">答える</button></form>`;
+      const names = q.kind === 'region' ? (run.pool || []).filter((x) => x.parent === q.parent).map((x) => ({ ja: regionName(x.code), en: regionNameEn(x.code) })) : null;
+      side.innerHTML = `<form class="gq-input" id="gq-form"><input id="gq-input" class="input" type="text" autocomplete="off" ${names ? 'list="gq-list"' : 'list="country-list"'} placeholder="${kindWord}の名前（日本語・英語）" ${q.done ? 'disabled' : ''}><button class="btn btn-primary" id="gq-send" type="submit">答える</button>${names ? `<datalist id="gq-list">${names.map((n) => `<option value="${esc(n.ja)}">${esc(n.en)}</option>`).join('')}</datalist>` : ''}</form>`;
+      deps.attachComplete?.($('#gq-input'), names ? { names } : { regions: false, ja: true }); // 地図タブと同じ、候補の補完（PC: 薄い文字で表示して、Tab で補完。スマホ: 候補の一覧）
       $('#gq-form').addEventListener('submit', (e) => {
         e.preventDefault();
         const text = $('#gq-input').value.trim();
