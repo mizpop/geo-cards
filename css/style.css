@@ -3080,3 +3080,12 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 .gd-tagchip.on .muted { color: inherit; opacity: .8; }
 .gd-row-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
 .gd-row mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+/* スマホの調整: 今開いている人のボタン・ガイドの検索欄・タグの入力 */
+.user-area .online-btn { width: auto; min-width: 36px; padding: 0 8px; white-space: nowrap; flex: none; border-radius: 18px; }
+.gd-tag-in { flex: 1 1 120px; width: auto; min-width: 100px; }
+@media (max-width: 700px) {
+  .gd-toolbar { flex-wrap: wrap !important; }
+  .gd-toolbar #gd-q { order: 9; flex: 1 1 100% !important; width: 100% !important; min-width: 0; }
+}
+.gd-ai select { max-width: 100%; min-width: 0; }
+.gd-ai-row select { flex: 1 1 200px; }

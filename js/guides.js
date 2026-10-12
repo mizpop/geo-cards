@@ -740,7 +740,7 @@ function render() {
   viewEl.innerHTML = `<div class="gd-view">
     <div class="toolbar gd-toolbar">
       <h2 class="lang-title">📝 ガイド</h2>
-      <input type="search" id="gd-q" class="input grow" placeholder="記事を探す（タイトル・タグ・本文・リンクしたカード。スペースで区切ると、すべてを含む記事）" value="${deps.esc(state.q)}" autocomplete="off">
+      <input type="search" id="gd-q" class="input grow" placeholder="記事を探す（スペースで複数の言葉）" title="タイトル・タグ・本文・リンクしたカードやストリートビューの名前から探します。スペースで区切ると、すべてを含む記事" value="${deps.esc(state.q)}" autocomplete="off">
       ${ed ? '<button class="btn btn-primary" id="gd-new">＋ 新しい記事</button><button class="btn btn-ghost" id="gd-newfolder">📁 新しいフォルダ</button>' : ''}
       <span class="counter">${q ? `${list.length} / ` : ''}${articles.length} 件</span>
     </div>
