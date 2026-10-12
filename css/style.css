@@ -3025,3 +3025,6 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 /* ストリートビューの問題: 解答用の地図を、ストリートビューのコンパス・ズームのボタン（右下）に重ねない。地図は、左下に置く */
 .qm-layout.qm-float:has(.sv-front) .qm-side { right: auto; left: 14px; }
 @media (max-width: 900px), (pointer: coarse) { .qm-layout.qm-float:has(.sv-front) .qm-maptoggle { right: auto; left: 10px; } }
+/* 対戦: チャット（左下）と、解答用の地図が重ならないように、地図を、チャットの上に置く */
+.battle .qm-layout.qm-float:has(.sv-front) .qm-side { bottom: 70px; }
+@media (max-width: 900px), (pointer: coarse) { .battle .qm-layout.qm-float:not(.map-open):has(.sv-front) .qm-maptoggle { bottom: 64px; } }
