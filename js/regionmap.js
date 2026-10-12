@@ -1,6 +1,7 @@
 // 国モードの地図: 選んだ国だけを、州・県などの地域ごとに分けて表示する。
 // 地域の境界は geoBoundaries（ADM1: 州・県・省など。名前は英語）を、国ごとに、必要になったとき取得する。
 // 地域は「国コード:地域コード」（例: JP:JP-13）で区別し、国ごとの情報（シェブロン・ガードレールなど）と同じ仕組みで、値を保存・表示する。
+import { COUNTRY_BY_CODE } from './countries.js';
 import { fixMojibake } from './textfix.js';
 import { createHoverBubble } from './hoverbubble.js';
 import { loadLibs, addBaseTiles, isDark, svFind, mapIsLite } from './map.js';
@@ -169,17 +170,69 @@ function simplifyGeometry(g) {
 }
 
 // 地域の日本語名: Wikidata の ISO 3166-2 コード → 日本語のラベル（世界モードの地名と同じく、日本語で出す）
-async function loadRegionJa(country, codes) {
-  const isos = codes.map((c) => c.split(':')[1]).filter((x) => /^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(x || ''));
-  for (let i = 0; i < isos.length; i += 120) {
-    const part = isos.slice(i, i + 120);
-    const q = `SELECT ?iso ?l WHERE { VALUES ?iso { ${part.map((x) => `"${x}"`).join(' ')} } ?r wdt:P300 ?iso . ?r rdfs:label ?l . FILTER(LANG(?l) = "ja") }`;
+// 取れた名前は、このブラウザに保存して、次からは、すぐ使う。Wikidata が混み合っていて取れなかったときは、少し待って、やり直す（英語のまま残さない）
+const JA_KEY = 'geo-region-ja-v1';
+const readJaStore = () => { try { return JSON.parse(localStorage.getItem(JA_KEY)) || {}; } catch { return {}; } };
+const writeJaStore = (o) => { try { localStorage.setItem(JA_KEY, JSON.stringify(o)); } catch { /* 保存できなくても使える */ } };
+const plain = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const variantsOf = (name) => [...new Set([name, plain(name), ...String(name).split('/').map((x) => x.trim()).filter((x) => x.length > 2)])]; // 「País Vasco/Euskadi」のように、複数の名前が並んでいるものは、分けて探す
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+async function fetchJaPart(part) {
+  const q = `SELECT ?iso ?l WHERE { VALUES ?iso { ${part.map((x) => `"${x}"`).join(' ')} } ?r wdt:P300 ?iso . ?r rdfs:label ?l . FILTER(LANG(?l) = "ja") }`;
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const r = await fetch(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(q)}`, { headers: { accept: 'application/sparql-results+json' } });
+      if (r.status === 429 || r.status >= 500) throw new Error(`wikidata ${r.status}`);
       const j = await r.json();
-      for (const b of j.results?.bindings || []) { const rc = `${country}:${b.iso.value}`; const e = registry.get(rc); if (e && !e.ja) e.ja = b.l.value; }
-    } catch { /* 日本語名が取れなくても、英語で使える */ }
+      return j.results?.bindings || [];
+    } catch { await sleepMs(1200 * (attempt + 1) ** 2); } // 1.2 秒 → 4.8 秒 → 10.8 秒 と、間をあける
   }
+  return null; // 取れなかった
+}
+const jaRetries = new Map();
+async function loadRegionJa(country, codes) {
+  const store = readJaStore();
+  const saved = store[country] || {};
+  const need = []; // { rc, iso }（iso は、ないこともある）
+  for (const c of codes) {
+    let iso = c.split(':')[1];
+    const e = registry.get(c);
+    if (!e || e.ja) continue;
+    if (!/^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(iso || '')) iso = null; // ISO コードのない地域（スペインなど）は、名前で探す
+    else if (!iso.startsWith(`${country}-`)) iso = `${country}-${iso.slice(3)}`; // 境界データの ISO コードの誤り（例: アメリカのサウスダコタが「SU-SD」）を、国のコードに直す
+    const hit = (iso && saved[iso]) || saved[`n:${e.name}`];
+    if (hit) { e.ja = hit; continue; }
+    const terr = iso && /^[A-Z]{2}-([A-Z]{2})$/.exec(iso); // 「US-VI」のように、国のコードがそのまま付いた領土は、その国の日本語名
+    if (terr && COUNTRY_BY_CODE.get(terr[1])?.ja) { e.ja = COUNTRY_BY_CODE.get(terr[1]).ja; continue; }
+    need.push({ rc: c, iso });
+  }
+  if (!need.length) return;
+  let failed = false;
+  const withIso = need.filter((x) => x.iso);
+  for (let i = 0; i < withIso.length; i += 60) {
+    const part = withIso.slice(i, i + 60);
+    const rows = await fetchJaPart(part.map((x) => x.iso));
+    if (!rows) { failed = true; continue; }
+    for (const b of rows) { for (const x of part) { if (x.iso !== b.iso.value) continue; const e = registry.get(x.rc); if (e && !e.ja) { e.ja = b.l.value; (store[country] ||= {})[x.iso] = b.l.value; } } }
+  }
+  // ISO コードで取れなかった地域（コードがない・境界データのコードが違う・Wikidata に日本語名が付いていない）は、英語・現地語の名前で探す
+  const left = need.map((x) => ({ x, e: registry.get(x.rc) })).filter((o) => o.e && !o.e.ja && /^[\p{L}][\p{L} .'’()-]{2,}$/u.test(o.e.name || ''));
+  for (let i = 0; i < left.length; i += 6) { // URL が長すぎて断られないように、少しずつ
+    const part = left.slice(i, i + 6);
+    const vals = [...new Set(part.flatMap((o) => variantsOf(o.e.name).flatMap((nm) => ['en', 'es', 'fr', 'de', 'pt', 'it', 'pl'].map((l) => `"${nm.replace(/"/g, '')}"@${l}`))))].join(' ');
+    const q = `SELECT ?n ?iso ?l WHERE { VALUES ?n { ${vals} } ?r (rdfs:label|skos:altLabel) ?n . ?r wdt:P300 ?iso . ?r rdfs:label ?l . FILTER(LANG(?l) = "ja" && STRSTARTS(?iso, "${country}-")) }`;
+    let rows = null;
+    for (let attempt = 0; attempt < 3 && !rows; attempt++) {
+      try { const r = await fetch(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(q)}`, { headers: { accept: 'application/sparql-results+json' } }); if (r.status === 429 || r.status >= 500) throw new Error('busy'); rows = (await r.json()).results?.bindings || []; } catch { await sleepMs(1500 * (attempt + 1) ** 2); }
+    }
+    if (!rows) { failed = true; continue; }
+    for (const b of rows) for (const o of part) if (!o.e.ja && variantsOf(o.e.name).some((v) => plain(v) === plain(b.n.value))) { o.e.ja = b.l.value; (store[country] ||= {})[`n:${o.e.name}`] = b.l.value; }
+  }
+  writeJaStore(store);
+  if (failed && (jaRetries.get(country) || 0) < 4) setTimeout(() => {
+    jaRetries.set(country, (jaRetries.get(country) || 0) + 1); // 取れなかった分は、あとで、もう一度（画面は、取れたら、描き直す）
+    loadRegionJa(country, codes).then(() => window.dispatchEvent(new Event('regionnames-loaded'))).catch(() => {});
+  }, 30000);
 }
 
 const cache = new Map(); // 国コード → Promise<FeatureCollection>
