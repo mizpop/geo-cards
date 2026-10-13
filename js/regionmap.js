@@ -502,7 +502,7 @@ export async function renderRegionMap(view, ctx) {
           S.byCode.set(rc, l);
           S.geo.set(rc, indexRegion(f));
           // 世界モードの国と同じ、旗 + 名前 + ひとこと（カード枚数・選んでいる情報）の吹き出し。ひとつだけを使い回す
-          l.on('mouseover', (e) => { if (svOn) return; S.hover = rc; if (!S.lite) l.setStyle(styleOf(rc)); refreshThumbs(); bubble.show(`${flagImg(code)}<b>${esc(f.properties.name)}</b>${hintHtml(rc)}`, e); });
+          l.on('mouseover', (e) => { if (svOn) return; S.hover = rc; if (!S.lite) l.setStyle(styleOf(rc)); refreshThumbs(); bubble.show(`${flagImg(code)}<b>${esc(regionName(rc))}</b>${hintHtml(rc)}`, e); });
           l.on('mouseout', () => { if (S.hover === rc) S.hover = null; if (!S.lite) l.setStyle(styleOf(rc)); refreshThumbs(); bubble.hide(); });
           l.on('click', () => { if (!svOn) { S.clicked = true; setTimeout(() => { S.clicked = false; }, 0); toggleFocus(rc); } });
         },

@@ -3202,6 +3202,14 @@ function renderGeoRun() {
   });
 }
 
+function renderQuizWaiting() { // 次の問題を作っている間の画面（できたら、自動で、続ける）
+  const q = state.quiz;
+  setFit('scroll');
+  $('#view').innerHTML = `<div class="toolbar"><span class="counter">第 ${q.i + 1} 問 / ${qTotal(q)}</span><span class="grow"></span><button class="btn btn-ghost btn-sm" id="q-quit">やめる</button></div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
+    <section class="panel quiz-waiting"><p class="bt-wait">次の問題を作成しています…（${q.questions.length} / ${qTotal(q)} 問できました）</p></section>`;
+  $('#q-quit').addEventListener('click', () => { q.building = false; q.waiting = false; q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+}
 function renderQuiz() {
   const q = state.quiz;
   setFit(q.phase === 'question' ? true : 'scroll');
@@ -3210,6 +3218,7 @@ function renderQuiz() {
   if (q.phase === 'geo' && !q.geoRun) q.phase = 'setup'; // 再読み込みのあと
   if (q.phase === 'geo') return renderGeoRun();
   if (q.kind === 'geo' && q.phase === 'setup') return renderGeoSetup();
+  if (q.phase === 'question' && q.waiting) return renderQuizWaiting();
   if (q.phase === 'question') { armQuestionTimer(q); return renderQuestion(); }
   if (q.phase === 'result') return renderQuizResult();
 
@@ -3467,9 +3476,10 @@ function stretchPool(list) {
   return out;
 }
 const perQHtml = (q) => (q.perQ && !q.answered ? ` <span class="counter qq-counter" title="この問題の残り時間">⏳ <b id="qq-timer">${Math.max(0, Math.ceil(((q.qDeadline || Date.now() + q.perQ * 1000) - Date.now()) / 1000))}</b> 秒</span>` : '');
+const qTotal = (q) => Math.max(q.totalPlanned || 0, q.questions.length); // 全部で何問か（作成の途中でも、予定の数を出す）
 const quizCounterHtml = (q) => perQHtml(q) + (q.deadline
   ? `<span class="counter qt-counter">⏱ <b id="qt-timer">${(Math.max(0, q.deadline - Date.now()) / 1000).toFixed(1)}</b> 秒・${q.i + 1} 問目</span>`
-  : `<span class="counter">第 ${q.i + 1} 問 / ${q.questions.length}</span>`);
+  : `<span class="counter">第 ${q.i + 1} 問 / ${qTotal(q)}</span>`);
 // 答えたあと: タイムアタックはすぐ次へ、そうでなければ設定の「正解したら自動で次へ」
 function afterAnswer(result) {
   const q = state.quiz;
@@ -3514,7 +3524,7 @@ function renderReverseQuestion() {
       <span class="muted">○ ${okN}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
-    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
     <div class="qm-layout ${a ? '' : 'qm-float'}">
       <div class="quiz-card fact-card rev-card">
         <div class="muted">${esc(m.icon)} ${esc(m.name)}</div>
@@ -3528,7 +3538,7 @@ function renderReverseQuestion() {
           <div class="feedback fb-${a.result}">
             <div class="feedback-head">
               <div class="feedback-title">${a.result === 'ok' ? '○ 正解！' : '✗ 不正解'}</div>
-              <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+              <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 一番近い正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
             <div class="rev-answers"><span class="muted small">当てはまる国:</span>${item.answers.map((c) => `<button type="button" class="chip chip-btn" data-info="${c}">${flagImg(c)}${esc(countryName(c))}</button>`).join('')}</div>
@@ -3599,7 +3609,7 @@ function renderFactQuestion() {
       <span class="muted">○ ${okN}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
-    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
     <div class="quiz-card fact-card">
       <img class="fact-flag" src="${flagUrl(item.code)}" alt="">
       <div class="fact-country">${esc(countryName(item.code))}</div>
@@ -3617,7 +3627,7 @@ function renderFactQuestion() {
           <div class="feedback-head">
             <div class="feedback-title">${a.result === 'ok' ? '○ 正解！' : '✗ 不正解'}</div>
             <button class="btn btn-ghost btn-sm" id="q-info" type="button">🌐<span class="tab-long"> 国を見る</span></button>
-            <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+            <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
           </div>
           <div class="pfact">${factPanelHtml(q.factTopic, item.code)}</div>
         </div>` : ''}
@@ -3716,14 +3726,14 @@ function renderRegionQuestion(card, item) {
   const okN = q.answers.filter((x) => x.result === 'ok').length;
   $('#view').innerHTML = `
     <div class="toolbar">${quizCounterHtml(q)}<span class="muted">○ ${okN}</span><button class="btn btn-ghost btn-sm" id="q-quit">やめる</button></div>
-    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!a)}</div>
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
       ${a ? '' : `<p class="quiz-prompt">この特徴が見られる ${esc(countryName(parent))} の地域は？</p>`}
       ${ui}
       ${a ? `<div class="feedback fb-${a.result}"><div class="feedback-head"><div class="feedback-title">${RESULT_LABEL[a.result]}</div>
           <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
-          <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button></div>
+          <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button></div>
           ${notesHtml(card)}${cardInfoHtml(card)}</div>` : ''}
     </div>`;
   attachZoom($('.quiz-card .front-img'));
@@ -3753,6 +3763,7 @@ function startQuiz(pool) {
   const q = state.quiz;
   if (state.mode.kind === 'country' && q.kind === 'cards' && !pool.some((c) => c.sv || c.photo)) { startRegionQuiz(pool); return; } // 国モード: 国ではなく、地域（カードの地名の場所）で答える
   q.regionQuiz = false;
+  q.buildId = null; q.building = false; q.totalPlanned = 0; q.waiting = false; // 問題を作りながら進める（ストリートビュー）ときだけ使う印
   let cards = shuffle(pool);
   // 苦手を優先: 苦手さの大きい順（同じくらいならランダム）に選んで、出す順番は混ぜる
   if (q.order === 'weak') {
@@ -3806,6 +3817,7 @@ async function startSvRefQuiz(codes, btn) {
   startQuiz(cards);
 }
 async function startSvQuiz(codes, btn) {
+  // 1 問できたら、すぐに始める。残りは、遊びながら、裏で並行して作る（できるまで、少し待つことがある）
   const q = state.quiz;
   const n = q.count || 10;
   const label = btn.textContent;
@@ -3813,27 +3825,52 @@ async function startSvQuiz(codes, btn) {
   const cards = [];
   const used = new Set();
   let tries = 0;
+  let started = false;
+  const myId = `${Date.now()}-${Math.random()}`;
+  q.buildId = myId;
+  const alive = () => q.buildId === myId && (started ? q.phase === 'question' : true);
+  const finish = (card) => {
+    const item = { cardId: card.id, options: q.mode === 'choice' ? makeOptions(card, q.regions) : null };
+    if (!started) { // 最初の 1 問: ここで始める
+      started = true;
+      q.timeLimit = 0;
+      startQuiz([card]);
+      q.buildId = myId; q.building = true; q.totalPlanned = n; // この先も、問題が増える
+      { const el = $('.toolbar .counter'); if (el && /問 \//.test(el.textContent)) el.textContent = `第 1 問 / ${n}`; }
+      btn.textContent = label; btn.disabled = false;
+      return;
+    }
+    q.questions.push(item);
+    if (q.waiting) { q.waiting = false; renderQuiz(); } else if (q.phase === 'question') { const el = $('.toolbar .counter'); if (el && !q.answered) el.textContent = `第 ${q.i + 1} 問 / ${qTotal(q)}`; }
+  };
   const worker = async () => {
-    while (cards.length < n && tries < n * 8) {
+    while (cards.length < n && tries < n * 8 && alive()) {
       tries++;
       const fresh = codes.filter((c) => !used.has(c));
       const code = pick(fresh.length ? fresh : codes); // まだ出していない国を優先
       const p = await randomSvPoint(code).catch(() => null);
-      if (!p || cards.length >= n) continue;
+      if (!p || cards.length >= n || !alive()) continue;
       used.add(code);
       const card = { id: `sv|${Date.now()}|${cards.length}`, countries: [code], sv: true, lat: p.lat, lng: p.lng, heading: Math.floor(Math.random() * 360), description: '', area: '', notes: '', category_id: null, created_at: '' };
       svCards.set(card.id, card);
       cards.push(card);
-      btn.textContent = `問題を作成中… ${cards.length} / ${n}`;
+      if (!started) btn.textContent = '最初の問題を作成中…';
+      finish(card);
     }
   };
-  btn.textContent = '問題を作成中…';
+  btn.textContent = '最初の問題を作成中…';
   await Promise.all([worker(), worker(), worker(), worker()]);
-  btn.textContent = label;
-  btn.disabled = false;
-  if (cards.length < Math.min(n, 3)) { toast('ストリートビューの地点を作れませんでした。地域を広げるか、通信を確認してもう一度試してください', 'error'); return; }
-  q.timeLimit = 0;
-  startQuiz(cards);
+  if (!started) { // 1 問も作れなかった
+    btn.textContent = label; btn.disabled = false;
+    toast('ストリートビューの地点を作れませんでした。地域を広げるか、通信を確認してもう一度試してください', 'error');
+    return;
+  }
+  if (q.buildId !== myId) return; // 途中で、やめた・別のクイズを始めた
+  // 全部できた（または、作れるだけ作った）: 予定の数を、実際の数にそろえる
+  q.building = false;
+  q.totalPlanned = q.questions.length;
+  if (q.waiting) { q.waiting = false; if (q.i >= q.questions.length) { q.phase = 'result'; clearInterval(quizTimer); } renderQuiz(); }
+  else if (q.phase === 'question' && !q.answered) { const el = $('.toolbar .counter'); if (el) el.textContent = `第 ${q.i + 1} 問 / ${qTotal(q)}`; }
 }
 
 // 正解1つ + 紛らわしい不正解3つ（できるだけ同じ地域から）
@@ -3918,7 +3955,7 @@ function renderQuestion() {
       <span class="muted">○ ${okN}${partN ? ` △ ${partN}` : ''}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
-    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
     ${card.sv ? `<div class="${a ? 'sv-split' : 'sv-overlay-wrap'}">` : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
@@ -3930,7 +3967,7 @@ function renderQuestion() {
             <div class="feedback-title">${RESULT_LABEL[a.result]}${a.result === 'partial' ? ` <small>（${a.given.filter((g) => card.countries.includes(g)).length} / ${card.countries.length}）</small>` : ''}</div>
             ${svToggleHtml(card)}
             <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
-            <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+            <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
           </div>
           ${q.mode === 'choice' || a.result !== 'ok' ? answerHtml(card, 'sm', true) : ''}
           ${notesHtml(card)}
@@ -4068,7 +4105,7 @@ function renderPinQuestion(card) {
       <span class="muted">合計 ${total.toLocaleString()} 点</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
-    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
     <div class="qm-layout ${a ? '' : 'qm-float'}">
     ${card.sv && !a ? '<button type="button" class="qm-maptoggle" id="qm-maptoggle">🗺 地図を開く</button>' : ''}
       <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
@@ -4079,7 +4116,7 @@ function renderPinQuestion(card) {
             <div class="feedback-head">
               <div class="feedback-title">${a.timeout ? '⏱ 時間切れ' : `📍 約 ${Math.round(a.km).toLocaleString()} km ・ <b>${a.points.toLocaleString()}</b> 点`}</div>
               ${svToggleHtml(card)}
-              <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+              <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${answerHtml(card, 'sm', true)}
             ${cardInfoHtml(card)}
@@ -4139,7 +4176,7 @@ function renderMapQuestion(card) {
       <span class="muted">○ ${okN}${partN ? ` △ ${partN}` : ''}</span>
       <button class="btn btn-ghost btn-sm" id="q-quit">やめる</button>
     </div>
-    <div class="progress"><div class="progress-bar" style="width:${(q.i / q.questions.length) * 100}%"></div></div>
+    <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
     <div class="qm-layout ${a ? '' : 'qm-float'}">
     ${card.sv && !a ? '<button type="button" class="qm-maptoggle" id="qm-maptoggle">🗺 地図を開く</button>' : ''}
       <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!state.quiz.answered)}</div>
@@ -4151,7 +4188,7 @@ function renderMapQuestion(card) {
               <div class="feedback-title">${label}</div>
               ${svToggleHtml(card)}
             <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
-              <button class="btn btn-primary" id="q-next">${q.i + 1 < q.questions.length ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
+              <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button>
             </div>
             ${a.result !== 'ok' ? `<p class="qm-dist">あなたの回答: ${flagImg(g)}<b>${esc(countryName(g))}</b>${a.km != null ? ` ・ 正解まで約 <b>${Math.round(a.km).toLocaleString()} km</b>` : ''}</p>` : ''}
             ${answerHtml(card, 'sm', true)}
@@ -4213,6 +4250,7 @@ function nextQuestion() {
   q.answered = null;
   q.draft = [];
   q.i++;
+  if (q.i >= q.questions.length && q.building) { q.waiting = true; renderQuiz(); return; } // 次の問題が、まだできていない: できたら、自動で出す
   if (q.i >= q.questions.length || (q.deadline && Date.now() >= q.deadline)) { q.phase = 'result'; clearInterval(quizTimer); }
   play(q.phase === 'result' ? 'finish' : 'slide');
   renderQuiz();
