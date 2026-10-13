@@ -1,6 +1,6 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
-import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, draftOf, articlesLinking } from './guides.js';
+import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, openShareDialog, draftOf, articlesLinking } from './guides.js';
 import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionLabelFor, setRegionIso3Resolver, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
@@ -845,6 +845,14 @@ async function enterApp() {
     api, esc, toast, isEditor: () => !!state.user?.isEditor, attachZoom,
     cards: () => state.cards, cardCat: (c) => { const k = catOf(c); return { id: k.id, name: k.name }; }, countryName, cardById, cardImg: (id) => { const c = cardById(id); return c ? imgUrl(c) : ''; }, cardThumb: (c) => thumbUrl(c) || imgUrl(c),
     cardLabel: (c) => `${c.countries[0] ? countryName(c.countries[0]) : ''} ${c.description || catOf(c).name}`.trim(),
+    svOpenUrl: (r) => { const v = rowView(r); return svOpenUrl(Number(r.lat), Number(r.lng), v); },
+    shareUpload: async (payload) => { // 記事を、共有ページとして公開する（/api/share が、1FreeHosting に渡す）
+      const token = await api.getAccessToken();
+      const res = await fetch('/api/share', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(payload) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.message || (res.status === 404 ? 'この環境では、共有リンクを作れません（サーバー側の機能がありません）' : res.status === 401 ? 'ログインの確認ができませんでした' : `公開できませんでした（${res.status}）`));
+      return j;
+    },
     svEmbedUrl: (r) => { const v = rowView(r); return svEmbedUrl(Number(r.lat), Number(r.lng), v.heading, v.pitch, v.fov); },
     ai: { // AI に記事を書いてもらうときに渡す、アプリのデータ
       cards: () => state.cards,
@@ -5975,7 +5983,7 @@ function renderArticleModal(entry) {
     <div class="modal-head">
       ${backBtnHtml()}
       <h2 class="pk-title">📝 ${esc(a.title || '無題')}</h2>
-      ${ed ? '<button class="icon-btn" id="art-edit" type="button" aria-label="記事を編集" title="記事を編集">✏</button>' : ''}
+      ${ed ? '<button class="icon-btn" id="art-share" type="button" aria-label="共有リンク" title="共有リンクを作る（だれでも見られるページとして公開）">🔗</button><button class="icon-btn" id="art-edit" type="button" aria-label="記事を編集" title="記事を編集">✏</button>' : ''}
       <button class="icon-btn pk-toc-btn" type="button" aria-label="目次" aria-expanded="false" title="目次を開く・閉じる">☰</button>
       <button class="icon-btn" data-close aria-label="閉じる">✕</button>
       <nav class="pk-toc" hidden aria-label="目次"></nav>
@@ -5996,6 +6004,7 @@ function renderArticleModal(entry) {
     el.querySelector(`#${x.dataset.pkTo}`)?.scrollIntoView({ behavior: settings.animations ? 'smooth' : 'auto', block: 'start' });
     setToc(false);
   });
+  el.querySelector('#art-share')?.addEventListener('click', () => openShareDialog(a));
   el.querySelector('#art-edit')?.addEventListener('click', () => openArticleEditor(a, { onSaved: (row) => { openArticleWindow(row.id); }, onDeleted: () => { closeModal(); } }));
   const body = el.querySelector('.pk-body');
   buildArticle(a).then(({ html, toc }) => {

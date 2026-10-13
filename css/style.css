@@ -3089,3 +3089,9 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 }
 .gd-ai select { max-width: 100%; min-width: 0; }
 .gd-ai-row select { flex: 1 1 200px; }
+/* 共有リンク */
+.gd-share { width: min(560px, calc(100vw - 24px)); }
+.gd-share-box { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.gd-share-row { display: flex; gap: 6px; align-items: center; }
+.gd-share-row .input { flex: 1; min-width: 0; }
+.gd-share-note { padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }

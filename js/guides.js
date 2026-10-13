@@ -109,6 +109,13 @@ function imageHtml(src, rawAlt, env, inRow = false) {
   return `<span class="art-zoom front-img" data-art-img data-img-i="${idx - 1}"${size && !inRow ? ` style="${sizeCss(size)}"` : ''}><img src="${deps.esc(url)}" alt="${deps.esc(alt)}" loading="lazy"></span>`;
 }
 function linkChip(kind, id, label, env) {
+  if (env.share) { // 共有ページ（アプリの外）では、アプリを開くリンクにしない
+    const esc = deps.esc;
+    if (kind === 'card') { const c = deps.cardById(id); return c ? `<span class="sh-chip">🃏 ${esc(deps.cardLabel(c))}</span>` : ''; }
+    if (kind === 'sv') { const r = deps.svById(id); return r ? `<a class="sh-chip" href="${esc(deps.svOpenUrl(r))}" target="_blank" rel="noopener">🧍 ${esc(deps.svLabel(r))}</a>` : ''; }
+    const a = articleById(id);
+    return a ? `<span class="sh-chip">📝 ${esc(a.title || '無題')}</span>` : '';
+  }
   if (kind === 'card') { const c = deps.cardById(id); return c ? deps.cardChipHtml(c) : '<span class="art-link-gone">（削除されたカード）</span>'; }
   if (kind === 'sv') { const r = deps.svById(id); return r ? deps.svChipHtml(r) : '<span class="art-link-gone">（削除されたストリートビュー）</span>'; }
   const a = articleById(id);
@@ -117,6 +124,7 @@ function linkChip(kind, id, label, env) {
 function svEmbed(r, env) {
   const esc = deps.esc;
   const label = esc(deps.svLabel(r));
+  if (env.share) return `<div class="art-sv"><iframe class="art-sv-frame" title="${label}" src="${esc(deps.svEmbedUrl(r))}" loading="lazy" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="art-sv-cap"><a class="sh-chip" href="${esc(deps.svOpenUrl(r))}" target="_blank" rel="noopener">🧍 ${label}</a></div></div>`;
   if (env.svPlaceholder) return `<div class="art-sv art-sv-ph"><span class="muted small">🧍 記事では、ここにストリートビューが埋め込まれます</span>${deps.svChipHtml(r)}</div>`;
   return `<div class="art-sv"><iframe class="art-sv-frame" title="${label}" src="${esc(deps.svEmbedUrl(r))}" loading="lazy" allow="fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="art-sv-cap">${deps.svChipHtml(r)}</div></div>`;
 }
@@ -126,7 +134,7 @@ const IMG_LINE = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
 
 /** マークダウン → { html, toc: [{ id, title, level }], refs: 使っている画像の参照 } */
 export function renderMarkdown(src, urls = new Map(), opts = {}) {
-  const env = { urls, svPlaceholder: !!opts.svPlaceholder }; // svPlaceholder: 書く画面のプレビューでは、ストリートビューを埋め込まず、場所だけ出す（入力のたびに読み込み直さないため）
+  const env = { urls, svPlaceholder: !!opts.svPlaceholder, share: !!opts.share }; // svPlaceholder: 書く画面のプレビューでは、ストリートビューを埋め込まず、場所だけ出す（入力のたびに読み込み直さないため）
   const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
   const toc = [];
   const out = [];
@@ -809,4 +817,113 @@ function bind(ed) {
     for (const id of ids) { try { await deps.api.deleteArticle(id); articles = articles.filter((a) => a.id !== id); } catch { /* 次へ */ } }
     state.sel.clear(); changed(); render();
   });
+}
+
+
+// ================= 共有ページ（記事を、誰でも見られる 1 枚の静的なページとして公開） =================
+// 記事を、画像も中に埋め込んだ 1 枚の HTML にして、無料の静的サイト置き場（1FreeHosting）に載せる。サーバー側の関数（/api/share）が、受け渡しをする
+const SHARES_KEY = 'geo-guide-shares-v1';
+const loadShares = () => { try { return JSON.parse(localStorage.getItem(SHARES_KEY)) || {}; } catch { return {}; } };
+const saveShares = (o) => { try { localStorage.setItem(SHARES_KEY, JSON.stringify(o)); } catch { /* 保存できなくても使える */ } };
+export const shareOf = (id) => loadShares()[id] || null;
+const MAX_IMG_EDGE = 1600;
+async function toDataUrl(src) { // 画像を、ページの中に埋め込める形にする（大きいものは、縮小して軽くする）
+  try {
+    const blob = await (await fetch(src)).blob();
+    if (!/^image\//.test(blob.type)) return null;
+    let out = blob;
+    if (blob.size > 300 * 1024 && !/svg|gif/.test(blob.type)) {
+      const bmp = await createImageBitmap(blob);
+      const k = Math.min(1, MAX_IMG_EDGE / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      const small = await new Promise((res) => cv.toBlob(res, 'image/webp', 0.85));
+      if (small && small.size < blob.size) out = small;
+    }
+    return await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(out); });
+  } catch { return null; }
+}
+const SHARE_CSS = `:root{color-scheme:light dark;--bg:#fff;--fg:#1b2127;--mut:#66727e;--bd:#d9e0e6;--sf:#f3f6f8;--ac:#1f9d63}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1418;--fg:#e6edf3;--mut:#93a1ae;--bd:#2a353e;--sf:#18222a;--ac:#3ddc97}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.85 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Noto Sans JP",sans-serif;overflow-wrap:anywhere}
+.wrap{max-width:760px;margin:0 auto;padding:24px 16px 64px}h1{font-size:28px;line-height:1.35;margin:.4em 0 .2em}.meta{color:var(--mut);font-size:13px;margin:0 0 6px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 18px}.tag{padding:1px 10px;border-radius:999px;border:1px solid var(--bd);background:var(--sf);color:var(--mut);font-size:12px}
+details.toc{border:1px solid var(--bd);border-radius:10px;padding:8px 14px;margin:0 0 22px;background:var(--sf)}details.toc summary{cursor:pointer;font-weight:700}details.toc a{display:block;color:var(--fg);text-decoration:none;padding:2px 0}details.toc a.lv2{padding-left:14px}details.toc a.lv3,details.toc a.lv4{padding-left:28px}
+h2{font-size:22px;margin:28px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--bd)}h3{font-size:18px;margin:20px 0 8px}h4{font-size:16px;margin:16px 0 6px}p{margin:0 0 12px}ul,ol{margin:0 0 12px;padding-left:24px}
+blockquote{margin:0 0 12px;padding:8px 14px;border-left:4px solid var(--ac);background:var(--sf);border-radius:0 8px 8px 0;color:var(--mut)}code{padding:1px 6px;border-radius:5px;background:var(--sf);font:.9em ui-monospace,Consolas,monospace}pre{margin:0 0 12px;padding:10px 14px;border-radius:8px;background:var(--sf);overflow-x:auto}pre code{padding:0;background:none}hr{border:0;border-top:1px solid var(--bd);margin:18px 0}a{color:var(--ac)}
+table{border-collapse:collapse;margin:0 0 12px;max-width:100%;display:block;overflow-x:auto}th,td{border:1px solid var(--bd);padding:6px 10px}th{background:var(--sf)}
+.art-fig{margin:0 0 14px}.art-fig figcaption{margin-top:4px;font-size:13px;color:var(--mut);text-align:center}.art-zoom{display:block;overflow:hidden;border-radius:10px;margin:4px 0;max-width:100%}.art-zoom img{display:block;width:100%;height:auto;max-height:78vh;object-fit:contain}
+.art-fig>.art-zoom:not([style]){width:min(100%,760px);margin-left:auto;margin-right:auto}.art-fig .art-zoom[style]{margin-left:auto;margin-right:auto}p .art-zoom,li .art-zoom{display:inline-block;max-width:min(100%,420px);vertical-align:middle}
+.art-imgrow{display:flex;gap:10px;align-items:flex-start;margin:0 0 14px}.art-imgrow>.art-fig{flex:1 1 0;min-width:0;margin:0}.art-imgrow .art-zoom{width:100%;max-width:none}
+.sh-chip{display:inline-block;padding:0 10px;border:1px solid var(--bd);border-left:3px solid var(--ac);border-radius:8px;background:var(--sf);color:var(--fg);text-decoration:none;font-size:.92em;margin:0 2px}.art-links{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.art-sv{margin:0 0 14px;border:1px solid var(--bd);border-radius:10px;overflow:hidden}.art-sv-frame{display:block;width:100%;aspect-ratio:16/9;border:0;background:#0b0f12}.art-sv-cap{padding:6px 8px}.art-link-gone{color:var(--mut)}
+footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--bd);color:var(--mut);font-size:12px}`;
+/** 記事 → 共有ページの HTML（画像も中に入れる）。戻り値: { html, bytes, missing: 埋め込めなかった画像の数 } */
+export async function buildShareHtml(a) {
+  const first = renderMarkdown(a.body, imgUrls, { share: true });
+  await resolveImages(first.refs);
+  const r = renderMarkdown(a.body, imgUrls, { share: true });
+  const doc = new DOMParser().parseFromString(`<div id="r">${r.html}</div>`, 'text/html');
+  let missing = 0;
+  for (const img of doc.querySelectorAll('img')) {
+    const src = img.getAttribute('src');
+    if (!src || src.startsWith('data:')) continue;
+    const d = await toDataUrl(src);
+    if (d) { img.setAttribute('src', d); img.removeAttribute('loading'); } else missing++;
+  }
+  const esc = deps.esc;
+  const title = a.title || '無題';
+  const toc = r.toc.length ? `<details class="toc"><summary>目次</summary>${r.toc.map((x) => `<a class="lv${x.level}" href="#${esc(x.id)}">${esc(x.title)}</a>`).join('')}</details>` : '';
+  const html = `<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><style>${SHARE_CSS}</style></head>
+<body><main class="wrap"><h1>${esc(title)}</h1><p class="meta">${a.updated_at ? `更新 ${esc(dateText(a.updated_at))}` : ''}</p>${(a.tags || []).length ? `<p class="tags">${a.tags.map((tg) => `<span class="tag">#${esc(tg)}</span>`).join('')}</p>` : ''}${toc}
+<article>${doc.querySelector('#r').innerHTML}</article>
+<footer>GeoChecker の記事を、共有用に公開したページです。</footer></main></body></html>`;
+  return { html, bytes: new Blob([html]).size, missing };
+}
+
+/** 共有リンクの画面（作る・更新・コピー） */
+export function openShareDialog(a) {
+  const esc = deps.esc;
+  const dlg = document.createElement('dialog');
+  dlg.className = 'modal modal-sm gd-share';
+  document.body.appendChild(dlg);
+  const close = () => { document.activeElement?.blur?.(); dlg.close(); dlg.remove(); setTimeout(() => { window.blur(); window.focus(); }, 0); };
+  let busy = false;
+  const paint = (note = '') => {
+    const s = shareOf(a.id);
+    dlg.innerHTML = `<div class="modal-inner"><div class="modal-head"><h2>🔗 共有リンク</h2><button class="icon-btn" type="button" data-x aria-label="閉じる">✕</button></div>
+      <p class="muted small">記事「${esc(a.title || '無題')}」を、<b>誰でも見られる 1 枚のページ</b>として公開します（画像も入ります。カードやストリートビューは、名前とリンクだけ。無料の静的サイト置き場 1FreeHosting に載ります）。</p>
+      ${s ? `<div class="gd-share-box"><label class="muted small">公開中のリンク（共有はこちら）</label>
+        <div class="gd-share-row"><input class="input" id="sh-url" readonly value="${esc(s.url)}"><button type="button" class="btn btn-sm" id="sh-copy">コピー</button><a class="btn btn-sm" href="${esc(s.url)}" target="_blank" rel="noopener">開く</a></div>
+        <p class="muted small">公開した日時: ${esc(new Date(s.at).toLocaleString('ja-JP'))}。記事を書き直したら、下の「最新の内容で更新」で、同じリンクのまま、直せます。</p>
+        <label class="muted small">管理用リンク（<b>人に教えないでください</b>。持っている人は、このページを、自分のものにできます。削除・名前の変更にも使います）</label>
+        <div class="gd-share-row"><input class="input" id="sh-claim" readonly value="${esc(s.claimUrl || '')}"><button type="button" class="btn btn-sm" id="sh-copy2">コピー</button></div></div>` : '<p class="small">まだ、公開していません。下のボタンで、公開すると、リンクができます。</p>'}
+      <p class="small gd-share-note" ${note ? '' : 'hidden'}>${esc(note)}</p>
+      <div class="modal-foot">${s ? '<button type="button" class="btn btn-ghost" id="sh-forget" title="この端末から、リンクの記録を消します（公開ページは消えません。消すには、管理用リンクから）">リンクを忘れる</button>' : ''}<span class="grow"></span><button type="button" class="btn btn-ghost" data-x>閉じる</button><button type="button" class="btn btn-primary" id="sh-go">${s ? '最新の内容で更新' : '🔗 公開して、リンクを作る'}</button></div></div>`;
+    dlg.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', close));
+    const copy = async (id) => { try { await navigator.clipboard.writeText(dlg.querySelector(id).value); deps.toast('コピーしました'); } catch { dlg.querySelector(id).select(); deps.toast('選択しました。Ctrl+C でコピーしてください'); } };
+    dlg.querySelector('#sh-copy')?.addEventListener('click', () => copy('#sh-url'));
+    dlg.querySelector('#sh-copy2')?.addEventListener('click', () => copy('#sh-claim'));
+    dlg.querySelector('#sh-forget')?.addEventListener('click', async () => { if (!(await deps.confirm('この端末から、共有リンクの記録を消します。\n（公開ページは、そのまま残ります。消すには、管理用リンクを使います）'))) return; const o = loadShares(); delete o[a.id]; saveShares(o); paint('記録を消しました'); });
+    dlg.querySelector('#sh-go').addEventListener('click', async (e) => {
+      if (busy) return;
+      const cur = shareOf(a.id);
+      if (!cur && !(await deps.confirm(`記事「${a.title || '無題'}」を、インターネットに公開します。\n\n・リンクを知っている人は、だれでも見られます（検索には出にくくしていますが、完全に隠れるわけではありません）\n・画像・本文が、外部のサービス（1FreeHosting）に保存されます\n・公開したあとの削除は、管理用リンクから行います\n\n公開しますか？`))) return;
+      busy = true; e.currentTarget.disabled = true; e.currentTarget.textContent = '準備しています…';
+      try {
+        const built = await buildShareHtml(a);
+        if (built.bytes > 9 * 1024 * 1024) throw new Error(`ページが大きすぎます（${(built.bytes / 1048576).toFixed(1)} MB。上限 9 MB）。画像を減らしてください`);
+        const res = await deps.shareUpload({ files: [{ path: 'index.html', content: built.html, encoding: 'text' }], deployToken: cur?.token || undefined, title: a.title || '' });
+        const o = loadShares();
+        o[a.id] = { url: res.url, claimUrl: res.claimUrl || cur?.claimUrl || '', token: res.deployToken || cur?.token || '', at: Date.now() };
+        saveShares(o);
+        busy = false;
+        paint(`${cur ? '更新しました' : '公開しました'}（${(built.bytes / 1024).toFixed(0)} KB）${built.missing ? `。画像 ${built.missing} 枚は、埋め込めませんでした` : ''}`);
+      } catch (ex) { busy = false; paint(`できませんでした: ${ex.message}`); }
+    });
+  };
+  paint();
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  dlg.showModal();
 }
