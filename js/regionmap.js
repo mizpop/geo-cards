@@ -189,6 +189,8 @@ async function fetchJaPart(part) {
   }
   return null; // 取れなかった
 }
+// 領土として、独立した国と同じ ISO コードが付いているもの（国ごと）。ここにない 2 文字のコード（州など）は、国の名前にしない
+const TERRITORIES = { US: ['AS', 'GU', 'MP', 'PR', 'UM', 'VI'], FR: ['GF', 'GP', 'MQ', 'RE', 'YT', 'NC', 'PF', 'PM', 'WF', 'BL', 'MF', 'TF'], NL: ['AW', 'CW', 'SX', 'BQ'], DK: ['GL', 'FO'], NZ: ['CK', 'NU', 'TK'], AU: ['CX', 'CC', 'NF', 'HM'], GB: ['AI', 'BM', 'KY', 'FK', 'GI', 'MS', 'PN', 'SH', 'TC', 'VG', 'GG', 'IM', 'JE'], CN: ['HK', 'MO', 'TW'] };
 const jaRetries = new Map();
 async function loadRegionJa(country, codes) {
   const store = readJaStore();
@@ -199,11 +201,11 @@ async function loadRegionJa(country, codes) {
     const e = registry.get(c);
     if (!e || e.ja) continue;
     if (!/^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(iso || '')) iso = null; // ISO コードのない地域（スペインなど）は、名前で探す
-    else if (!iso.startsWith(`${country}-`)) iso = `${country}-${iso.slice(3)}`; // 境界データの ISO コードの誤り（例: アメリカのサウスダコタが「SU-SD」）を、国のコードに直す
+    else if (iso.slice(0, 2).split('').reverse().join('') === country && iso.slice(0, 2) !== country) iso = `${country}-${iso.slice(3)}`; // 境界データの ISO コードの誤り（例: アメリカのサウスダコタが「SU-SD」。国のコードの文字が、入れ替わっている）を直す
     const hit = (iso && saved[iso]) || saved[`n:${e.name}`];
     if (hit) { e.ja = hit; continue; }
-    const terr = iso && /^[A-Z]{2}-([A-Z]{2})$/.exec(iso); // 「US-VI」のように、国のコードがそのまま付いた領土は、その国の日本語名
-    if (terr && COUNTRY_BY_CODE.get(terr[1])?.ja) { e.ja = COUNTRY_BY_CODE.get(terr[1]).ja; continue; }
+    const terr = iso && TERRITORIES[country]?.includes(iso.slice(3)) ? iso.slice(3) : ''; // 「US-VI」のように、領土（独立した国と同じコードのもの）は、その国の日本語名。州の「US-AL」（アルバニアではない）などは、対象にしない
+    if (terr && COUNTRY_BY_CODE.get(terr)?.ja) { e.ja = COUNTRY_BY_CODE.get(terr).ja; continue; }
     need.push({ rc: c, iso });
   }
   if (!need.length) return;

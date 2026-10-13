@@ -251,7 +251,7 @@ export async function buildArticle(a) {
 export const articleTocHtml = (toc) => toc.map((t) => `<a href="#${t.id}" class="pk-toc-item lv${t.level}" data-pk-to="${t.id}">${deps.esc(t.title)}</a>`).join('');
 /** 読む画面の本文に、画像の拡大縮小・リンクの動作をつける */
 export function bindArticle(root) {
-  root.querySelectorAll('[data-art-img]').forEach((el) => deps.attachZoom(el));
+  root.querySelectorAll('[data-art-img]').forEach((el) => deps.attachZoom(el, { scrollFriendly: true }));
   root.querySelectorAll('[data-related]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const c = deps.cardById(b.dataset.related); if (c) deps.openCard(c, b); }));
   root.querySelectorAll('[data-article-open]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); deps.openArticle(b.dataset.articleOpen, b); }));
 }

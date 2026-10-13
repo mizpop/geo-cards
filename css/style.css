@@ -3095,3 +3095,6 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 .gd-share-row { display: flex; gap: 6px; align-items: center; }
 .gd-share-row .input { flex: 1; min-width: 0; }
 .gd-share-note { padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
+/* 記事の画像: 上でも、ページをスクロールできる（スマホは、1 本指でスクロール。拡大したあとは、画像を動かす） */
+.zoomable.zoom-scroll { touch-action: pan-x pan-y; }
+.zoomable.zoom-scroll.is-zoomed { touch-action: none; }

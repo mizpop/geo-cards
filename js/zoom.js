@@ -13,12 +13,13 @@ export function attachZoom(container, opts = {}) {
   if (!container) return null;
   const img = container.querySelector('img');
   if (!img) return null;
-  const { onTap, onSwipe, dblclick = true, fullscreen = true, ctrls = true } = opts;
+  const { onTap, onSwipe, dblclick = true, fullscreen = true, ctrls = true, scrollFriendly = false } = opts; // scrollFriendly: 記事の画像など。ホイール・1 本指のドラッグは、ページのスクロールに使う（拡大は、Ctrl+ホイール・ピンチ・ダブルクリック・ボタン）
 
   let scale = 1;
   let tx = 0;
   let ty = 0;
   container.classList.add('zoomable');
+  if (scrollFriendly) container.classList.add('zoom-scroll');
   img.draggable = false;
 
   if (ctrls) {
@@ -89,6 +90,7 @@ export function attachZoom(container, opts = {}) {
   };
 
   container.addEventListener('wheel', (e) => {
+    if (scrollFriendly && !e.ctrlKey) return; // 普通のホイールは、ページをスクロールする
     e.preventDefault();
     const p = local(e);
     zoomAt(scale * Math.exp(-e.deltaY * 0.0015), p.x, p.y);
