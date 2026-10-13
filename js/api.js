@@ -31,6 +31,50 @@ function cleanArticle(f) {
   if (f.tags !== undefined) out.tags = [...new Set(Array.from(f.tags || []).map((s) => String(s).trim().replace(/\s+/g, ' ').slice(0, 30)).filter(Boolean))].slice(0, 20);
   return out;
 }
+
+// 低速の対戦の通信（HTTP だけ）: メッセージと参加者を、表に書いて、数秒ごとに読む。WebSocket が通らない回線のための予備
+export async function pollChannel(sb, room, me, on) {
+  const MSG_MS = 900; const PRES_MS = 2500; const BEAT_MS = 6000; const STALE_MS = 18000;
+  // 表があるか・書けるかを、最初に確かめる
+  const probe = await sb.from('battle_messages').select('id').eq('room', room).order('id', { ascending: false }).limit(1);
+  if (probe.error) throw probe.error;
+  let lastId = probe.data?.[0]?.id || 0; // これより前のメッセージは、読まない
+  let alive = true;
+  let mine = { ...me };
+  let sig = '';
+  let msgTimer = null; let presTimer = null; let beatTimer = null;
+  const beat = async () => { try { await sb.from('battle_presence').upsert({ room, member: me.id, info: mine, seen: new Date().toISOString() }); } catch { /* 次の機会に */ } };
+  const readMsgs = async () => {
+    if (!alive) return;
+    try {
+      const { data } = await sb.from('battle_messages').select('id, payload').eq('room', room).gt('id', lastId).order('id', { ascending: true }).limit(200);
+      for (const r of data || []) { lastId = Math.max(lastId, r.id); try { on.msg(r.payload); } catch { /* 画面の処理の失敗は、通信を止めない */ } }
+    } catch { /* 次の機会に */ }
+    if (alive) msgTimer = setTimeout(readMsgs, MSG_MS);
+  };
+  const readPres = async () => {
+    if (!alive) return;
+    try {
+      const since = new Date(Date.now() - STALE_MS).toISOString();
+      const { data } = await sb.from('battle_presence').select('member, info').eq('room', room).gt('seen', since);
+      const list = (data || []).map((r) => r.info).filter(Boolean).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const s = JSON.stringify(list);
+      if (s !== sig) { sig = s; on.presence(list); }
+    } catch { /* 次の機会に */ }
+    if (alive) presTimer = setTimeout(readPres, PRES_MS);
+  };
+  await beat();
+  sb.from('battle_messages').delete().lt('created_at', new Date(Date.now() - 2 * 3600 * 1000).toISOString()).then(() => {}, () => {}); // 古いものを片付ける
+  beatTimer = setInterval(beat, BEAT_MS);
+  readMsgs(); readPres();
+  return {
+    slow: true,
+    send: async (payload) => { const { error } = await sb.from('battle_messages').insert({ room, sender: me.id, payload }); if (error) throw error; },
+    setMe: async (info) => { mine = { ...info }; await beat(); sig = ''; },
+    leave: () => { alive = false; clearTimeout(msgTimer); clearTimeout(presTimer); clearInterval(beatTimer); sb.from('battle_presence').delete().eq('room', room).eq('member', me.id).then(() => {}, () => {}); },
+  };
+}
+
 function cleanFolder(f) {
   const out = {};
   if (f.name !== undefined) out.name = String(f.name ?? '').slice(0, 80);
@@ -391,12 +435,26 @@ function createSupabaseApi(sb) {
     },
     // リアルタイム対戦の通信（Supabase Realtime の Broadcast / Presence。テーブルは使わない）。on.msg: メッセージ受信、on.presence: 今いる人の一覧
     async battleChannel(room, me, on) {
-      const ch = sb.channel(`battle:${room}`, { config: { broadcast: { self: true }, presence: { key: me.id } } });
-      ch.on('broadcast', { event: 'm' }, ({ payload }) => on.msg(payload));
-      ch.on('presence', { event: 'sync' }, () => on.presence(Object.values(ch.presenceState()).map((a) => a[0]).filter(Boolean)));
-      await new Promise((resolve, reject) => ch.subscribe((st) => { if (st === 'SUBSCRIBED') resolve(); else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') reject(new Error('対戦の通信に接続できませんでした')); }));
-      await ch.track({ ...me });
-      return { send: (payload) => ch.send({ type: 'broadcast', event: 'm', payload }), setMe: (info) => ch.track(info), leave: () => sb.removeChannel(ch) };
+      // まず、ふつうの通信（WebSocket）でつなぐ。会社・学校・一部の回線など、WebSocket が通らないときは、HTTP だけで動く低速の方法（supabase/battle_poll.sql の表を、数秒ごとに読む）に切り替える
+      const SLOW_AFTER_MS = 7000;
+      const ws = async () => {
+        const ch = sb.channel(`battle:${room}`, { config: { broadcast: { self: true }, presence: { key: me.id } } });
+        ch.on('broadcast', { event: 'm' }, ({ payload }) => on.msg(payload));
+        ch.on('presence', { event: 'sync' }, () => on.presence(Object.values(ch.presenceState()).map((a) => a[0]).filter(Boolean)));
+        try {
+          await Promise.race([
+            new Promise((resolve, reject) => ch.subscribe((st) => { if (st === 'SUBSCRIBED') resolve(); else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') reject(new Error('対戦の通信に接続できませんでした')); })),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), SLOW_AFTER_MS)),
+          ]);
+          await ch.track({ ...me });
+        } catch (e) { sb.removeChannel(ch); throw e; }
+        return { send: (payload) => ch.send({ type: 'broadcast', event: 'm', payload }), setMe: (info) => ch.track(info), leave: () => sb.removeChannel(ch) };
+      };
+      try { return await ws(); } catch (wsErr) {
+        try { return await pollChannel(sb, room, me, on); } catch (pollErr) {
+          throw new Error(/relation|battle_(messages|presence)|schema cache|does not exist/i.test(pollErr?.message || '') ? '対戦の通信に接続できませんでした（回線が WebSocket を通さないようです。管理者が supabase/battle_poll.sql を実行すると、この回線でも対戦できます）' : '対戦の通信に接続できませんでした');
+        }
+      }
     },
     // 国ごとのメモ: Map(code -> note)
     // 国ごとの情報（地図のインフォグラフィック）: Map(topic → Map(code → value))

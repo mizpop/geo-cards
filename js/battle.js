@@ -89,6 +89,7 @@ export function mountBattle(host, ctx) {
         presence: onPresence,
       });
     } catch (e) { toast(e.message || '接続できませんでした', 'error'); return; }
+    if (ch?.slow) toast('回線の都合で、通常の通信ができなかったため、低速モードでつなぎました（反応が、1 秒ほど遅れます）');
     phase = 'lobby';
     chatOpen = false; // 初めは閉じておく（画面を隠さない）。メッセージが来ると未読の数が出る
     chat.hidden = false;
