@@ -49,14 +49,22 @@ export function dropBadRefs(md, ok) {
   return { md: s.replace(/\n{3,}/g, '\n\n'), removed };
 }
 
-async function askStream({ api, messages, context, model, signal, onText }) {
+async function askStream({ api, messages, context, model, signal, onText, onWait }) {
   const token = await api.getAccessToken();
-  const res = await fetch('/api/ask', {
+  const send = () => fetch('/api/ask', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ messages, context, model, task: 'article', maxTokens: 12000 }),
     signal,
   });
+  let res = await send();
+  // AI が混み合っている（503）・使いすぎ（429）のときは、少し待って、自動で、やり直す（最大 3 回）
+  for (let n = 1; n <= 3 && (res.status === 503 || res.status === 429); n++) {
+    const wait = 4 * n;
+    for (let s = wait; s > 0; s--) { onWait?.(`AI が混み合っています。${s} 秒後に、自動でやり直します（${n} / 3 回目）`); await new Promise((r) => setTimeout(r, 1000)); if (signal?.aborted) throw new DOMException('Aborted', 'AbortError'); }
+    onWait?.('やり直しています…');
+    res = await send();
+  }
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     throw new Error(j.error === 'not_configured' ? 'AI が設定されていません（GEMINI_API_KEY か OPENROUTER_API_KEY）'
@@ -252,6 +260,7 @@ export function openArticleAi(d) {
       $('#ai-state').textContent = `AI が書いています…${names ? `（読んだ国: ${names}）` : ''}`;
       const r = await askStream({
         api: d.api, messages: [{ role: 'user', content: message }], context: ctx.text, model: $('#ai-model').value, signal: controller.signal,
+        onWait: (msg) => { $('#ai-state').textContent = msg; },
         onText: (t) => { const p = parseOutput(t); $('#ai-title').value = p.title; $('#ai-body').value = p.body; $('#ai-body').scrollTop = $('#ai-body').scrollHeight; },
       });
       const p = sanitize(parseOutput(r.text));

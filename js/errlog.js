@@ -48,7 +48,8 @@ export function installErrLog(d = {}) {
     const url = String(args[0]?.url || args[0] || '');
     try {
       const res = await f.apply(this, args);
-      if (url.includes('/api/') && !res.ok) { crumb(`通信 ${res.status} ${url.replace(location.origin, '').slice(0, 50)}`); if (res.status >= 500) record('fetch', `通信エラー ${res.status}`, '', url.replace(location.origin, '')); }
+      // AI が混み合っている（503 など）のは、アプリの不具合ではないので、記録には残さない（直前の操作には、残す）
+      if (url.includes('/api/') && !res.ok) { crumb(`通信 ${res.status} ${url.replace(location.origin, '').slice(0, 50)}`); if (res.status >= 500 && !(/\/api\/ask/.test(url) && [429, 502, 503, 504].includes(res.status))) record('fetch', `通信エラー ${res.status}`, '', url.replace(location.origin, '')); }
       return res;
     } catch (ex) {
       if (url.includes('/api/') && ex?.name !== 'AbortError') { crumb(`通信失敗 ${url.replace(location.origin, '').slice(0, 50)}`); record('fetch', `通信できません: ${ex?.message || ''}`, '', url.replace(location.origin, '')); }
