@@ -3,6 +3,7 @@
 const ROOM = '__online'; // 対戦の部屋のコード（5 文字）と、かぶらない名前
 const IDLE_MS = 5 * 60 * 1000;
 const NAME_KEY = 'geo-cards-battle-name';
+const USERS_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'; // 上のバーの、ほかのアイコンと同じ、線のアイコン
 const newId = () => Math.random().toString(36).slice(2, 10);
 
 let ch = null;
@@ -41,7 +42,7 @@ export async function startOnline(deps) {
     const active = list.filter((u) => !u.away).length;
     const idle = list.length - active;
     btn.hidden = false;
-    btn.innerHTML = `<span aria-hidden="true">👥</span><b class="on-n">${active}</b>${idle ? `<span class="on-away">+${idle}</span>` : ''}`;
+    btn.innerHTML = `${USERS_ICON}<b class="on-n">${active}</b>${idle ? `<span class="on-away">+${idle}</span>` : ''}`;
     btn.title = `今、GeoChecker を開いている人: ${list.length} 人（操作中 ${active} 人・離席中 ${idle} 人。5 分以上操作がないと、離席中）`;
     btn.setAttribute('aria-label', btn.title);
     if (pop?.isConnected) drawPop(list);

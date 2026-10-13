@@ -3098,6 +3098,7 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 /* 記事の画像: 上でも、ページをスクロールできる（スマホは、1 本指でスクロール。拡大したあとは、画像を動かす） */
 .zoomable.zoom-scroll { touch-action: pan-x pan-y; }
 .zoomable.zoom-scroll.is-zoomed { touch-action: none; }
-.report-btn { font-size: 15px; }
+.report-btn { display: inline-grid; place-items: center; }
+.online-btn svg { flex: none; }
 .gd-report { width: min(520px, calc(100vw - 24px)); }
 .gd-report textarea { width: 100%; resize: vertical; }
