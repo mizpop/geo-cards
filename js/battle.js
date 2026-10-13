@@ -4,6 +4,7 @@
 // ホストが問題を出す合図（q）と答え合わせ（reveal）を送り、得点は各自が出して（ans）全員で足し合わせる
 import { placeSvBubble } from './svbubble.js';
 import { createVoice } from './voice.js';
+import { logEvent } from './errlog.js';
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({ length: 5 }, () => ROOM_CHARS[Math.floor(Math.random() * ROOM_CHARS.length)]).join('');
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -88,7 +89,8 @@ export function mountBattle(host, ctx) {
         msg: onMsg,
         presence: onPresence,
       });
-    } catch (e) { toast(e.message || '接続できませんでした', 'error'); return; }
+    } catch (e) { logEvent('battle', `対戦の部屋に、つながりませんでした: ${e.message || ''}`.slice(0, 200), `部屋: ${asHost ? '作成' : '参加'} / オンライン: ${navigator.onLine}`); toast(e.message || '接続できませんでした', 'error'); return; }
+    if (ch?.slow) logEvent('battle-slow', '低速モードで、対戦につながりました（WebSocket が通らない回線）', `部屋: ${asHost ? '作成' : '参加'}`);
     if (ch?.slow) toast('回線の都合で、通常の通信ができなかったため、低速モードでつなぎました（反応が、1 秒ほど遅れます）');
     phase = 'lobby';
     chatOpen = false; // 初めは閉じておく（画面を隠さない）。メッセージが来ると未読の数が出る

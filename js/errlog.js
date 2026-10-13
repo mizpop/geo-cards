@@ -18,16 +18,17 @@ const describe = (el) => {
 };
 const NOISE = /ResizeObserver loop|Script error\.?$|Non-Error promise rejection|The play\(\) request was interrupted|AbortError|Load failed$/i;
 
-function record(kind, msg, stack = '', src = '') {
+function record(kind, msg, stack = '', src = '', opts = {}) {
   msg = clip(msg, 300);
   if (!msg || NOISE.test(msg)) return;
   const sig = `${kind}|${msg}|${clip(stack, 80)}`;
-  const entry = { at: new Date().toISOString(), kind, msg, stack: clip(stack, 1500), src: clip(src, 160), view: location.hash || '', ver: deps.version, ua: clip(navigator.userAgent, 140), online: navigator.onLine, w: `${innerWidth}x${innerHeight}`, crumbs: crumbs.slice(-12) };
+  const always = !!opts.always; // 利用者が自分で報告したもの: 必ず送る
+  const entry = { at: new Date().toISOString(), kind, msg, stack: clip(stack, 3000), src: clip(src, 160), view: location.hash || '', ver: deps.version, ua: clip(navigator.userAgent, 140), online: navigator.onLine, w: `${innerWidth}x${innerHeight}`, crumbs: crumbs.slice(-12) };
   const list = load();
   const last = list[list.length - 1];
-  if (last && last.msg === msg && last.kind === kind) { last.n = (last.n || 1) + 1; last.at = entry.at; save(list); } else { entry.n = 1; list.push(entry); save(list); }
-  if (!sent.has(sig) && sendCount < 10 && deps.report) { // 同じものは、1 回だけ。多くても、10 件まで
-    sent.add(sig); sendCount++;
+  if (!always && last && last.msg === msg && last.kind === kind) { last.n = (last.n || 1) + 1; last.at = entry.at; save(list); } else { entry.n = 1; list.push(entry); save(list); }
+  if (always ? deps.report : (!sent.has(sig) && sendCount < 10 && deps.report)) { // 同じものは、1 回だけ。多くても、10 件まで
+    if (!always) { sent.add(sig); sendCount++; }
     Promise.resolve(deps.report({ message: msg, stack: entry.stack, view: entry.view, version: entry.ver, ua: entry.ua, kind, crumbs: entry.crumbs })).catch(() => {});
   }
 }
@@ -56,6 +57,56 @@ export function installErrLog(d = {}) {
       throw ex;
     }
   };
+}
+
+
+/** アプリの中から、「こういうことがあった」と記録する（対戦・ボイスのつながらない、など）。kind: 'battle' / 'voice' / 'report' など */
+export function logEvent(kind, msg, detail = '', opts = {}) { record(kind, msg, detail, '', opts); }
+const describeEl = describe;
+
+// ---- 操作できなくなったときの検出 ----
+// 1. 文字を打ったのに、入力欄に、何も入らない（フォーカスや、重なり・ロックのせいで、入力できなくなる不具合）
+// 2. 画面が、数秒、固まった（重い処理）
+let stuckCount = 0;
+export function installStuckWatch() {
+  if (installStuckWatch.done) return;
+  installStuckWatch.done = true;
+  const TEXTY = new Set(['text', 'search', 'email', 'url', 'tel', 'password', '']);
+  let pending = null;
+  const gotInput = () => { if (pending) { clearTimeout(pending.timer); pending = null; } };
+  window.addEventListener('input', gotInput, true);
+  window.addEventListener('compositionstart', gotInput, true);
+  window.addEventListener('beforeinput', gotInput, true);
+  window.addEventListener('keydown', (e) => {
+    if (stuckCount >= 4 || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.key.length !== 1 || e.repeat) return;
+    const el = e.target;
+    const isText = el?.tagName === 'TEXTAREA' || (el?.tagName === 'INPUT' && TEXTY.has((el.type || '').toLowerCase()));
+    if (!isText || el.readOnly || el.disabled) return;
+    if (el.maxLength > 0 && el.value.length >= el.maxLength) return; // 文字数の上限
+    gotInput();
+    const before = el.value;
+    pending = { timer: setTimeout(() => {
+      pending = null;
+      if (!el.isConnected || el.value !== before || stuckCount >= 4) return; // 入力できた（または、画面が変わった）
+      stuckCount++;
+      const inert = el.closest('[inert]');
+      const dlgs = [...document.querySelectorAll('dialog[open]')].map((d) => `${d.className.slice(0, 40)}${d.matches(':modal') ? '(modal)' : ''}`);
+      record('stuck', `文字を打っても、入力欄に入らない（${describeEl(el)}）`, [
+        `フォーカス: ${describeEl(document.activeElement)}${document.activeElement === el ? '' : '（入力欄ではない）'}`,
+        `ウィンドウにフォーカス: ${document.hasFocus()} / 見えている: ${document.visibilityState}`,
+        `入力を止める指定: ${inert ? 'inert あり' : 'なし'} / defaultPrevented: ${e.defaultPrevented}`,
+        `開いている画面: ${dlgs.join(' , ') || 'なし'}`,
+      ].join('\n'));
+    }, 450) };
+  }, true);
+  // 画面が固まった: 1 秒ごとの確認が、3 秒以上、遅れたとき
+  let last = performance.now();
+  let freezes = 0;
+  setInterval(() => {
+    const now = performance.now();
+    if (document.visibilityState === 'visible' && now - last > 4000 && freezes < 3) { freezes++; record('freeze', `画面が約 ${Math.round((now - last) / 1000)} 秒、固まりました`, `開いている画面: ${[...document.querySelectorAll('dialog[open]')].map((d) => d.className.slice(0, 40)).join(' , ') || 'なし'}`); }
+    last = now;
+  }, 1000);
 }
 
 export const errList = () => load().slice().reverse();

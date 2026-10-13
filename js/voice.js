@@ -1,5 +1,6 @@
 // 対戦のボイスチャット: WebRTC で、参加者どうしを直接つなぐ（音声は、サーバーを通らない）。
 // つなぐための情報（offer / answer / ICE）は、対戦の通信（Realtime の Broadcast）で、{ t: 'vc', … } として送りあう。
+import { logEvent } from './errlog.js';
 // 経路の確認には、公開の STUN サーバーを使う。厳しいネットワーク（一部の会社・学校・携帯回線）では、STUN だけではつながらないので、
 // サーバー側（/api/turn）に TURN（Cloudflare）が設定されているときは、それも使う（音声が中継される）。つながらなかったときは、自動で、数回やり直す。
 const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
@@ -72,7 +73,7 @@ export function createVoice({ send, meId, host, onChange, turn }) {
     const n = (tries.get(id) || 0) + 1;
     tries.set(id, n);
     drop(id);
-    if (n > RETRIES) { emit(); return; }
+    if (n > RETRIES) { logEvent('voice', 'ボイスチャットが、つながりませんでした（やり直しても、だめ）', `相手を ${tries.size} 人分試して、${RETRIES} 回やり直しても、つながらなかった。TURN: ${ice.some((s) => /turn:/.test(String(s.urls))) ? 'あり' : 'なし'}`); emit(); return; }
     setTimeout(() => { if (on && !pcs.has(id)) { to(id, 'join'); meet(id); } }, 800 * n); // 相手にも、もう一度、知らせる（相手が古い接続を捨てて、つなぎ直せるように）
   }
 

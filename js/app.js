@@ -8,7 +8,7 @@ import { initApi } from './api.js';
 import { initLoading } from './loading.js';
 import { startPresence, stopPresence } from './presence.js';
 import { startOnline, stopOnline } from './online.js';
-import { installErrLog, errList, errClear, errText } from './errlog.js';
+import { installErrLog, installStuckWatch, logEvent, errList, errClear, errText } from './errlog.js';
 import { buildGeoPool, buildGeoQuestions, mountGeoQuiz, GEO_DIRS, GEO_ANS } from './geoquiz.js';
 import { showUpdateNoticeIfNeeded } from './updatenotice.js';
 import { initCardPreview } from './cardpreview.js';
@@ -115,6 +115,7 @@ const cardRegions = (card) => new Set(card.countries.map((c) => COUNTRY_BY_CODE.
 /* ================= 状態 ================= */
 let api;
 installErrLog({ version: APP_VERSION, report: (r) => { try { return state.user ? api.reportError?.(r) : null; } catch { return null; } } }); // 画面のエラーを、記録に残す（設定 → 不具合の記録）
+installStuckWatch(); // 文字を打っても入らない・画面が固まった、も記録に残す
 const state = {
   user: null,
   cards: [],
@@ -245,6 +246,46 @@ async function openChangelog() {
     <div class="modal-head"><h2>🕘 更新履歴</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
     ${CHANGELOG.map((v) => `<section class="cl-version"><h3 class="cl-ver">${esc(v.version)} <span class="muted">${esc(v.date)}</span>${v === CHANGELOG[0] ? ' <span class="cl-now">現在のバージョン</span>' : ''}</h3>${v.sections.map((g) => `<div class="cl-group"><h4 class="cl-date">${esc(g.title)}</h4><ul class="cl-list">${g.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>`).join('')}</section>`).join('')}`, 'modal-settings');
 }
+// ---- 不具合を報告（上のバーの 🐞）: 起きたことを書いて、そのときの状況と一緒に、記録として送る ----
+function reportContext() {
+  const q = state.quiz || {};
+  const dlgs = [...document.querySelectorAll('dialog[open]')].map((d) => `${d.className.slice(0, 50)}${d.matches(':modal') ? '(modal)' : ''}`);
+  const ae = document.activeElement;
+  return [
+    `画面: ${location.hash || '#'} / モード: ${state.mode?.kind || ''}${state.mode?.kind === 'country' ? `(${(state.mode.countries || []).join(',')})` : ''}`,
+    `クイズ: ${q.kind || ''} / ${q.phase || ''}${q.questions?.length ? ` / ${(q.i || 0) + 1}/${q.questions.length}` : ''}`,
+    `開いている画面: ${dlgs.join(' , ') || 'なし'}`,
+    `フォーカス: ${ae?.tagName?.toLowerCase() || ''}${ae?.id ? `#${ae.id}` : ''}`,
+    `画面の大きさ: ${innerWidth}x${innerHeight}（${window.matchMedia('(pointer: coarse)').matches ? 'タッチ' : 'マウス'}）/ オンライン: ${navigator.onLine} / データ: ${api.mode}`,
+    `バージョン: ${APP_VERSION}`,
+  ].join('\n');
+}
+function openReportDialog() {
+  const dlg = document.createElement('dialog');
+  dlg.className = 'modal modal-sm gd-report';
+  dlg.innerHTML = `<div class="modal-inner"><div class="modal-head"><h2>🐞 不具合を報告</h2><button class="icon-btn" type="button" data-x aria-label="閉じる">✕</button></div>
+    <label class="field"><span>何をしたら、どうなりましたか？（例: 記事を書いていたら、入力できなくなった）</span>
+      <textarea id="rp-text" class="input" rows="5" maxlength="1500" placeholder="できるだけ具体的に（どの画面で・何を押して・どうなったか・どうなってほしいか）"></textarea></label>
+    <details class="small muted"><summary>一緒に送る情報（押すと表示）</summary><pre class="err-pre" id="rp-ctx"></pre></details>
+    <p class="muted small">送るのは、上の文章と、画面・バージョン・端末・画面の大きさ・開いている画面・直前の操作（ボタンの名前）・最近のエラーの記録だけです。入力した文字・記事の本文・パスワードは、送りません。</p>
+    <div class="modal-foot"><span class="grow"></span><button class="btn btn-ghost" type="button" data-x>キャンセル</button><button class="btn btn-primary" type="button" id="rp-send">送る</button></div></div>`;
+  document.body.appendChild(dlg);
+  const ctx = reportContext();
+  dlg.querySelector('#rp-ctx').textContent = `${ctx}\n\n最近のエラー: ${errList().slice(0, 3).map((e) => e.msg).join(' / ') || 'なし'}`;
+  const close = () => { document.activeElement?.blur?.(); dlg.close(); dlg.remove(); setTimeout(() => { window.blur(); window.focus(); }, 0); };
+  dlg.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', close));
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  dlg.querySelector('#rp-send').addEventListener('click', () => {
+    const text = dlg.querySelector('#rp-text').value.trim();
+    if (!text) { toast('起きたことを、書いてください', 'error'); dlg.querySelector('#rp-text').focus(); return; }
+    logEvent('report', text.split('\n')[0].slice(0, 120), `${text}\n\n--- 状況 ---\n${ctx}\n\n最近のエラー: ${errList().slice(0, 3).map((e) => e.msg).join(' / ') || 'なし'}`, { always: true });
+    toast(api.mode === 'demo' ? '記録に残しました（デモ: このブラウザにだけ）' : '送りました。ありがとうございます');
+    close();
+  });
+  dlg.showModal();
+  dlg.querySelector('#rp-text').focus();
+}
+
 function openSettings() {
   const seg = (key, opts) => `<div class="seg" data-key="${key}">${opts.map(([v, label]) => `<button type="button" class="${settings[key] === v ? 'on' : ''}" data-v="${v}">${label}</button>`).join('')}</div>`;
   const sw = (key) => `<label class="switch"><input type="checkbox" data-key="${key}" ${settings[key] ? 'checked' : ''}><span class="switch-track"><span class="switch-thumb"></span></span></label>`;
@@ -825,6 +866,7 @@ function restoreOverlays(sn) {
 let regionNamesTimer = null;
 async function enterApp() {
   setRegionIso3Resolver((c) => regionCtx.iso3Of(c)); // 地域名が未読み込みのとき、自動で読み込む
+  { const rb = $('#report-btn'); if (rb && !rb.dataset.bound) { rb.dataset.bound = '1'; rb.addEventListener('click', openReportDialog); } }
   if (!regionNamesTimer) window.addEventListener('regionnames-loaded', () => { clearTimeout(regionNamesTimer); regionNamesTimer = setTimeout(() => { // 読み込めたら、画面を、日本語の地域名で、描き直す
     if (state.view === 'study' && !state.quiz?.answered) render();
     else if (state.view === 'quiz' && state.quiz?.phase === 'question' && !state.quiz.answered && !document.querySelector('#q-input')?.value) renderQuiz();
