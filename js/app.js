@@ -1224,6 +1224,15 @@ function fillDatalists() {
 }
 
 /* ================= ルーティング ================= */
+// 画面の切り替え・次の問題などの、入る動き（クラスを付けて、アニメーションが終わったら外す。アニメーションがオフのときは、CSS 側で 0 秒になる）
+function enterEl(el, cls, ms = 700) {
+  if (!el || !settings.animations) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  clearTimeout(el._enterT?.[cls]);
+  (el._enterT ||= {})[cls] = setTimeout(() => el.classList.remove(cls), ms);
+}
 async function route() {
   if (!state.user) return;
   let view = location.hash.replace('#', '') || 'study';
@@ -1233,6 +1242,7 @@ async function route() {
     setTimeout(openSpotlight, 0);
   }
   if (!['study', 'quiz', 'map', 'manage', 'compare', 'lang', 'sv', 'guide'].includes(view)) view = 'study';
+  const prevView = state.view;
   state.view = view;
   $$('#tabs a').forEach((a) => a.classList.toggle('active', a.dataset.view === view));
   // 狭い画面で、開いているタブ（名前つき）がヘッダーの外に出ないようにタブの列を動かす
@@ -1240,6 +1250,10 @@ async function route() {
   const nav = $('#tabs');
   if (act && nav) requestAnimationFrame(() => { nav.scrollLeft = Math.max(0, act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2); });
   await refreshUrlsIfStale().catch(() => {});
+  if (prevView && prevView !== view) { // タブを変えたとき: 並びの順で、右へ進むときは、右から、戻るときは、左から、入る
+    const order = $$('#tabs a').map((a) => a.dataset.view);
+    enterEl($('#view'), order.indexOf(view) >= order.indexOf(prevView) ? 'view-in-next' : 'view-in-prev');
+  }
   render();
 }
 
@@ -3824,6 +3838,7 @@ function startQuiz(pool) {
   q.phase = 'question';
   startQuizClock(q);
   renderQuiz();
+  enterEl($('#view'), 'q-in', 600);
 }
 
 // ストリートビューの練習: 選んだ地域の国から、ストリートビューのあるランダムな地点を作って出題する
@@ -4300,6 +4315,7 @@ function nextQuestion() {
   if (q.i >= q.questions.length || (q.deadline && Date.now() >= q.deadline)) { q.phase = 'result'; clearInterval(quizTimer); }
   play(q.phase === 'result' ? 'finish' : 'slide');
   renderQuiz();
+  enterEl($('#view'), 'q-in', 600); // 次の問題・結果の画面が、入る動き
   window.scrollTo({ top: 0 });
 }
 

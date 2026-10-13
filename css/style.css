@@ -3102,3 +3102,47 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 .online-btn svg { flex: none; }
 .gd-report { width: min(520px, calc(100vw - 24px)); }
 .gd-report textarea { width: 100%; resize: vertical; }
+
+/* ---------- アニメーション（画面の切り替え・開く・答える。設定「アニメーション」がオフのときは、.no-anim で 0 秒になる） ---------- */
+@keyframes view-slide-next { from { opacity: 0; transform: translateX(26px); } }
+@keyframes view-slide-prev { from { opacity: 0; transform: translateX(-26px); } }
+@keyframes row-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes q-card-in { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+@keyframes q-bottom-in { from { opacity: 0; transform: translateY(12px); } }
+@keyframes ans-ok { 0% { transform: scale(1); } 40% { transform: scale(1.04); } 100% { transform: scale(1); } }
+@keyframes ans-ng { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+@keyframes dlg-in { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+.view-in-next { animation: view-slide-next .28s cubic-bezier(.2, .8, .2, 1); }
+.view-in-prev { animation: view-slide-prev .28s cubic-bezier(.2, .8, .2, 1); }
+.view-in-next .gd-row, .view-in-prev .gd-row, .view-in-next .tiles > *, .view-in-prev .tiles > * { animation: row-in .35s cubic-bezier(.2, .8, .2, 1) both; }
+.view-in-next .gd-row:nth-child(1), .view-in-prev .gd-row:nth-child(1), .view-in-next .tiles > :nth-child(1), .view-in-prev .tiles > :nth-child(1) { animation-delay: 0.035s; }
+.view-in-next .gd-row:nth-child(2), .view-in-prev .gd-row:nth-child(2), .view-in-next .tiles > :nth-child(2), .view-in-prev .tiles > :nth-child(2) { animation-delay: 0.070s; }
+.view-in-next .gd-row:nth-child(3), .view-in-prev .gd-row:nth-child(3), .view-in-next .tiles > :nth-child(3), .view-in-prev .tiles > :nth-child(3) { animation-delay: 0.105s; }
+.view-in-next .gd-row:nth-child(4), .view-in-prev .gd-row:nth-child(4), .view-in-next .tiles > :nth-child(4), .view-in-prev .tiles > :nth-child(4) { animation-delay: 0.140s; }
+.view-in-next .gd-row:nth-child(5), .view-in-prev .gd-row:nth-child(5), .view-in-next .tiles > :nth-child(5), .view-in-prev .tiles > :nth-child(5) { animation-delay: 0.175s; }
+.view-in-next .gd-row:nth-child(6), .view-in-prev .gd-row:nth-child(6), .view-in-next .tiles > :nth-child(6), .view-in-prev .tiles > :nth-child(6) { animation-delay: 0.210s; }
+.view-in-next .gd-row:nth-child(7), .view-in-prev .gd-row:nth-child(7), .view-in-next .tiles > :nth-child(7), .view-in-prev .tiles > :nth-child(7) { animation-delay: 0.245s; }
+.view-in-next .gd-row:nth-child(8), .view-in-prev .gd-row:nth-child(8), .view-in-next .tiles > :nth-child(8), .view-in-prev .tiles > :nth-child(8) { animation-delay: 0.280s; }
+.view-in-next .gd-row:nth-child(9), .view-in-prev .gd-row:nth-child(9), .view-in-next .tiles > :nth-child(9), .view-in-prev .tiles > :nth-child(9) { animation-delay: 0.315s; }
+.view-in-next .gd-row:nth-child(10), .view-in-prev .gd-row:nth-child(10), .view-in-next .tiles > :nth-child(10), .view-in-prev .tiles > :nth-child(10) { animation-delay: 0.350s; }
+.view-in-next .gd-row:nth-child(11), .view-in-prev .gd-row:nth-child(11), .view-in-next .tiles > :nth-child(11), .view-in-prev .tiles > :nth-child(11) { animation-delay: 0.385s; }
+.view-in-next .gd-row:nth-child(12), .view-in-prev .gd-row:nth-child(12), .view-in-next .tiles > :nth-child(12), .view-in-prev .tiles > :nth-child(12) { animation-delay: 0.420s; }
+.q-in .quiz-card { animation: q-card-in .32s cubic-bezier(.2, .8, .2, 1) both; }
+.q-in .quiz-bottom, .q-in .toolbar, .q-in .quiz-prompt { animation: q-bottom-in .34s cubic-bezier(.2, .8, .2, 1) .04s both; }
+.choice.correct { animation: ans-ok .42s ease; }
+.choice.wrong { animation: ans-ng .42s ease; }
+.gq-fb.ok { animation: ans-ok .42s ease; }
+.gq-fb.ng { animation: ans-ng .42s ease; }
+.gq .gq-prompt { animation: pop-in .26s ease-out both; }
+.gq .gq-fb, .gq .gq-choices, .gq .gq-input { animation: pop-in .24s ease-out both; }
+.gd-pick[open], .gd-share[open], .gd-ai[open], .gd-report[open] { animation: dlg-in .22s cubic-bezier(.2, .8, .2, 1); }
+.gd-pick[open]::backdrop, .gd-share[open]::backdrop, .gd-ai[open]::backdrop, .gd-report[open]::backdrop { animation: fade-in .22s ease-out; }
+.gd-ai-step:not([hidden]) { animation: pop-in .22s ease-out both; }
+.on-pop, .gd-sizepop { animation: pop-in .16s ease-out both; }
+.gd-folder-body { animation: pop-in .22s ease-out both; }
+.gd-tag, .gd-tagchip { transition: background-color .15s, color .15s, border-color .15s, transform .12s; }
+/* ボタン・タブ・切り替えの、押したときの反応 */
+:where(.btn, .icon-btn, .seg button, .chip-btn, .tabs a, .choice) { transition: background-color .16s ease, color .16s ease, border-color .16s ease, transform .12s ease, box-shadow .16s ease; }
+:where(.btn:not(:disabled), .icon-btn:not(:disabled), .choice:not(:disabled)):active { transform: scale(.96); }
+:where(.btn:not(:disabled)):hover { transform: translateY(-1px); }
+.tabs a:active { transform: scale(.95); }
