@@ -353,7 +353,11 @@ function openSettings() {
       openModal(`<div class="modal-head"><h2>みんなの不具合の記録</h2><button class="icon-btn" data-close aria-label="閉じる">✕</button></div>
         <p class="muted small">新しい順（同じメッセージは、まとめています）。最大 200 件</p>
         <div class="err-list">${[...byMsg.values()].map((e) => `<details class="err-item"><summary><b>${esc(e.r.message)}</b> <span class="muted small">×${e.n}（${e.users.size} 人）・${esc(new Date(e.last).toLocaleString('ja-JP'))}・${esc(e.r.version || '')} ${esc(e.r.view || '')}</span></summary><pre class="err-pre">${esc([e.r.stack, '直前の操作: ' + (e.r.crumbs || []).map((c) => `${c.t} ${c.x}`).join(' → '), e.r.ua].filter(Boolean).join('\n'))}</pre></details>`).join('') || '<p class="muted">記録はありません</p>'}</div>
-        <div class="modal-foot"><button class="btn btn-danger" id="err-all-clear" type="button">すべて消す</button><span class="grow"></span><button class="btn btn-ghost" data-close type="button">閉じる</button></div>`, 'modal-wide');
+        <div class="modal-foot"><button class="btn btn-danger" id="err-all-clear" type="button">すべて消す</button><button class="btn" id="err-all-copy" type="button">すべてコピー</button><span class="grow"></span><button class="btn btn-ghost" data-close type="button">閉じる</button></div>`, 'modal-wide');
+      $('#err-all-copy')?.addEventListener('click', async () => { // 報告用の文章にして、コピーする
+        const text = [...byMsg.values()].map((e, i) => [`--- ${i + 1}. ×${e.n}（${e.users.size} 人）${e.last} ${e.r.version || ''} ${e.r.view || ''}`, e.r.message, e.r.stack, `直前の操作: ${(e.r.crumbs || []).map((c) => `${c.t} ${c.x}`).join(' → ')}`, e.r.ua].filter(Boolean).join('\n')).join('\n\n');
+        try { await navigator.clipboard.writeText(text || '（記録はありません）'); toast('コピーしました'); } catch { toast('コピーできませんでした', 'error'); }
+      });
       $('#err-all-clear')?.addEventListener('click', async () => { if (!confirm('みんなの記録を、すべて消しますか？')) return; try { await api.clearErrorReports(); toast('消しました'); closeModal(); } catch (ex) { toast(`消せませんでした: ${ex.message}`, 'error'); } });
     } catch (ex) { toast(/error_reports/.test(ex.message || '') ? '記録の表がありません（supabase/error_reports.sql を実行してください）' : `読み込めませんでした: ${ex.message}`, 'error'); }
   });
