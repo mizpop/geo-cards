@@ -168,8 +168,9 @@ const modeCards = () => state.cards.filter(inMode);
 function photoPool(q) {
   const out = [];
   for (const t of q.photoTopics) for (const [code, list] of Object.entries(REF_IMAGES[t] || {})) {
-    if (!q.regions.has(COUNTRY_BY_CODE.get(code)?.region)) continue;
-    list.forEach((_, i) => { const c = refCard(`ref|${t}|${code}|${i}`); if (c && (q.mode !== 'pin' || c.lat != null)) out.push(c); });
+    const country = state.mode.kind === 'country';
+    if (country ? !state.mode.countries.includes(code) : !q.regions.has(COUNTRY_BY_CODE.get(code)?.region)) continue; // 国モードは、選んだ国の写真だけ
+    list.forEach((_, i) => { const c = refCard(`ref|${t}|${code}|${i}`); if (c && (q.mode !== 'pin' || c.lat != null) && (!country || Number.isFinite(Number(c.lat)))) { if (country) c.scope_countries = [code]; else delete c.scope_countries; out.push(c); } });
   }
   return out;
 }
@@ -3293,7 +3294,6 @@ function renderQuiz() {
   const isPhoto = q.kind === 'photo';
   const isSv = q.kind === 'sv';
   if (!isPhoto && !isSv && q.mode === 'pin') q.mode = 'choice';
-  if (isSv && state.mode.kind === 'country' && q.mode === 'pin') q.mode = 'map'; // 国モードのストリートビューは、地域で答える（ピンでは答えない）
   if (isSv) { q.timeLimit = 0; if (!(q.count >= 3 && q.count <= 30)) q.count = 10; } // 練習は問題数を決めて 1 問ずつ
   const factEligible = isFact ? factQuizPool(q.factTopic, q.regions).length : 0;
   const photoEligible = isPhoto ? photoPool(q).length : 0;
@@ -3393,7 +3393,7 @@ function renderQuiz() {
             <button class="${q.mode === 'choice' ? 'on' : ''}" data-mode="choice">4択</button>
             <button class="${q.mode === 'input' ? 'on' : ''}" data-mode="input">${state.mode.kind === 'country' && q.kind === 'cards' ? '地域名を入力' : '国名を入力'}</button>
             ${state.mode.kind === 'country' && q.kind === 'cards' ? '' : `<button class="${q.mode === 'map' ? 'on' : ''}" data-mode="map">🗺 地図で答える</button>`}
-            ${isPhoto || (isSv && state.mode.kind !== 'country') ? `<button class="${q.mode === 'pin' ? 'on' : ''}" data-mode="pin" title="撮影地点を地図でクリック。近いほど高得点">📍 ${isSv ? '場所を当てる' : '撮影地点を当てる'}</button>` : ''}
+            ${isPhoto || isSv ? `<button class="${q.mode === 'pin' ? 'on' : ''}" data-mode="pin" title="撮影地点を地図でクリック。近いほど高得点">📍 ${isSv ? '場所を当てる' : '撮影地点を当てる'}</button>` : ''}
           </div>
         </div>
         <div class="setup-block not-sv">
@@ -3739,8 +3739,7 @@ async function startRegionQuiz(pool) {
   let cards = shuffle(usable);
   if (q.order === 'weak') { cards = cards.map((c) => ({ c, w: weakness(c.id) + Math.random() * 0.15 })).sort((a, b) => b.w - a.w).map((x) => x.c); if (q.count) cards = shuffle(cards.slice(0, q.count)); } else if (q.count && !q.timeLimit) cards = cards.slice(0, q.count);
   cards = stretchPool(cards);
-  if (q.kind === 'sv') { if (q.mode === 'pin') q.mode = 'map'; } // ストリートビューは、地域の地図をクリックして答えられる
-  else if (q.mode === 'map' || q.mode === 'pin') q.mode = 'choice'; // カードは、国モードでは、地図で答える方式は使えない
+  if (q.kind !== 'sv' && q.kind !== 'photo' && (q.mode === 'map' || q.mode === 'pin')) q.mode = 'choice'; // カードは、国モードでは、地図で答える方式は使えない（ストリートビュー・写真は、地域の地図・ピンで答えられる）
   q.regionQuiz = true;
   q.questions = cards.map((c) => {
     const rcs = answers.get(c.id);
@@ -3766,6 +3765,25 @@ function submitRegionAnswer(card, given, timeout = false) {
   renderQuestion();
   afterAnswer(result);
 }
+// 国モードのピン: 置いたピンが、正解の地域の中なら、正解。遠さ（国の大きさに合わせて）で、点数
+function submitRegionPin(card, guess, diagKm, timeout = false) {
+  const q = state.quiz;
+  const correct = regionQuizData?.answers.get(card.id) || [];
+  const parent = regionParent(correct[0]);
+  const given = regionQuizData?.idx.get(parent)?.at(guess[0], guess[1]) || null;
+  const km = distanceBetween(guess, [Number(card.lat), Number(card.lng)]);
+  const scale = Math.max(25, (diagKm || 1500) * 0.2);
+  const points = Math.round(5000 * Math.exp(-km / scale));
+  const result = given && correct.includes(given) ? 'ok' : km <= scale * 0.5 ? 'partial' : 'ng';
+  if (!card.sv) record(card.id, result);
+  logActivity(result === 'ok', COUNTRY_BY_CODE.get(parent)?.region);
+  q.answered = { given: given ? [given] : [], guess, km, points, result, timeout };
+  q.answers.push({ cardId: card.id, given: given ? [given] : [], result, km, points, correct: result === 'ok' });
+  play(result === 'ok' ? 'correct' : result === 'partial' ? 'partial' : 'wrong');
+  q.draft = [];
+  renderQuestion();
+  afterAnswer(result);
+}
 function renderRegionQuestion(card, item) {
   const q = state.quiz;
   const a = q.answered;
@@ -3778,6 +3796,8 @@ function renderRegionQuestion(card, item) {
       const cls = a ? (correct.includes(rc) ? 'correct' : a.given.includes(rc) ? 'wrong' : 'dim') : '';
       return `<button class="choice ${cls}" data-rc="${esc(rc)}" ${a ? 'disabled' : ''}><span class="kbd">${i + 1}</span>${flagImg(rc)}<span>${esc(countryName(rc))}</span></button>`;
     }).join('')}</div>`;
+  } else if (q.mode === 'pin') { // 地図の好きな場所に、ピンを置いて答える（その地域に入っていれば正解。遠さで、点数）
+    ui = a ? `<p class="qm-dist">${a.timeout ? '⏱ 時間切れ' : `📍 約 <b>${Math.round(a.km).toLocaleString()} km</b> ・ <b>${a.points.toLocaleString()}</b> 点`}</p><div class="given-list">${correct.map((rc) => `<span class="given ${a.given.includes(rc) ? 'given-hit' : 'given-miss'}">${a.given.includes(rc) ? '✓' : '・'} ${flagImg(rc)}${esc(countryName(rc))}</span>`).join('')}${a.given.filter((g) => !correct.includes(g)).map((g) => `<span class="given given-wrong">✗ ${flagImg(g)}${esc(countryName(g))}</span>`).join('')}</div>` : '<button class="btn btn-primary qm-guess" id="q-guess" type="button" disabled>📍 この場所で回答</button>';
   } else if (q.mode === 'map') {
     ui = a ? `<div class="given-list">${correct.map((rc) => `<span class="given ${a.given.includes(rc) ? 'given-hit' : 'given-miss'}">${a.given.includes(rc) ? '✓' : '・'} ${flagImg(rc)}${esc(countryName(rc))}</span>`).join('')}${a.given.filter((g) => !correct.includes(g)).map((g) => `<span class="given given-wrong">✗ ${flagImg(g)}${esc(countryName(g))}</span>`).join('')}</div>` : '';
   } else if (!a) {
@@ -3788,22 +3808,32 @@ function renderRegionQuestion(card, item) {
     ui = `<div class="given-list">${correct.map((rc) => `<span class="given ${a.given.includes(rc) ? 'given-hit' : 'given-miss'}">${a.given.includes(rc) ? '✓' : '・'} ${flagImg(rc)}${esc(countryName(rc))}</span>`).join('')}${a.given.filter((g) => !correct.includes(g)).map((g) => `<span class="given given-wrong">✗ ${flagImg(g)}${esc(countryName(g))}</span>`).join('')}</div>`;
   }
   const okN = q.answers.filter((x) => x.result === 'ok').length;
+  const ptsN = q.answers.reduce((n, x) => n + (x.points || 0), 0);
   $('#view').innerHTML = `
-    <div class="toolbar">${quizCounterHtml(q)}<span class="muted">○ ${okN}</span><button class="btn btn-ghost btn-sm" id="q-quit">やめる</button></div>
+    <div class="toolbar">${quizCounterHtml(q)}<span class="muted">${q.mode === 'pin' ? `合計 ${ptsN.toLocaleString()} 点` : `○ ${okN}`}</span><button class="btn btn-ghost btn-sm" id="q-quit">やめる</button></div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
-    ${q.mode === 'map' ? `<div class="qm-layout ${a ? '' : 'qm-float'}">` : ''}
+    ${q.mode === 'map' || q.mode === 'pin' ? `<div class="qm-layout ${a ? '' : 'qm-float'}">` : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!a)}</div>
-    ${q.mode === 'map' ? '<div class="qm-side"><div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>' : ''}
+    ${q.mode === 'map' || q.mode === 'pin' ? '<div class="qm-side"><div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>' : ''}
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
-      ${a ? '' : `<p class="quiz-prompt">${card.sv ? `この場所は、${esc(countryName(parent))} の、どの地域？${q.mode === 'map' ? ' 地図でクリック' : ''}` : `この特徴が見られる ${esc(countryName(parent))} の地域は？`}</p>`}
+      ${a ? '' : `<p class="quiz-prompt">${card.sv || card.photo ? `${card.photo ? 'この写真は' : 'この場所は'}、${esc(countryName(parent))} の、どの地域${card.photo ? 'で、撮られた' : ''}？${q.mode === 'map' ? ' 地図でクリック' : q.mode === 'pin' ? ' 地図に、ピンを置いて回答' : ''}` : `この特徴が見られる ${esc(countryName(parent))} の地域は？`}</p>`}
       ${ui}
       ${a ? `<div class="feedback fb-${a.result}"><div class="feedback-head"><div class="feedback-title">${RESULT_LABEL[a.result]}</div>
           <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
           <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button></div>
           ${notesHtml(card)}${cardInfoHtml(card)}</div>` : ''}
-    </div>${q.mode === 'map' ? '</div></div>' : ''}`;
+    </div>${q.mode === 'map' || q.mode === 'pin' ? '</div></div>' : ''}`;
   attachZoom($('.quiz-card .front-img'));
   $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  if (q.mode === 'pin') { // 地域の地図に、ピンを置く。置いたら「回答」ボタンが押せる（押すまで、確定しない）
+    const at = q.i;
+    let pending = null; let diag = 1500;
+    loadRegions(parent, regionCtx.iso3Of(parent)).then((fc) => mountRegionMap($('#quiz-map'), { fc, target: correct[0], targets: correct, pin: true, answerPoint: [Number(card.lat), Number(card.lng)],
+      onPlace: (g) => { pending = g; const b = $('#q-guess'); if (b) b.disabled = false; } }))
+      .then((map) => { $('#quiz-map .map-loading')?.remove(); if (map) diag = map.countryDiagKm || diag; if (a && map?.reveal) map.reveal({ given: a.given[0], guess: a.guess }); window.__pinDiag = () => diag; })
+      .catch((ex) => { const el = $('#quiz-map .map-loading'); if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`; });
+    $('#q-guess')?.addEventListener('click', () => { if (pending && !q.answered && q.i === at) submitRegionPin(card, pending, window.__pinDiag?.() || diag); });
+  }
   if (q.mode === 'map') { // 地域の地図で答える（地名のない地図。答えたあとは、正解と、自分の答えを見せる）
     const at = q.i;
     loadRegions(parent, regionCtx.iso3Of(parent)).then((fc) => mountRegionMap($('#quiz-map'), { fc, target: correct[0], targets: correct, show: false,
@@ -3818,7 +3848,7 @@ function renderRegionQuestion(card, item) {
     return;
   }
   if (q.mode === 'choice') { $$('.choice').forEach((b) => b.addEventListener('click', () => submitRegionAnswer(card, [b.dataset.rc]))); return; }
-  if (q.mode === 'map') return;
+  if (q.mode === 'map' || q.mode === 'pin') return;
   const input = $('#q-input');
   const nz = (s) => String(s || '').toLowerCase().replace(/[\s\-_.,']/g, '');
   const submit = () => {
@@ -3835,7 +3865,7 @@ function renderRegionQuestion(card, item) {
 
 function startQuiz(pool) {
   const q = state.quiz;
-  if (state.mode.kind === 'country' && ((q.kind === 'cards' && !pool.some((c) => c.sv || c.photo)) || (q.kind === 'sv' && pool.every((c) => c.sv && scopeOf(c).length)))) { startRegionQuiz(pool); return; } // 国モード: 国ではなく、地域（カードの地名の場所）で答える
+  if (state.mode.kind === 'country' && ((q.kind === 'cards' && !pool.some((c) => c.sv || c.photo)) || ((q.kind === 'sv' || q.kind === 'photo') && pool.length && pool.every((c) => (c.sv || c.photo) && scopeOf(c).length && Number.isFinite(Number(c.lat)))))) { startRegionQuiz(pool); return; } // 国モード: 国ではなく、地域（カードの地名の場所）で答える
   q.regionQuiz = false;
   q.buildId = null; q.building = false; q.totalPlanned = 0; q.waiting = false; // 問題を作りながら進める（ストリートビュー）ときだけ使う印
   let cards = shuffle(pool);
@@ -3921,7 +3951,7 @@ async function startSvQuiz(codes, btn) {
   const myId = `${Date.now()}-${Math.random()}`;
   q.buildId = myId;
   const alive = () => q.buildId === myId && (started ? q.phase === 'question' : true);
-  if (country) { regionQuizData = { answers: new Map(), idx: new Map() }; if (q.mode === 'pin') q.mode = 'map'; }
+  if (country) regionQuizData = { answers: new Map(), idx: new Map() };
   const finish = async (card) => { // 追加できたら true
     const item = country ? await regionItemFor(card) : { cardId: card.id, options: q.mode === 'choice' ? makeOptions(card, q.regions) : null };
     if (!item || !alive() || cards.length >= n) return false;
@@ -6605,7 +6635,7 @@ const regionCtx = {
   openBulkCards: (preset) => openBulkFlagPlate(preset),
   // カードの場所（座標）: 登録した地名と、関連付けた保存済みストリートビュー
   cardPoints: (card) => [
-    ...(card.sv && Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) ? [{ lat: Number(card.lat), lng: Number(card.lng), label: '' }] : []), // ストリートビューの問題は、その地点
+    ...((card.sv || card.photo) && Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) ? [{ lat: Number(card.lat), lng: Number(card.lng), label: '' }] : []), // ストリートビュー・参考写真の問題は、その地点
     ...(card.places || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), label: p.name || '' })),
     ...(card.sv_ids || []).map((id) => savedSvById(id)).filter(Boolean).map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), label: svLabel(r) })),
   ],

@@ -3,7 +3,7 @@
 //   場所 → 名前: 地図で色づけされた場所を見て、名前を当てる（4 択 / 入力）
 // 世界モードでは国、国モードでは、選んだ国の中の地域（geoBoundaries の ADM1）が出題される
 import { mountQuizMap, ringTiny } from './quizmap.js';
-import { loadLibs, loadWorld, isDark, addNoLabelTiles } from './map.js';
+import { loadLibs, loadWorld, isDark, addNoLabelTiles, addBaseTiles } from './map.js';
 import { loadRegions, regionName, regionNameEn } from './regionmap.js';
 
 const DIRS = { both: '両方（ランダム）', toMap: '名前 → 地図でクリック', toName: '地図 → 名前を答える' };
@@ -47,14 +47,14 @@ export function buildGeoQuestions(pool, { n, dir, ans }) {
 // 世界の地図と同じく、左右に敷き詰める（境界線も、左右に複製する）。答え合わせは、地図を作り直さず、滑らかに動かす
 const shiftCoords = (c, d) => (typeof c[0] === 'number' ? [c[0] + d, c[1]] : c.map((x) => shiftCoords(x, d)));
 const shiftFeature = (f, d) => ({ type: 'Feature', properties: f.properties, geometry: f.geometry ? { type: f.geometry.type, coordinates: shiftCoords(f.geometry.coordinates, d) } : null });
-export async function mountRegionMap(el, { fc, target, show, onPick, targets = null }) { // targets: 正解の地域が、複数あるとき（どれを選んでも正解）
+export async function mountRegionMap(el, { fc, target, show, onPick, targets = null, pin = false, answerPoint = null, onPlace = null }) { // pin: 地図の好きな場所にピンを置いて答える（answerPoint: 本当の場所 [緯度, 経度]） // targets: 正解の地域が、複数あるとき（どれを選んでも正解）
   await loadLibs();
   if (!el.isConnected) return null;
   const L = window.L;
   const map = L.map(el, { zoomSnap: 0.5, maxZoom: 10, preferCanvas: true, attributionControl: false, worldCopyJump: true });
   el.classList.toggle('map-dark', isDark());
   L.control.attribution({ prefix: false }).addTo(map);
-  addNoLabelTiles(map); // 地名が見えると、答えが分かってしまうので、地名のない地図
+  if (pin) addBaseTiles(map); else addNoLabelTiles(map); // 地名が見えると、答えが分かってしまうので、地名のない地図（ピンで答えるときは、場所を探せるように、ふつうの地図）
   const base = { stroke: true, color: '#7a7268', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.07 };
   let answered = null;
   const T = new Set(targets?.length ? targets : [target]);
@@ -71,6 +71,7 @@ export async function mountRegionMap(el, { fc, target, show, onPick, targets = n
     style,
     smoothFactor: 1.2,
     onEachFeature: (f, lyr) => {
+      if (pin) return; // ピンのときは、地域のクリックでは、答えない
       lyr.on('mouseover', () => { if (!answered && !show) lyr.setStyle({ fillOpacity: 0.3, color: '#3b82f6', weight: 1.5 }); });
       lyr.on('mouseout', () => { if (!answered && !show) layer.resetStyle(lyr); });
       lyr.on('click', () => { if (!answered && !show) onPick?.(f.properties.code); });
@@ -89,7 +90,29 @@ export async function mountRegionMap(el, { fc, target, show, onPick, targets = n
   if (show && tb) { fitTo(tb, 7, 60, false); rings.push(ringTiny(map, tb, '#f08c00')); } // 当てる場所に、フォーカスして始める
   else fitTo(all, 12, 16, false);
   // 答え合わせ: 地図はそのまま、色を変えて、正解と自分の答えが両方入るところまで、滑らかに動かす
-  map.reveal = ({ given }) => {
+  // ピン: 地図のどこでもクリックして、ピンを置く（置き直せる）。国の大きさ（km）も、教える
+  const sw = all.getSouthWest(); const ne = all.getNorthEast();
+  map.countryDiagKm = Math.min(4000, sw.distanceTo(ne) / 1000); // 海外の領土が遠いときは、4000 km で頭打ち
+  let pinMarker = null;
+  if (pin) {
+    map.getContainer().style.cursor = 'crosshair';
+    map.on('click', (e) => {
+      if (answered) return;
+      if (pinMarker) pinMarker.setLatLng(e.latlng); else pinMarker = L.circleMarker(e.latlng, { radius: 9, color: '#fff', weight: 3, fillColor: '#e03131', fillOpacity: 1 }).addTo(map);
+      onPlace?.([e.latlng.lat, e.latlng.lng]);
+    });
+  }
+  map.reveal = ({ given, guess }) => {
+    answered = { given: given || null };
+    if (pin && answerPoint) { // 本当の場所と、置いたピンを、線でつなぐ。両方が入るところまで、動かす
+      layer.setStyle(style);
+      const truth = L.latLng(answerPoint[0], answerPoint[1]);
+      L.circleMarker(truth, { radius: 10, color: '#fff', weight: 3, fillColor: '#2f9e44', fillOpacity: 1 }).addTo(map);
+      const pts = [truth];
+      if (guess) { const g = L.latLng(guess[0], guess[1]); if (pinMarker) pinMarker.setLatLng(g); else pinMarker = L.circleMarker(g, { radius: 9, color: '#fff', weight: 3, fillColor: '#e03131', fillOpacity: 1 }).addTo(map); L.polyline([g, truth], { color: '#f08c00', weight: 3, dashArray: '6 6' }).addTo(map); pts.push(g); }
+      fitTo(L.latLngBounds(pts), 9, 70, true);
+      return;
+    }
     answered = { given: given || null };
     layer.setStyle(style);
     rings.splice(0).forEach((r) => r.dispose());
