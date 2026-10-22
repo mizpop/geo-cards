@@ -238,18 +238,41 @@ async function loadRegionJa(country, codes) {
 }
 
 const cache = new Map(); // 国コード → Promise<FeatureCollection>
+// 読み込みを速くするため、境界（間引きしたあと）を、このブラウザに保存しておく（IndexedDB。30 日）。2 回目からは、通信も、間引きも、いらない
+const FC_TTL = 30 * 24 * 3600 * 1000;
+const idbOpen = () => new Promise((res, rej) => { const r = indexedDB.open('geo-regions', 1); r.onupgradeneeded = () => r.result.createObjectStore('fc'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const idbGet = async (k) => { const db = await idbOpen(); return new Promise((res, rej) => { const q = db.transaction('fc').objectStore('fc').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); };
+const idbPut = async (k, v) => { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction('fc', 'readwrite'); tx.objectStore('fc').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); };
+// 日本語名は、境界の表示を待たせない（Wikidata は、遅いことがある）。保存してあった名前は、すぐ使い、残りは、あとから取って、画面に知らせる
+const jaInBackground = (code, fc) => {
+  loadRegionJa(code, fc.features.map((f) => f.properties.code)).then(() => window.dispatchEvent(new Event('regionnames-loaded'))).catch(() => {});
+};
 export function loadRegions(code, iso3) {
   if (!cache.has(code)) {
     cache.set(code, (async () => {
+      const saved = await idbGet(code).catch(() => null);
+      if (saved?.fc?.features?.length && Date.now() - saved.at < FC_TTL && saved.v === 1) { // 保存してあったもの
+        const fc = saved.fc;
+        for (const f of fc.features) registry.set(f.properties.code, { name: f.properties.name, parent: code });
+        jaInBackground(code, fc);
+        return fc;
+      }
       if (!iso3) throw new Error('この国の地域データはありません');
       const meta = await (await fetch(`https://www.geoboundaries.org/api/current/gbOpen/${iso3}/ADM1/`)).json();
       const url = meta.simplifiedGeometryGeoJSON || meta.gjDownloadURL;
       if (!url) throw new Error('この国の地域データはありません');
-      // github.com/…/raw/… は、ブラウザから直接読むと CORS で断られるので、同じファイルを返す media.githubusercontent.com を使う（大きいファイルは Git LFS に入っている）
+      // github.com/…/raw/… は、ブラウザから直接読むと CORS で断られるので、同じファイルを返す media.githubusercontent.com を使う（大きいファイルは Git LFS のため）
       const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/raw\/(.+)$/.exec(url);
       const urls = m ? [`https://media.githubusercontent.com/media/${m[1]}/${m[2]}`, `https://raw.githubusercontent.com/${m[1]}/${m[2]}`, url] : [url];
       let fc = null;
-      for (const u of urls) { try { const r = await fetch(u); if (!r.ok) continue; const j = await r.json(); if (j?.features) { fc = j; break; } } catch { /* 次の URL */ } }
+      // 1 つ目が、すぐに返ってこないとき（遅い・断られた）は、少しずつ遅らせて、次の取り先にも、問い合わせる。先に返ってきたものを使う
+      fc = await new Promise((resolve) => {
+        let left = urls.length; let done = false;
+        urls.forEach((u, i) => setTimeout(() => {
+          if (done) return;
+          fetch(u).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.features) { done = true; resolve(j); } else if (--left === 0) resolve(null); }).catch(() => { if (--left === 0) resolve(null); });
+        }, i * 2500));
+      });
       if (!fc) throw new Error('地域データを読み込めませんでした');
       const seen = new Set();
       let n = 0;
@@ -263,7 +286,8 @@ export function loadRegions(code, iso3) {
         f.properties = { code: id, name: fixMojibake(p.shapeName) || id, parent: code }; // 地名は、文字化け（RegiÃ³n など）を直す。id は、そのまま
         registry.set(id, { name: f.properties.name, parent: code });
       }
-      await loadRegionJa(code, fc.features.map((f) => f.properties.code)); // 地域の日本語名（なければ、英語のまま）
+      idbPut(code, { v: 1, at: Date.now(), fc }).catch(() => {}); // 次からは、速く
+      jaInBackground(code, fc);
       return fc;
     })());
     cache.get(code).catch(() => cache.delete(code));

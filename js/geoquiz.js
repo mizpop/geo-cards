@@ -47,7 +47,7 @@ export function buildGeoQuestions(pool, { n, dir, ans }) {
 // 世界の地図と同じく、左右に敷き詰める（境界線も、左右に複製する）。答え合わせは、地図を作り直さず、滑らかに動かす
 const shiftCoords = (c, d) => (typeof c[0] === 'number' ? [c[0] + d, c[1]] : c.map((x) => shiftCoords(x, d)));
 const shiftFeature = (f, d) => ({ type: 'Feature', properties: f.properties, geometry: f.geometry ? { type: f.geometry.type, coordinates: shiftCoords(f.geometry.coordinates, d) } : null });
-async function mountRegionMap(el, { fc, target, show, onPick }) {
+export async function mountRegionMap(el, { fc, target, show, onPick, targets = null }) { // targets: 正解の地域が、複数あるとき（どれを選んでも正解）
   await loadLibs();
   if (!el.isConnected) return null;
   const L = window.L;
@@ -57,11 +57,12 @@ async function mountRegionMap(el, { fc, target, show, onPick }) {
   addNoLabelTiles(map); // 地名が見えると、答えが分かってしまうので、地名のない地図
   const base = { stroke: true, color: '#7a7268', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.07 };
   let answered = null;
+  const T = new Set(targets?.length ? targets : [target]);
   const style = (f) => {
     const code = f.properties.code;
-    if (answered && code === target) return { stroke: true, color: '#2f9e44', weight: 2.5, fillColor: '#2f9e44', fillOpacity: 0.6 };
+    if (answered && T.has(code)) return { stroke: true, color: '#2f9e44', weight: 2.5, fillColor: '#2f9e44', fillOpacity: 0.6 };
     if (answered?.given && code === answered.given) return { stroke: true, color: '#e03131', weight: 2.5, fillColor: '#e03131', fillOpacity: 0.5 };
-    if (!answered && show && code === target) return { stroke: true, color: '#f08c00', weight: 2.5, fillColor: '#f59f00', fillOpacity: 0.65 };
+    if (!answered && show && T.has(code)) return { stroke: true, color: '#f08c00', weight: 2.5, fillColor: '#f59f00', fillOpacity: 0.65 };
     return base;
   };
   const feats = fc.features.filter((f) => f.geometry);
@@ -82,7 +83,7 @@ async function mountRegionMap(el, { fc, target, show, onPick }) {
     const f = feats.find((x) => x.properties.code === code);
     return f ? L.geoJSON(f).getBounds() : null;
   };
-  const tb = own(target);
+  const tb = own([...T][0]);
   const rings = [];
   const fitTo = (b, maxZoom, pad, smooth) => { try { if (smooth) map.flyToBounds(b, { padding: [pad, pad], maxZoom, duration: 0.9 }); else map.fitBounds(b, { padding: [pad, pad], maxZoom, animate: false }); } catch { /* 無視 */ } };
   if (show && tb) { fitTo(tb, 7, 60, false); rings.push(ringTiny(map, tb, '#f08c00')); } // 当てる場所に、フォーカスして始める

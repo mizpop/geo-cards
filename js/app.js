@@ -1,7 +1,7 @@
 import { pickCountries } from './countrypick.js';
 import { openBulkCards } from './bulkcards.js';
 import { initGuides, loadGuides, renderGuideView, refreshGuideView, onGuidesChange, articleById, backlinksHtml, relatedArticles, articleChipHtml, buildArticle, articleTocHtml, bindArticle, openArticleEditor, buildArticleEditor, openShareDialog, draftOf, articlesLinking } from './guides.js';
-import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionLabelFor, setRegionIso3Resolver, regionParent } from './regionmap.js';
+import { renderRegionMap, refreshRegionMap, teardownRegionMap, showRegionCityOnNextRender, resolveRegions, getRegionIndex, isRegionCode, regionName, regionNameEn, regionJaFor, regionLabelFor, setRegionIso3Resolver, loadRegions, regionParent } from './regionmap.js';
 import { ALIASES } from './aliases.js';
 import { REGIONS, REGION_BY_ID, COUNTRIES, COUNTRY_BY_CODE, flagUrl, findCountry, searchCountries, searchText, normKana, hasKana, regionMatches, romajiLoose } from './countries.js';
 import { initApi } from './api.js';
@@ -9,7 +9,7 @@ import { initLoading } from './loading.js';
 import { startPresence, stopPresence } from './presence.js';
 import { startOnline, stopOnline } from './online.js';
 import { installErrLog, installStuckWatch, logEvent, errList, errClear, errText } from './errlog.js';
-import { buildGeoPool, buildGeoQuestions, mountGeoQuiz, GEO_DIRS, GEO_ANS } from './geoquiz.js';
+import { buildGeoPool, buildGeoQuestions, mountGeoQuiz, mountRegionMap, GEO_DIRS, GEO_ANS } from './geoquiz.js';
 import { showUpdateNoticeIfNeeded } from './updatenotice.js';
 import { initCardPreview } from './cardpreview.js';
 import { openSvWindow, closeSvWindow, setSvHooks, getSvWindowState, restoreSvWindow, refreshSvWindow, setSvWindowPoint, parseLatLng, svWindowIsOpen, svWindowPoint, svWindowView, openSvPop, closeSvPop } from './svwin.js';
@@ -3157,7 +3157,7 @@ async function battleBuild(cfg) {
     const pools = shuffle([...byCountry.values()].map((l) => shuffle(l)));
     while (picks.length < n && pools.some((l) => l.length)) for (const l of pools) { if (picks.length >= n) break; if (l.length) picks.push(l.pop()); }
     return shuffle(picks).map((p, k) => {
-      const card = { id: `sv|${Date.now()}|${k}`, countries: [p.code], sv: true, lat: p.lat, lng: p.lng, heading: Math.round(p.heading), refTopic: p.topic, refSrc: REF_BASE + p.rel, description: '', area: '', notes: '', category_id: null, created_at: '' };
+      const card = { id: `sv|${Date.now()}|${k}`, countries: [p.code], ...(state.mode.kind === 'country' ? { scope_countries: [p.code] } : {}), sv: true, lat: p.lat, lng: p.lng, heading: Math.round(p.heading), refTopic: p.topic, refSrc: REF_BASE + p.rel, description: '', area: '', notes: '', category_id: null, created_at: '' };
       return { k: 'card', mode: cfg.mode, card, options: opts(card) };
     });
   }
@@ -3293,10 +3293,11 @@ function renderQuiz() {
   const isPhoto = q.kind === 'photo';
   const isSv = q.kind === 'sv';
   if (!isPhoto && !isSv && q.mode === 'pin') q.mode = 'choice';
+  if (isSv && state.mode.kind === 'country' && q.mode === 'pin') q.mode = 'map'; // 国モードのストリートビューは、地域で答える（ピンでは答えない）
   if (isSv) { q.timeLimit = 0; if (!(q.count >= 3 && q.count <= 30)) q.count = 10; } // 練習は問題数を決めて 1 問ずつ
   const factEligible = isFact ? factQuizPool(q.factTopic, q.regions).length : 0;
   const photoEligible = isPhoto ? photoPool(q).length : 0;
-  const svCodes = isSv ? REGIONS.filter((r) => q.regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable) : [];
+  const svCodes = isSv ? (state.mode.kind === 'country' ? state.mode.countries.filter(isPlayable) : REGIONS.filter((r) => q.regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable)) : []; // 国モードでは、選んだ国だけ
   $('#view').innerHTML = `
     <section class="panel quiz-setup ${isFact ? 'is-fact' : ''} ${isPhoto ? 'is-photo' : ''} ${isSv ? 'is-sv' : ''}">
       <h2>クイズ設定</h2>
@@ -3392,7 +3393,7 @@ function renderQuiz() {
             <button class="${q.mode === 'choice' ? 'on' : ''}" data-mode="choice">4択</button>
             <button class="${q.mode === 'input' ? 'on' : ''}" data-mode="input">${state.mode.kind === 'country' && q.kind === 'cards' ? '地域名を入力' : '国名を入力'}</button>
             ${state.mode.kind === 'country' && q.kind === 'cards' ? '' : `<button class="${q.mode === 'map' ? 'on' : ''}" data-mode="map">🗺 地図で答える</button>`}
-            ${isPhoto || isSv ? `<button class="${q.mode === 'pin' ? 'on' : ''}" data-mode="pin" title="撮影地点を地図でクリック。近いほど高得点">📍 ${isSv ? '場所を当てる' : '撮影地点を当てる'}</button>` : ''}
+            ${isPhoto || (isSv && state.mode.kind !== 'country') ? `<button class="${q.mode === 'pin' ? 'on' : ''}" data-mode="pin" title="撮影地点を地図でクリック。近いほど高得点">📍 ${isSv ? '場所を当てる' : '撮影地点を当てる'}</button>` : ''}
           </div>
         </div>
         <div class="setup-block not-sv">
@@ -3738,7 +3739,8 @@ async function startRegionQuiz(pool) {
   let cards = shuffle(usable);
   if (q.order === 'weak') { cards = cards.map((c) => ({ c, w: weakness(c.id) + Math.random() * 0.15 })).sort((a, b) => b.w - a.w).map((x) => x.c); if (q.count) cards = shuffle(cards.slice(0, q.count)); } else if (q.count && !q.timeLimit) cards = cards.slice(0, q.count);
   cards = stretchPool(cards);
-  if (q.mode === 'map' || q.mode === 'pin') q.mode = 'choice'; // 地図で答える方式は、国モードでは使えない
+  if (q.kind === 'sv') { if (q.mode === 'pin') q.mode = 'map'; } // ストリートビューは、地域の地図をクリックして答えられる
+  else if (q.mode === 'map' || q.mode === 'pin') q.mode = 'choice'; // カードは、国モードでは、地図で答える方式は使えない
   q.regionQuiz = true;
   q.questions = cards.map((c) => {
     const rcs = answers.get(c.id);
@@ -3776,6 +3778,8 @@ function renderRegionQuestion(card, item) {
       const cls = a ? (correct.includes(rc) ? 'correct' : a.given.includes(rc) ? 'wrong' : 'dim') : '';
       return `<button class="choice ${cls}" data-rc="${esc(rc)}" ${a ? 'disabled' : ''}><span class="kbd">${i + 1}</span>${flagImg(rc)}<span>${esc(countryName(rc))}</span></button>`;
     }).join('')}</div>`;
+  } else if (q.mode === 'map') {
+    ui = a ? `<div class="given-list">${correct.map((rc) => `<span class="given ${a.given.includes(rc) ? 'given-hit' : 'given-miss'}">${a.given.includes(rc) ? '✓' : '・'} ${flagImg(rc)}${esc(countryName(rc))}</span>`).join('')}${a.given.filter((g) => !correct.includes(g)).map((g) => `<span class="given given-wrong">✗ ${flagImg(g)}${esc(countryName(g))}</span>`).join('')}</div>` : '';
   } else if (!a) {
     ui = `<div class="input-answer"><div class="multi-input" id="q-box"><input type="text" id="q-input" list="rq-list" placeholder="地域名を入力（例: ${esc(countryName(correct[0]))}）" autocomplete="off" enterkeyhint="done"></div>
       <datalist id="rq-list">${(idx?.regions || []).map((r) => `<option value="${esc(r.ja || r.name)}">${r.ja ? esc(r.name) : ''}</option>`).join('')}</datalist>
@@ -3787,17 +3791,26 @@ function renderRegionQuestion(card, item) {
   $('#view').innerHTML = `
     <div class="toolbar">${quizCounterHtml(q)}<span class="muted">○ ${okN}</span><button class="btn btn-ghost btn-sm" id="q-quit">やめる</button></div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
+    ${q.mode === 'map' ? `<div class="qm-layout ${a ? '' : 'qm-float'}">` : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!a)}</div>
+    ${q.mode === 'map' ? '<div class="qm-side"><div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>' : ''}
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
-      ${a ? '' : `<p class="quiz-prompt">この特徴が見られる ${esc(countryName(parent))} の地域は？</p>`}
+      ${a ? '' : `<p class="quiz-prompt">${card.sv ? `この場所は、${esc(countryName(parent))} の、どの地域？${q.mode === 'map' ? ' 地図でクリック' : ''}` : `この特徴が見られる ${esc(countryName(parent))} の地域は？`}</p>`}
       ${ui}
       ${a ? `<div class="feedback fb-${a.result}"><div class="feedback-head"><div class="feedback-title">${RESULT_LABEL[a.result]}</div>
           <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
           <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button></div>
           ${notesHtml(card)}${cardInfoHtml(card)}</div>` : ''}
-    </div>`;
+    </div>${q.mode === 'map' ? '</div></div>' : ''}`;
   attachZoom($('.quiz-card .front-img'));
   $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  if (q.mode === 'map') { // 地域の地図で答える（地名のない地図。答えたあとは、正解と、自分の答えを見せる）
+    const at = q.i;
+    loadRegions(parent, regionCtx.iso3Of(parent)).then((fc) => mountRegionMap($('#quiz-map'), { fc, target: correct[0], targets: correct, show: false,
+      onPick: (rc) => { if (q.answered || q.i !== at || state.view !== 'quiz') return; submitRegionAnswer(card, [rc]); } }))
+      .then((map) => { $('#quiz-map .map-loading')?.remove(); if (a && map?.reveal) map.reveal({ given: a.given.find((g) => !correct.includes(g)) || a.given[0] }); })
+      .catch((ex) => { const el = $('#quiz-map .map-loading'); if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`; });
+  }
   if (a) {
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
@@ -3805,6 +3818,7 @@ function renderRegionQuestion(card, item) {
     return;
   }
   if (q.mode === 'choice') { $$('.choice').forEach((b) => b.addEventListener('click', () => submitRegionAnswer(card, [b.dataset.rc]))); return; }
+  if (q.mode === 'map') return;
   const input = $('#q-input');
   const nz = (s) => String(s || '').toLowerCase().replace(/[\s\-_.,']/g, '');
   const submit = () => {
@@ -3821,7 +3835,7 @@ function renderRegionQuestion(card, item) {
 
 function startQuiz(pool) {
   const q = state.quiz;
-  if (state.mode.kind === 'country' && q.kind === 'cards' && !pool.some((c) => c.sv || c.photo)) { startRegionQuiz(pool); return; } // 国モード: 国ではなく、地域（カードの地名の場所）で答える
+  if (state.mode.kind === 'country' && ((q.kind === 'cards' && !pool.some((c) => c.sv || c.photo)) || (q.kind === 'sv' && pool.every((c) => c.sv && scopeOf(c).length)))) { startRegionQuiz(pool); return; } // 国モード: 国ではなく、地域（カードの地名の場所）で答える
   q.regionQuiz = false;
   q.buildId = null; q.building = false; q.totalPlanned = 0; q.waiting = false; // 問題を作りながら進める（ストリートビュー）ときだけ使う印
   let cards = shuffle(pool);
@@ -3877,10 +3891,27 @@ async function startSvRefQuiz(codes, btn) {
   q.timeLimit = 0;
   startQuiz(cards);
 }
+// 国モード: 出題する場所の「地域」（州・県など）を調べて、答えと、4 択の選択肢を作る（地域が決まらない場所は、使わない）
+async function regionItemFor(card) {
+  const q = state.quiz;
+  const parent = scopeOf(card)[0];
+  if (!regionQuizData) regionQuizData = { answers: new Map(), idx: new Map() };
+  if (!regionQuizData.idx.has(parent)) { try { regionQuizData.idx.set(parent, await getRegionIndex(parent, regionCtx.iso3Of(parent))); } catch { regionQuizData.idx.set(parent, null); } }
+  const idx = regionQuizData.idx.get(parent);
+  if (!idx) return null;
+  const rcs = [...new Set(regionCtx.cardPoints(card).map((p) => idx.at(p.lat, p.lng)).filter(Boolean))];
+  if (!rcs.length) return null;
+  regionQuizData.answers.set(card.id, rcs);
+  const wrong = shuffle(idx.regions.map((r) => r.rc).filter((r) => !rcs.includes(r))).slice(0, 3);
+  return { cardId: card.id, options: q.mode === 'choice' ? shuffle([rcs[0], ...wrong]) : null };
+}
+
 async function startSvQuiz(codes, btn) {
   // 1 問できたら、すぐに始める。残りは、遊びながら、裏で並行して作る（できるまで、少し待つことがある）
+  // 国モードのときは、選んだ国の中だけから出して、答えは、その国の「地域」（4 択・地域の地図）
   const q = state.quiz;
   const n = q.count || 10;
+  const country = state.mode.kind === 'country';
   const label = btn.textContent;
   btn.disabled = true;
   const cards = [];
@@ -3890,40 +3921,46 @@ async function startSvQuiz(codes, btn) {
   const myId = `${Date.now()}-${Math.random()}`;
   q.buildId = myId;
   const alive = () => q.buildId === myId && (started ? q.phase === 'question' : true);
-  const finish = (card) => {
-    const item = { cardId: card.id, options: q.mode === 'choice' ? makeOptions(card, q.regions) : null };
+  if (country) { regionQuizData = { answers: new Map(), idx: new Map() }; if (q.mode === 'pin') q.mode = 'map'; }
+  const finish = async (card) => { // 追加できたら true
+    const item = country ? await regionItemFor(card) : { cardId: card.id, options: q.mode === 'choice' ? makeOptions(card, q.regions) : null };
+    if (!item || !alive() || cards.length >= n) return false;
+    cards.push(card);
     if (!started) { // 最初の 1 問: ここで始める
       started = true;
       q.timeLimit = 0;
-      startQuiz([card]);
+      if (country) {
+        q.regionQuiz = true; q.buildId = myId; q.questions = [item]; q.i = 0; q.answers = []; q.answered = null; q.phase = 'question';
+        startQuizClock(q); renderQuiz(); enterEl($('#view'), 'q-in', 600);
+      } else startQuiz([card]);
       q.buildId = myId; q.building = true; q.totalPlanned = n; // この先も、問題が増える
       { const el = $('.toolbar .counter'); if (el && /問 \//.test(el.textContent)) el.textContent = `第 1 問 / ${n}`; }
       btn.textContent = label; btn.disabled = false;
-      return;
+      return true;
     }
     q.questions.push(item);
     if (q.waiting) { q.waiting = false; renderQuiz(); } else if (q.phase === 'question') { const el = $('.toolbar .counter'); if (el && !q.answered) el.textContent = `第 ${q.i + 1} 問 / ${qTotal(q)}`; }
+    return true;
   };
   const worker = async () => {
-    while (cards.length < n && tries < n * 8 && alive()) {
+    while (cards.length < n && tries < n * 10 && alive()) {
       tries++;
       const fresh = codes.filter((c) => !used.has(c));
       const code = pick(fresh.length ? fresh : codes); // まだ出していない国を優先
       const p = await randomSvPoint(code).catch(() => null);
       if (!p || cards.length >= n || !alive()) continue;
       used.add(code);
-      const card = { id: `sv|${Date.now()}|${cards.length}`, countries: [code], sv: true, lat: p.lat, lng: p.lng, heading: Math.floor(Math.random() * 360), description: '', area: '', notes: '', category_id: null, created_at: '' };
+      const card = { id: `sv|${Date.now()}|${tries}|${Math.floor(Math.random() * 1e6)}`, countries: [code], ...(country ? { scope_countries: [code] } : {}), sv: true, lat: p.lat, lng: p.lng, heading: Math.floor(Math.random() * 360), description: '', area: '', notes: '', category_id: null, created_at: '' };
       svCards.set(card.id, card);
-      cards.push(card);
       if (!started) btn.textContent = '最初の問題を作成中…';
-      finish(card);
+      await finish(card);
     }
   };
   btn.textContent = '最初の問題を作成中…';
   await Promise.all([worker(), worker(), worker(), worker()]);
   if (!started) { // 1 問も作れなかった
     btn.textContent = label; btn.disabled = false;
-    toast('ストリートビューの地点を作れませんでした。地域を広げるか、通信を確認してもう一度試してください', 'error');
+    toast(country ? 'ストリートビューの地点を作れませんでした（選んだ国に、ストリートビューのある道路が少ないか、地域のデータを読み込めませんでした）' : 'ストリートビューの地点を作れませんでした。地域を広げるか、通信を確認してもう一度試してください', 'error');
     return;
   }
   if (q.buildId !== myId) return; // 途中で、やめた・別のクイズを始めた
@@ -6568,6 +6605,7 @@ const regionCtx = {
   openBulkCards: (preset) => openBulkFlagPlate(preset),
   // カードの場所（座標）: 登録した地名と、関連付けた保存済みストリートビュー
   cardPoints: (card) => [
+    ...(card.sv && Number.isFinite(Number(card.lat)) && Number.isFinite(Number(card.lng)) ? [{ lat: Number(card.lat), lng: Number(card.lng), label: '' }] : []), // ストリートビューの問題は、その地点
     ...(card.places || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), label: p.name || '' })),
     ...(card.sv_ids || []).map((id) => savedSvById(id)).filter(Boolean).map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), label: svLabel(r) })),
   ],
