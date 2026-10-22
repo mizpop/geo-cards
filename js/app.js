@@ -3817,17 +3817,22 @@ function renderRegionQuestion(card, item) {
   $('#view').innerHTML = `
     <div class="toolbar">${quizCounterHtml(q)}<span class="muted">${q.mode === 'pin' ? `合計 ${ptsN.toLocaleString()} 点` : `○ ${okN}`}</span><button class="btn btn-ghost btn-sm" id="q-quit">やめる</button></div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
+    ${card.sv && q.mode !== 'map' && q.mode !== 'pin' ? `<div class="${a ? 'sv-split' : 'sv-overlay-wrap'}">` : ''}
     ${q.mode === 'map' || q.mode === 'pin' ? `<div class="qm-layout ${a ? '' : 'qm-float'}">${card.sv && !a ? '<button type="button" class="qm-maptoggle" id="qm-maptoggle">🗺 地図を開く</button>' : ''}` : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!a)}</div>
     ${q.mode === 'map' || q.mode === 'pin' ? '<div class="qm-side"><div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>' : ''}
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
-      ${a ? '' : `<p class="quiz-prompt">${card.sv || card.photo ? `${card.photo ? 'この写真は' : 'この場所は'}、${esc(countryName(parent))} の、どの地域${card.photo ? 'で、撮られた' : ''}？${q.mode === 'map' ? ' 地図でクリック' : q.mode === 'pin' ? ' 地図に、ピンを置いて回答' : ''}` : `この特徴が見られる ${esc(countryName(parent))} の地域は？`}</p>`}
+      ${a || (card.sv && q.mode !== 'map' && q.mode !== 'pin') ? '' : `<p class="quiz-prompt">${card.sv || card.photo ? `${card.photo ? 'この写真は' : 'この場所は'}、${esc(countryName(parent))} の、どの地域${card.photo ? 'で、撮られた' : ''}？${q.mode === 'map' ? ' 地図でクリック' : q.mode === 'pin' ? ' 地図に、ピンを置いて回答' : ''}` : `この特徴が見られる ${esc(countryName(parent))} の地域は？`}</p>`}
       ${ui}
       ${a ? `<div class="feedback fb-${a.result}"><div class="feedback-head"><div class="feedback-title">${RESULT_LABEL[a.result]}</div>
+          ${card.sv && q.mode !== 'map' && q.mode !== 'pin' ? svToggleHtml(card) : ''}
           <button class="btn btn-ghost btn-sm" id="q-view" type="button" title="カード詳細を開く">🔍<span class="tab-long"> カードを見る</span></button>
           <button class="btn btn-primary" id="q-next">${q.i + 1 < qTotal(q) ? '次へ' : '結果を見る'}<span class="kbd-inline">Enter</span></button></div>
+          ${a.result !== 'ok' || q.mode === 'choice' ? (card.sv || card.photo ? `<div class="answer answer-sm"><span class="answer-country answer-place">📍 ${correct.map((rc) => esc(countryName(rc))).join('・')}</span></div><p class="answer-sub"><span class="answer-sub-country">${flagImg(parent)}${esc(countryName(parent))}</span></p>` : answerHtml(card, 'sm', true)) : ''}
           ${notesHtml(card)}${cardInfoHtml(card)}</div>` : ''}
-    </div>${q.mode === 'map' || q.mode === 'pin' ? '</div></div>' : ''}`;
+    </div>${q.mode === 'map' || q.mode === 'pin' ? '</div></div>' : ''}
+    ${card.sv && a && q.mode !== 'map' && q.mode !== 'pin' ? '<div class="bt-media"><div class="quiz-map bt-rmap bt-rmap-big" id="sv-ans-map"><div class="map-loading">地図を読み込み中…</div></div></div>' : ''}
+    ${card.sv && q.mode !== 'map' && q.mode !== 'pin' ? '</div>' : ''}`;
   attachZoom($('.quiz-card .front-img'));
   $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
   if (q.mode === 'map' || q.mode === 'pin') { setFit(a && window.matchMedia('(max-width: 900px)').matches ? 'scroll' : true); bindMapToggle(); } // スマホは、地図を、開閉式に（答え合わせは、下まで、スクロール）
@@ -3847,7 +3852,13 @@ function renderRegionQuestion(card, item) {
       .then((map) => { $('#quiz-map .map-loading')?.remove(); if (a && map?.reveal) map.reveal({ given: a.given.find((g) => !correct.includes(g)) || a.given[0] }); })
       .catch((ex) => { const el = $('#quiz-map .map-loading'); if (el) el.textContent = `地図を読み込めませんでした（${ex.message}）`; });
   }
+  if (a && card.sv && q.mode !== 'map' && q.mode !== 'pin') { // ストリートビューの答え合わせ（世界モードと同じ）: 映像のあった所に、正解の地域の地図。映像は、地図の上の吹き出し
+    const at = q.i;
+    loadRegions(parent, regionCtx.iso3Of(parent)).then((fc) => mountRegionMap($('#sv-ans-map'), { fc, target: correct[0], targets: correct, show: false }))
+      .then((map) => { $('#sv-ans-map .map-loading')?.remove(); if (map?.reveal) map.reveal({ given: a.given.find((g) => !correct.includes(g)) || a.given[0] }); if (q.i === at) svBubbleAfter(card, '#sv-ans-map'); }).catch(() => {});
+  }
   if (a) {
+    bindRelated($('.feedback'));
     $('#q-next').addEventListener('click', nextQuestion);
     $('#q-view').addEventListener('click', (e) => openCardModal(card, $('.quiz-card') || e.currentTarget));
     $('#q-next').focus({ preventScroll: true });
