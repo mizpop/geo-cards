@@ -1249,7 +1249,7 @@ async function route() {
   // 狭い画面で、開いているタブ（名前つき）がヘッダーの外に出ないようにタブの列を動かす
   const act = $('#tabs a.active');
   const nav = $('#tabs');
-  if (act && nav) requestAnimationFrame(() => { nav.scrollLeft = Math.max(0, act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2); });
+  if (act && nav) requestAnimationFrame(() => { nav.scrollLeft += (act.getBoundingClientRect().left - nav.getBoundingClientRect().left) - (nav.clientWidth - act.offsetWidth) / 2; }); // 開いているタブが、真ん中に来るように（offsetLeft は、基準の要素が違うので、位置のずれが出る）
   await refreshUrlsIfStale().catch(() => {});
   if (prevView && prevView !== view) { // タブを変えたとき: 並びの順で、右へ進むときは、右から、戻るときは、左から、入る
     const order = $$('#tabs a').map((a) => a.dataset.view);
@@ -3744,7 +3744,7 @@ async function startRegionQuiz(pool) {
   q.questions = cards.map((c) => {
     const rcs = answers.get(c.id);
     const code = regionParent(rcs[0]);
-    const all = idxByCountry.get(code).regions.map((r) => r.rc);
+    const all = isoRegions(idxByCountry.get(code));
     const wrong = shuffle(all.filter((r) => !rcs.includes(r))).slice(0, 3);
     return { cardId: c.id, options: q.mode === 'choice' ? shuffle([rcs[0], ...wrong]) : null };
   });
@@ -3812,7 +3812,7 @@ function renderRegionQuestion(card, item) {
   $('#view').innerHTML = `
     <div class="toolbar">${quizCounterHtml(q)}<span class="muted">${q.mode === 'pin' ? `合計 ${ptsN.toLocaleString()} 点` : `○ ${okN}`}</span><button class="btn btn-ghost btn-sm" id="q-quit">やめる</button></div>
     <div class="progress"><div class="progress-bar" style="width:${(q.i / qTotal(q)) * 100}%"></div></div>
-    ${q.mode === 'map' || q.mode === 'pin' ? `<div class="qm-layout ${a ? '' : 'qm-float'}">` : ''}
+    ${q.mode === 'map' || q.mode === 'pin' ? `<div class="qm-layout ${a ? '' : 'qm-float'}">${card.sv && !a ? '<button type="button" class="qm-maptoggle" id="qm-maptoggle">🗺 地図を開く</button>' : ''}` : ''}
     <div class="quiz-card" style="${catStyle(card)}">${frontHtml(card, settings.showDesc, !!a)}</div>
     ${q.mode === 'map' || q.mode === 'pin' ? '<div class="qm-side"><div class="quiz-map" id="quiz-map"><div class="map-loading">地図を読み込み中…</div></div>' : ''}
     <div class="quiz-bottom ${a ? 'is-answered' : ''}">
@@ -3825,6 +3825,7 @@ function renderRegionQuestion(card, item) {
     </div>${q.mode === 'map' || q.mode === 'pin' ? '</div></div>' : ''}`;
   attachZoom($('.quiz-card .front-img'));
   $('#q-quit').addEventListener('click', () => { clearInterval(quizTimer); q.phase = q.answers.length ? 'result' : 'setup'; renderQuiz(); });
+  if (q.mode === 'map' || q.mode === 'pin') { setFit(a && window.matchMedia('(max-width: 900px)').matches ? 'scroll' : true); bindMapToggle(); } // スマホは、地図を、開閉式に（答え合わせは、下まで、スクロール）
   if (q.mode === 'pin') { // 地域の地図に、ピンを置く。置いたら「回答」ボタンが押せる（押すまで、確定しない）
     const at = q.i;
     let pending = null; let diag = 1500;
@@ -3922,6 +3923,8 @@ async function startSvRefQuiz(codes, btn) {
   startQuiz(cards);
 }
 // 国モード: 出題する場所の「地域」（州・県など）を調べて、答えと、4 択の選択肢を作る（地域が決まらない場所は、使わない）
+// 4 択に出す地域: 「Other Territories」のような、ふつうの地域ではないもの（ISO コードがない）は、除く
+const isoRegions = (idx) => { const all = idx.regions.map((r) => r.rc); const iso = all.filter((rc) => /^[A-Z]{2}-/.test(rc.split(':')[1] || '')); return iso.length >= 4 ? iso : all; };
 async function regionItemFor(card) {
   const q = state.quiz;
   const parent = scopeOf(card)[0];
@@ -3932,7 +3935,7 @@ async function regionItemFor(card) {
   const rcs = [...new Set(regionCtx.cardPoints(card).map((p) => idx.at(p.lat, p.lng)).filter(Boolean))];
   if (!rcs.length) return null;
   regionQuizData.answers.set(card.id, rcs);
-  const wrong = shuffle(idx.regions.map((r) => r.rc).filter((r) => !rcs.includes(r))).slice(0, 3);
+  const wrong = shuffle(isoRegions(idx).filter((r) => !rcs.includes(r))).slice(0, 3);
   return { cardId: card.id, options: q.mode === 'choice' ? shuffle([rcs[0], ...wrong]) : null };
 }
 

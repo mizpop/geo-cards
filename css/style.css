@@ -3146,3 +3146,27 @@ fieldset.bt-settings { border: 0; border-top: 1px solid var(--border); margin-in
 :where(.btn:not(:disabled), .icon-btn:not(:disabled), .choice:not(:disabled)):active { transform: scale(.96); }
 :where(.btn:not(:disabled)):hover { transform: translateY(-1px); }
 .tabs a:active { transform: scale(.95); }
+/* ---------- 画面の整え（レイアウト調整） ---------- */
+/* 画面に収める表示（view-fit）でも、内容が、はみ出したら、枠の中で、スクロールできるように（答え合わせの欄が、下で切れないように） */
+.view.view-fit:not(.view-scroll) { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; }
+/* 国モードの、地図・ピンで答えるクイズ: 答え合わせの欄を、地図の下に、きれいに並べる */
+.qm-side .qm-dist { margin: 8px 0 0; text-align: center; }
+.qm-side .given-list { justify-content: center; margin: 6px 0; }
+.qm-side .quiz-bottom { width: 100%; max-width: none; }
+.qm-layout .qm-side > .quiz-bottom.is-answered { margin-top: 8px; }
+/* クイズ設定の「出題内容」: 6 つのボタンが、1 列に詰まって、文字が折れていたので、カードのように並べる */
+#q-kind { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; border: 0; background: none; overflow: visible; }
+#q-kind button { border: 1px solid var(--border); border-radius: 10px; text-align: left; line-height: 1.45; padding: 10px 12px; }
+#q-kind button:last-child { border-right: 1px solid var(--border); }
+#q-kind button.on { border-color: var(--accent); }
+/* 上のバーが、狭い（〜1500px）とき: 検索は、アイコンだけにして、タブが、切れないようにする */
+@media (min-width: 761px) and (max-width: 1500px) {
+  #search-btn .tab-long, #search-btn kbd, #search-btn > span { display: none; }
+  #search-btn { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 50%; }
+}
+/* スマホ: 答え合わせの画面（ストリートビュー + 地図）が、つぶれないように、高さを決める */
+@media (max-width: 900px), (pointer: coarse) {
+  .qm-layout:not(.qm-float) .quiz-card:has(.sv-front) { min-height: min(54vh, 440px); }
+  .qm-layout:not(.qm-float) .qm-side .quiz-map { min-height: 300px; }
+  .qm-layout:not(.qm-float) { grid-template-rows: auto auto; }
+}
