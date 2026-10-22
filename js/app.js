@@ -3149,7 +3149,7 @@ async function battleBuild(cfg) {
       return { k: 'fact', topic: cfg.topic, topicName: m.name, topicIcon: m.icon, item: { code, answer: right.key, options: shuffle([right, ...wrong]).map((g) => ({ key: g.key, label: g.label, swatch: sw(g) })) } };
     });
   }
-  const opts = (card) => (cfg.mode === 'choice' ? makeOptions(card, regions) : null);
+  const opts = (card) => (cfg.mode === 'choice' ? makeOptions(card, regions, sel) : null); // 国を選んだときは、選択肢も、その国から
   if (cfg.kind === 'sv' && cfg.svSource === 'ref') { // GeoHints の写真が撮られた地点だけ
     await ensureRefInfo().catch(() => {});
     const allowed = new Set(REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(okCode));
@@ -4010,7 +4010,7 @@ async function startSvQuiz(codes, btn) {
 }
 
 // 正解1つ + 紛らわしい不正解3つ（できるだけ同じ地域から）
-function makeOptions(card, regions) {
+function makeOptions(card, regions, asked = null) { // asked: 出題中の国（対戦で、国を選んだとき）。まぎらわしい選択肢は、まず、その国の中から選ぶ
   const inSel = card.countries.filter((c) => regions.has(COUNTRY_BY_CODE.get(c)?.region));
   const correct = pick(inSel.length ? inSel : card.countries);
   const exclude = new Set(card.countries);
@@ -4020,6 +4020,7 @@ function makeOptions(card, regions) {
   const rest = shuffle(COUNTRIES.filter((c) => !exclude.has(c.code)).map((c) => c.code));
   const picks = [];
   const take = (src, n) => { for (const c of src) { if (picks.length >= n) break; if (!picks.includes(c)) picks.push(c); } };
+  if (asked?.size > 1) take(shuffle([...asked].filter((c) => !exclude.has(c) && c !== correct)), 3); // 出題中の、ほかの国
   take(sameRegion, 2);
   take(selRegion, 3);
   take(sameRegion, 3);
