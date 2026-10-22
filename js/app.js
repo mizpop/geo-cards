@@ -3103,6 +3103,7 @@ function renderBattle() {
     regions: REGIONS.map((r) => ({ id: r.id, name: r.name })),
     categories: allCats().map((c) => ({ key: c.id, name: c.name, vars: catVars(c) })),
     scopeCounts: battleCounts,
+    pickCountries: (selected) => pickCountries({ selected, title: '出題する国を選ぶ（対戦）', resolve: resolveCountryCode, countryName, flagImg, esc, attachComplete: attachInlineComplete }),
     photoTopics: PHOTO_TOPICS.map((t) => ({ id: t, name: modeDef(t).name, icon: modeDef(t).icon })),
     cardFor: (Q) => (Q.card ? svCards.get(Q.card.id) : cardById(Q.cardId)),
     buildQuestions: battleBuild,
@@ -3133,12 +3134,15 @@ function battleCounts(cfg) {
 }
 // 対戦の問題を作る（ホスト）。クイズ設定の地域・カテゴリー・写真の種類を使う
 async function battleBuild(cfg) {
-  const regions = cfg.regions; // 対戦用の出題範囲（ロビーで設定）
+  // 対戦用の出題範囲（ロビーで設定）。国を選んだときは、その国だけ（4 択の候補は、選んだ国の地域の国から）
+  const sel = cfg.countries?.size ? cfg.countries : null;
+  const regions = sel ? new Set([...sel].map((c) => COUNTRY_BY_CODE.get(c)?.region).filter(Boolean)) : cfg.regions;
+  const okCode = (code) => (sel ? sel.has(code) : regions.has(COUNTRY_BY_CODE.get(code)?.region));
   const n = cfg.qn;
   if (cfg.kind === 'fact') {
     const groups = legendGroups(cfg.topic, allCodes());
     const m = modeDef(cfg.topic);
-    return shuffle(factQuizPool(cfg.topic, regions)).slice(0, n).map((code) => {
+    return shuffle(factQuizPool(cfg.topic, regions).filter(okCode)).slice(0, n).map((code) => {
       const right = classify(cfg.topic, code);
       const wrong = shuffle(groups.filter((g) => g.key !== right.key && !alsoTrue(cfg.topic, code, g))).slice(0, 3);
       const sw = (g) => g.swatch || `<span class="sw" style="background:${g.color}"></span>`;
@@ -3148,7 +3152,7 @@ async function battleBuild(cfg) {
   const opts = (card) => (cfg.mode === 'choice' ? makeOptions(card, regions) : null);
   if (cfg.kind === 'sv' && cfg.svSource === 'ref') { // GeoHints の写真が撮られた地点だけ
     await ensureRefInfo().catch(() => {});
-    const allowed = new Set(REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)));
+    const allowed = new Set(REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(okCode));
     const byCountry = new Map();
     for (const [topic, byCode] of Object.entries(REF_IMAGES)) for (const [code, rels] of Object.entries(byCode)) {
       if (!allowed.has(code)) continue;
@@ -3163,7 +3167,8 @@ async function battleBuild(cfg) {
     });
   }
   if (cfg.kind === 'sv') {
-    const codes = REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable);
+    const codes = REGIONS.filter((r) => regions.has(r.id)).flatMap((r) => r.countries.map((c) => c.code)).filter(isPlayable).filter(okCode);
+    if (!codes.length) return [];
     const out = [];
     const used = new Set();
     let tries = 0;
@@ -3183,8 +3188,8 @@ async function battleBuild(cfg) {
     return out;
   }
   let pool;
-  if (cfg.kind === 'photo') { await ensureRefInfo().catch(() => {}); pool = photoPool({ photoTopics: cfg.photoTopics, regions, mode: cfg.mode }); }
-  else pool = modeCards().filter((c) => !c.sv && c.countries.length && !cfg.catsOff.has(catKey(c)) && c.countries.some((code) => regions.has(COUNTRY_BY_CODE.get(code)?.region)));
+  if (cfg.kind === 'photo') { await ensureRefInfo().catch(() => {}); pool = photoPool({ photoTopics: cfg.photoTopics, regions, mode: cfg.mode }).filter((c) => c.countries.some(okCode)); }
+  else pool = modeCards().filter((c) => !c.sv && c.countries.length && !cfg.catsOff.has(catKey(c)) && c.countries.some(okCode));
   return shuffle(pool).slice(0, n).map((card) => ({ k: 'card', mode: cfg.mode, cardId: card.id, options: opts(card) }));
 }
 // スライダー（数や時間を細かく調整する設定）。動かしている間は表示だけ変え、離したときに設定へ反映する

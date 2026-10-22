@@ -44,18 +44,18 @@ export function mountBattle(host, ctx) {
   let pwChecked = false;
   const specIds = new Set(); // 観戦の人（得点・順位には入れない）
   const lastTeam = new Map(); // 退出した人のチーム（合計点に残す）
-  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, teams: false, hints: false, rush: false, password: '', pwh: '', regions: new Set(ctx.regions.map((r) => r.id)), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
-  try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
+  const cfg = { kind: 'cards', mode: 'choice', topic: 'chevron', svSource: 'random', qn: 10, perQ: 20, max: 8, autoNext: 0, public: false, teams: false, hints: false, rush: false, password: '', pwh: '', regions: new Set(ctx.regions.map((r) => r.id)), countries: new Set(), catsOff: new Set(), photoTopics: new Set(ctx.photoTopics.map((t) => t.id)) };
+  try { const sv = JSON.parse(localStorage.getItem(SCOPE_KEY) || 'null'); if (sv) { cfg.regions = new Set(sv.regions.filter((r) => ctx.regions.some((x) => x.id === r))); cfg.catsOff = new Set(sv.catsOff || []); cfg.countries = new Set(sv.countries || []); cfg.photoTopics = new Set(sv.photoTopics || [...cfg.photoTopics]); } } catch { /* 無視 */ }
   // ホストの部屋の設定: ホストが変えるたびに、全員に送る。ホスト以外は、同じ画面で、見るだけ（編集はできない）
   let remoteCfg = null;
   let pushAt = 0;
   const pushCfg = (counts = null) => {
     if (!isHost || !ch) return;
     pushAt = Date.now();
-    send({ t: 'cfg', from: me.id, cfg: { kind: cfg.kind, mode: cfg.mode, topic: cfg.topic, svSource: cfg.svSource, qn: cfg.qn, perQ: cfg.perQ, max: cfg.max, autoNext: cfg.autoNext, teams: !!cfg.teams, hints: !!cfg.hints, rush: !!cfg.rush, locked: !!cfg.pwh, regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] }, counts: counts ? { regions: [...counts.regions], cats: [...counts.cats] } : null });
+    send({ t: 'cfg', from: me.id, cfg: { kind: cfg.kind, mode: cfg.mode, topic: cfg.topic, svSource: cfg.svSource, qn: cfg.qn, perQ: cfg.perQ, max: cfg.max, autoNext: cfg.autoNext, teams: !!cfg.teams, hints: !!cfg.hints, rush: !!cfg.rush, locked: !!cfg.pwh, regions: [...cfg.regions], countries: [...cfg.countries], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] }, counts: counts ? { regions: [...counts.regions], cats: [...counts.cats] } : null });
   };
-  const fromSnap = (s, counts) => ({ ...s, regions: new Set(s.regions || []), catsOff: new Set(s.catsOff || []), photoTopics: new Set(s.photoTopics || []), counts: { regions: new Map(counts?.regions || []), cats: new Map(counts?.cats || []) } });
-  const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
+  const fromSnap = (s, counts) => ({ ...s, regions: new Set(s.regions || []), countries: new Set(s.countries || []), catsOff: new Set(s.catsOff || []), photoTopics: new Set(s.photoTopics || []), counts: { regions: new Map(counts?.regions || []), cats: new Map(counts?.cats || []) } });
+  const saveScope = () => { try { localStorage.setItem(SCOPE_KEY, JSON.stringify({ regions: [...cfg.regions], countries: [...cfg.countries], catsOff: [...cfg.catsOff], photoTopics: [...cfg.photoTopics] })); } catch { /* 無視 */ } };
   let hostId = '';
   const alive = () => host.isConnected;
   host.innerHTML = '<div id="bt-main"></div><aside class="bt-chat" id="bt-chat" hidden></aside>';
@@ -511,6 +511,10 @@ export function mountBattle(host, ctx) {
           <div class="setup-label"><span>出題する地域</span><span class="setup-actions"><button type="button" class="link-btn" id="bt-rall">すべて選択</button><button type="button" class="link-btn" id="bt-rnone">すべて解除</button></span></div>
           <div class="region-grid">${ctx.regions.map((r) => `<label class="region-check ${counts.regions.get(r.id) ? '' : 'is-empty'}"><input type="checkbox" data-region="${r.id}" ${v.regions.has(r.id) ? 'checked' : ''}><span>${esc(r.name)}</span><span class="count">${counts.regions.get(r.id) || 0}</span></label>`).join('')}</div>
         </div>
+        <div class="setup-block">
+          <div class="setup-label"><span>出題する国（選ぶと、その国だけを出題。上の地域より優先）</span><span class="setup-actions"><button type="button" class="link-btn" id="bt-pickc">国を選ぶ</button>${v.countries?.size ? '<button type="button" class="link-btn" id="bt-clearc">解除</button>' : ''}</span></div>
+          <div class="chips bt-countries">${v.countries?.size ? [...v.countries].map((c) => `<span class="chip">${flagImg(c)}${esc(countryName(c))}</span>`).join('') : '<span class="muted small">指定なし（上の地域の、すべての国から出題）</span>'}</div>
+        </div>
         ${v.kind === 'cards' ? `<div class="setup-block">
           <div class="setup-label"><span>カテゴリー</span><span class="setup-actions"><button type="button" class="link-btn" id="bt-call">すべて選択</button><button type="button" class="link-btn" id="bt-cnone">すべて解除</button></span></div>
           <div class="region-grid cat-grid">${ctx.categories.map((c) => `<label class="region-check cat-check ${counts.cats.get(c.key) ? '' : 'is-empty'}" style="${c.vars}"><input type="checkbox" data-cat="${esc(c.key)}" ${v.catsOff.has(c.key) ? '' : 'checked'}><span class="cat-dot"></span><span>${esc(c.name)}</span><span class="count">${counts.cats.get(c.key) || 0}</span></label>`).join('')}</div>
@@ -526,7 +530,7 @@ export function mountBattle(host, ctx) {
           <div class="setup-block"><div class="setup-label"><span>ヒント</span></div>${segHtml('bt-hints', [[0, 'なし'], [1, 'あり（全員が要求すると表示）']], v.hints ? 1 : 0)}</div>
           <div class="setup-block"><div class="setup-label"><span>パスワード（空なら誰でも入れる）</span></div>${isHost ? `<input id="bt-pw" class="input" type="text" maxlength="20" placeholder="なし" value="${esc(cfg.password)}" autocomplete="off">` : `<span class="muted">${v.locked ? '🔒 あり' : 'なし'}</span>`}</div>
         </div>
-        ${isHost ? `<button type="button" class="btn btn-primary btn-lg" id="bt-start" ${act().length && !building && v.regions.size ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${act().length} 人）`}</button>` : ''}</fieldset>` : '<p class="muted small">ホストの設定を待っています…</p>'}`;
+        ${isHost ? `<button type="button" class="btn btn-primary btn-lg" id="bt-start" ${act().length && !building && (v.regions.size || v.countries.size) ? '' : 'disabled'}>${building ? '問題を作成中…' : `▶ 開始（${act().length} 人）`}</button>` : ''}</fieldset>` : '<p class="muted small">ホストの設定を待っています…</p>'}`;
     bindExit();
     main.querySelectorAll('[data-team]').forEach((x) => x.addEventListener('click', () => { me.team = x.dataset.team; ch?.setMe(meInfo()); renderLobby(); }));
     if (!isHost) return;
@@ -554,6 +558,8 @@ export function mountBattle(host, ctx) {
     main.querySelectorAll('[data-region]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.regions.add(x.dataset.region); else cfg.regions.delete(x.dataset.region); redo(); }));
     main.querySelectorAll('[data-cat]').forEach((x) => x.addEventListener('change', () => { if (x.checked) cfg.catsOff.delete(x.dataset.cat); else cfg.catsOff.add(x.dataset.cat); redo(); }));
     main.querySelectorAll('#bt-ptopic button').forEach((x) => x.addEventListener('click', () => { const id = x.dataset.id; if (cfg.photoTopics.has(id)) { if (cfg.photoTopics.size > 1) cfg.photoTopics.delete(id); } else cfg.photoTopics.add(id); redo(); }));
+    main.querySelector('#bt-pickc')?.addEventListener('click', async () => { const res = await ctx.pickCountries?.([...cfg.countries]); if (res) { cfg.countries = new Set(res); redo(); } });
+    main.querySelector('#bt-clearc')?.addEventListener('click', () => { cfg.countries.clear(); redo(); });
     main.querySelector('#bt-rall')?.addEventListener('click', () => { ctx.regions.forEach((r) => cfg.regions.add(r.id)); redo(); });
     main.querySelector('#bt-rnone')?.addEventListener('click', () => { cfg.regions.clear(); redo(); });
     main.querySelector('#bt-call')?.addEventListener('click', () => { cfg.catsOff.clear(); redo(); });
